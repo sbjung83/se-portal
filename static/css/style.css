@@ -1,0 +1,187 @@
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif;font-size:14px;color:#334155;background:#f8fafc;letter-spacing:-0.2px}
+
+/* ── AUTH ── */
+.auth-wrap{display:flex;align-items:center;justify-content:center;height:100vh;background:#f8fafc}
+.auth-box{background:#fff;border:1px solid #eef0f4;border-radius:16px;padding:36px 40px;width:400px;box-shadow:0 10px 40px rgba(0,0,0,.05)}
+.auth-logo{text-align:center;font-size:20px;font-weight:800;margin-bottom:8px;color:#1e293b}
+.auth-sub{text-align:center;font-size:13px;color:#94a3b8;margin-bottom:28px}
+.auth-tabs{display:flex;margin-bottom:24px;background:#f1f5f9;border-radius:8px;padding:4px}
+.auth-tab{flex:1;padding:8px;text-align:center;cursor:pointer;font-size:13px;font-weight:600;color:#64748b;border-radius:6px;transition:all .2s ease}
+.auth-tab.active{background:#fff;color:#2563eb;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+.auth-pane{display:none}.auth-pane.active{display:block}
+.auth-err{color:#ef4444;font-size:12px;margin-top:8px;min-height:18px}
+
+/* ── APP ── */
+.app{display:flex;height:100vh}
+.sidebar{width:240px;flex-shrink:0;background:#ffffff;border-right:1px solid #eef0f4;display:flex;flex-direction:column;overflow:hidden;box-shadow:4px 0 24px rgba(0,0,0,0.02);z-index:10}
+.sidebar-logo{display:flex;align-items:center;gap:12px;padding:24px 20px 20px;border-bottom:1px solid #f4f5f8}
+.sidebar-logo img{width:28px;height:auto;object-fit:contain}
+.sidebar-logo-text{font-size:15px;font-weight:800;color:#1e293b;letter-spacing:-0.5px}
+.sidebar-eng{padding:16px 20px;display:flex;align-items:center;justify-content:space-between;background:#fafafa;margin:12px 12px 4px;border-radius:10px;border:1px solid #f0f0f0}
+.sidebar-eng-name{font-size:13px;font-weight:700;color:#334155}
+.nav-item{display:flex;align-items:center;gap:12px;padding:9px 14px;cursor:pointer;color:#64748b;font-size:13px;font-weight:500;transition:all .2s ease;user-select:none;margin:2px 12px;border-radius:8px}
+.nav-item:hover{background:#f8fafc;color:#0f172a;transform:translateX(2px)}
+.nav-item.active{background:#eff6ff;color:#2563eb;font-weight:600;box-shadow:inset 3px 0 0 #3b82f6}
+.nav-item svg{width:16px;height:16px;flex-shrink:0;stroke-width:2.2px;transition:all .2s ease}
+.nav-item.active svg{color:#3b82f6}
+.nav-item:hover svg{color:#0f172a}
+.nav-group{padding:20px 0 4px}
+.nav-group-label{font-size:11px;font-weight:700;color:#94a3b8;letter-spacing:0.8px;padding:0 24px 8px;text-transform:uppercase}
+.main{flex:1;overflow-y:auto;padding:32px 40px;background:#f8fafc}
+.page{display:none;animation:fadeIn 0.3s ease}.page.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.page-title{font-size:24px;font-weight:800;margin-bottom:24px;color:#0f172a;letter-spacing:-0.5px}
+
+/* ── COMMON ── */
+.card{background:#fff;border:1px solid #eef0f4;border-radius:16px;padding:20px 24px;margin-bottom:16px;box-shadow:0 4px 12px rgba(0,0,0,.02);transition:box-shadow .2s ease}
+.card:hover{box-shadow:0 8px 24px rgba(0,0,0,.04)}
+.card-title{font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}
+.dash-card-title{font-size:15px;font-weight:800;color:#1e293b;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;border-bottom:1px solid #f1f5f9}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.metric{background:#ffffff;border-radius:12px;padding:16px 20px;border:1px solid #eef0f4;box-shadow:0 2px 8px rgba(0,0,0,.02)}
+.metric-label{font-size:12px;color:#64748b;margin-bottom:8px;font-weight:600;letter-spacing:0.3px}
+.metric-value{font-size:26px;font-weight:800;color:#0f172a;line-height:1.2}
+.prog-wrap{background:#f1f5f9;border-radius:6px;height:6px;overflow:hidden;margin-top:8px}
+.prog-bar{height:100%;border-radius:6px;background:#3b82f6;transition:width .4s cubic-bezier(0.4, 0, 0.2, 1)}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;letter-spacing:0.2px}
+.b-blue{background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe}
+.b-green{background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0}
+.b-amber{background:#fffbeb;color:#d97706;border:1px solid #fde68a}
+.b-red{background:#fef2f2;color:#dc2626;border:1px solid #fecaca}
+.b-purple{background:#faf5ff;color:#9333ea;border:1px solid #e9d5ff}
+.b-gray{background:#f8fafc;color:#475569;border:1px solid #e2e8f0}
+/* 점검 유형 전용 배지 */
+.b-monthly{background:#0ea5e9;color:#fff;font-weight:600;border:none}
+.b-quarterly{background:#8b5cf6;color:#fff;font-weight:600;border:none}
+.b-special{background:#f59e0b;color:#fff;font-weight:600;border:none}
+/* 점검 상태 전용 배지 */
+.b-planned{background:#f8fafc;color:#64748b;border:1px solid #cbd5e1}
+.b-done{background:#22c55e;color:#fff;font-weight:600;border:none}
+.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
+.tbl th{text-align:left;font-weight:600;color:#64748b;padding:12px 16px;border-bottom:1px solid #eef0f4;font-size:12px;background:#f8fafc;white-space:nowrap}
+.tbl th:first-child{border-top-left-radius:8px;border-bottom-left-radius:8px}
+.tbl th:last-child{border-top-right-radius:8px;border-bottom-right-radius:8px}
+.tbl td{padding:12px 16px;border-bottom:1px solid #f1f5f9;vertical-align:middle;white-space:nowrap}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tbody tr{transition:background .2s ease}
+.tbl tbody tr:hover td{background:#f8fafc}
+
+/* ── 버튼 ── */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 16px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;color:#334155;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s ease;font-family:inherit;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.02)}
+.btn:hover{background:#f8fafc;border-color:#cbd5e1;color:#0f172a;box-shadow:0 2px 4px rgba(0,0,0,.04)}
+.btn:active{transform:translateY(1px)}
+.btn-primary{background:#2563eb;color:#fff;border:none;box-shadow:0 2px 4px rgba(37,99,235,.2)}
+.btn-primary:hover{background:#1d4ed8;color:#fff;border:none;box-shadow:0 4px 6px rgba(37,99,235,.3)}
+.btn-sm{padding:4px 10px;font-size:12px;border-radius:6px}
+.btn-danger{color:#dc2626;border-color:#fca5a5;background:#fff}
+.btn-danger:hover{background:#fef2f2;border-color:#f87171}
+.btn-warn{color:#d97706;border-color:#fcd34d;background:#fff}
+.btn-warn:hover{background:#fffbeb;border-color:#fbbf24}
+
+/* ── 아이콘 버튼 (수정/삭제 공용) ── */
+.icon-btn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:5px;border:1px solid transparent;background:transparent;cursor:pointer;transition:all .12s;flex-shrink:0}
+.icon-btn:active{transform:scale(.93)}
+.icon-btn.edit{color:#92400e;border-color:#fde68a}.icon-btn.edit:hover{background:#fef3c7}
+.icon-btn.del{color:#991b1b;border-color:#fca5a5}.icon-btn.del:hover{background:#fee2e2}
+.icon-btn svg{width:14px;height:14px;pointer-events:none}
+
+/* ── 검색/폼 ── */
+.search-bar{display:flex;gap:8px;margin-bottom:14px}
+.search-bar input{flex:1;padding:7px 12px;border:1px solid #d4d4d0;border-radius:7px;background:#fff;font-size:13px;font-family:inherit}
+.search-bar input:focus{outline:none;border-color:#378ADD}
+.tabs{display:flex;border-bottom:1px solid #e8e8e4;margin-bottom:14px}
+.tab{padding:7px 14px;font-size:13px;cursor:pointer;color:#888;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab:hover{color:#1a1a1a}.tab.active{color:#378ADD;border-bottom-color:#378ADD;font-weight:500}
+.tab-pane{display:none}.tab-pane.active{display:block}
+.sec-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.sec-label{font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.4px}
+.empty{color:#bbb;font-size:13px;text-align:center;padding:20px 0}
+.mono{font-family:'SF Mono','Fira Code',monospace;font-size:12px}
+.pw-cell{cursor:pointer;font-family:monospace;color:#888;font-size:12px;user-select:none}
+.pw-cell:hover{color:#1a1a1a}
+.site-card{background:#fff;border:1px solid #e8e8e4;border-radius:10px;padding:12px 16px;margin-bottom:9px;cursor:pointer;transition:border-color .12s}
+.site-card:hover{border-color:#378ADD}
+.log-row{display:flex;gap:12px;padding:9px 2px;border-bottom:1px solid #f0f0ee;align-items:flex-start}
+.log-row:last-child{border-bottom:none}
+.log-date{font-size:11px;color:#aaa;min-width:78px;padding-top:2px}
+
+/* ── 모달 ── */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:100;align-items:center;justify-content:center}
+.overlay.open{display:flex}
+.modal{background:#fff;border-radius:12px;border:1px solid #e8e8e4;padding:20px 24px;width:500px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.14)}
+.modal-lg{width:min(960px,93vw)}
+.modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.modal-title{font-size:15px;font-weight:600}
+.form-row{margin-bottom:11px}
+.form-desc{font-size:12px;color:#64748b;background:#f8fafc;padding:8px 12px;border-radius:6px;margin-bottom:6px;line-height:1.5;border:1px solid #e2e8f0}
+.form-row label{display:block;font-size:11px;font-weight:600;color:#666;margin-bottom:3px;text-transform:uppercase;letter-spacing:.4px}
+.form-row input,.form-row select,.form-row textarea{width:100%;padding:7px 10px;border:1px solid #d4d4d0;border-radius:7px;background:#fff;color:#1a1a1a;font-size:13px;font-family:inherit}
+.form-row input:focus,.form-row select:focus,.form-row textarea:focus{outline:none;border-color:#378ADD}
+.form-row textarea{resize:vertical;min-height:68px}
+.form-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid #f0f0ee}
+.form-section{margin-bottom:16px;padding:16px;border:1px solid #e2e8f0;border-radius:10px;background:#ffffff}
+.form-section:last-of-type{margin-bottom:0}
+.form-section-title{font-size:14px;font-weight:700;color:#1d4ed8;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid #eef0f4}
+.toast{position:fixed;bottom:20px;right:20px;background:#1a1a1a;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;z-index:999;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.show{opacity:1}
+.w-alert{display:flex;align-items:center;gap:8px;padding:7px 11px;border-radius:7px;background:#fef3c7;color:#92400e;font-size:12px;margin-bottom:6px;border:1px solid #fde68a}
+.w-alert.expired{background:#fee2e2;color:#991b1b;border-color:#fca5a5}
+
+/* ── DASHBOARD 2단 레이아웃 ── */
+.dash-body{display:grid;grid-template-columns:6fr 4fr;gap:14px;margin-top:14px}
+.dash-left{display:flex;flex-direction:column;gap:12px}
+.dash-right{display:flex;flex-direction:column;gap:12px}
+
+/* ── 페이지네이션 ── */
+.pagination{display:flex;align-items:center;justify-content:center;gap:4px;padding-top:10px;margin-top:8px;border-top:1px solid #f0f0ee}
+.pg-btn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:5px;border:1px solid #d4d4d0;background:#fff;color:#555;font-size:12px;cursor:pointer}
+.pg-btn:hover{background:#f0f7ff;border-color:#378ADD;color:#378ADD}
+.pg-btn.active{background:#378ADD;border-color:#378ADD;color:#fff;font-weight:600}
+.pg-btn:disabled{opacity:.4;cursor:default}
+.pg-info{font-size:11px;color:#aaa;margin:0 4px}
+
+/* ── 이슈/체크 고정 높이 ── */
+.fixed-list{min-height:220px}
+
+/* ── 점검일정 ── */
+.sched-item{display:flex;align-items:center;gap:6px;padding:9px 0;border-bottom:1px solid #f0f0ee;font-size:13px}
+/* 대시보드 점검일정 탭 */
+.ds-tab{padding:3px 10px;border-radius:5px;border:1px solid #d4d4d0;background:#fff;color:#888;font-size:11px;cursor:pointer;font-family:inherit;transition:all .12s}
+.ds-tab:hover{background:#f0f7ff;color:#378ADD;border-color:#378ADD}
+.ds-tab.active{background:#378ADD;color:#fff;border-color:#378ADD;font-weight:600}
+/* 점검관리 탭 */
+.sm-tab{padding:5px 16px;border-radius:7px;border:1px solid #d4d4d0;background:#fff;color:#888;font-size:13px;cursor:pointer;font-family:inherit;transition:all .12s}
+.sm-tab:hover{background:#f0f7ff;color:#378ADD;border-color:#378ADD}
+.sm-tab.active{background:#378ADD;color:#fff;border-color:#378ADD;font-weight:600}
+/* 점검관리 월 헤더 */
+.sm-month-header{display:flex;align-items:center;gap:8px;padding:10px 14px;background:linear-gradient(90deg,#f0f7ff,#f9f9f8);border-radius:8px;margin-bottom:8px;border-left:4px solid #378ADD}
+.sm-month-title{font-size:14px;font-weight:700;color:#185FA5}
+.sm-quarter-header{display:flex;align-items:center;gap:8px;padding:12px 16px;border-radius:10px;margin-bottom:10px;border-left:4px solid}
+.sm-q1{background:#fff7ed;border-color:#f97316}.sm-q2{background:#f0fdf4;border-color:#22c55e}
+.sm-q3{background:#fdf4ff;border-color:#a855f7}.sm-q4{background:#eff6ff;border-color:#3b82f6}
+.sm-quarter-title{font-size:15px;font-weight:700}
+.sm-q1 .sm-quarter-title{color:#c2410c}.sm-q2 .sm-quarter-title{color:#15803d}
+.sm-q3 .sm-quarter-title{color:#7e22ce}.sm-q4 .sm-quarter-title{color:#1d4ed8}
+.sm-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid #f0f0ee;font-size:13px}
+.sm-row:last-child{border-bottom:none}
+.sm-row:hover{background:#fafaf8;border-radius:6px}
+.sm-date{font-size:12px;color:#888;min-width:52px;font-weight:500}
+.sm-site{font-size:12px;font-weight:700;color:#1a1a1a;min-width:100px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sm-title{flex:1;color:#444;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sm-empty{color:#bbb;font-size:13px;text-align:center;padding:14px 0}
+/* 완료 체크 버튼 */
+.ds-check-btn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;border:2px solid #d4d4d0;background:#fff;cursor:pointer;transition:all .15s;flex-shrink:0}
+.ds-check-btn:hover{border-color:#378ADD;background:#f0f7ff}
+.ds-check-btn.checked{border-color:#16a34a;background:#16a34a;color:#fff}
+.ds-check-btn.checked:hover{background:#15803d;border-color:#15803d}
+.sched-item:last-child{border-bottom:none}
+.sched-date-label{font-size:13px;font-weight:700;color:#378ADD;min-width:44px;flex-shrink:0;text-align:center;background:#f0f7ff;border-radius:6px;padding:3px 5px;line-height:1.3}
+
+/* ── 이슈 상세 팝업 모달 ── */
+.issue-popup{background:#fff;border-radius:12px;border:1px solid #e8e8e4;padding:22px 26px;width:540px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.14)}
+.issue-popup-title{font-size:15px;font-weight:600;line-height:1.5;margin-bottom:10px;padding-right:8px}
+.issue-popup-meta{display:flex;gap:6px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.issue-popup-body{font-size:13px;color:#444;line-height:1.8;white-space:pre-wrap;background:#f9f9f8;border-radius:8px;padding:14px 16px;border:1px solid #e8e8e4;min-height:60px}

@@ -1,0 +1,64 @@
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from database import get_db, Schedule, Site
+from pydantic import BaseModel
+from typing import Optional
+from datetime import datetime
+import uuid
+
+router = APIRouter(prefix="/api/engineers/{eng_id}/schedules", tags=["schedules"])
+
+@router.get("")
+def list_schedules(eng_id: str, month: Optional[str] = None, db: Session = Depends(get_db)):
+    """month: YYYY-MM 형식. 없으면 이번 달"""
+    ym = month or datetime.now().strftime("%Y-%m")
+    site_ids = [s.id for s in db.query(Site).filter(Site.engineer_id == eng_id).all()]
+    rows = db.query(Schedule).filter(
+        Schedule.engineer_id == eng_id,
+        Schedule.sched_date.startswith(ym)
+    ).order_by(Schedule.sched_date).all()
+    return [_sch_dict(r, db) for r in rows]
+
+class ScheduleIn(BaseModel):
+    site_id:    str
+    title:      str
+    sched_date: str
+    sched_type: Optional[str] = "월간"
+    status:     Optional[str] = "예정"
+    memo:       Optional[str] = ""
+
+@router.post("")
+def create_schedule(eng_id: str, data: ScheduleIn, db: Session = Depends(get_db)):
+    sch = Schedule(id=str(uuid.uuid4()), engineer_id=eng_id, **data.dict())
+    db.add(sch); db.commit()
+    return _sch_dict(sch, db)
+
+class ScheduleUpdate(BaseModel):
+    title:      Optional[str] = None
+    sched_date: Optional[str] = None
+    sched_type: Optional[str] = None
+    status:     Optional[str] = None
+    memo:       Optional[str] = None
+
+@router.patch("/{sch_id}")
+def update_schedule(eng_id: str, sch_id: str, data: ScheduleUpdate, db: Session = Depends(get_db)):
+    sch = db.query(Schedule).filter(Schedule.id == sch_id, Schedule.engineer_id == eng_id).first()
+    if not sch: raise HTTPException(404)
+    for k, v in data.dict(exclude_none=True).items():
+        setattr(sch, k, v)
+    db.commit()
+    return _sch_dict(sch, db)
+
+@router.delete("/{sch_id}")
+def delete_schedule(eng_id: str, sch_id: str, db: Session = Depends(get_db)):
+    sch = db.query(Schedule).filter(Schedule.id == sch_id, Schedule.engineer_id == eng_id).first()
+    if not sch: raise HTTPException(404)
+    db.delete(sch); db.commit()
+    return {"ok": True}
+
+def _sch_dict(s, db):
+    site = db.query(Site).filter(Site.id == s.site_id).first()
+    return {"id": s.id, "site_id": s.site_id,
+            "site_name": site.name if site else "",
+            "title": s.title, "sched_date": s.sched_date,
+            "sched_type": s.sched_type, "status": s.status, "memo": s.memo}

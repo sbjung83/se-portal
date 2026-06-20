@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>SE Portal</title>
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+<style>
+  #view-tn-body h1, #view-tn-body h2, #view-tn-body h3 { margin-top: 1em; margin-bottom: 0.5em; font-weight: 700; color: #0f172a; }
+  #view-tn-body p { margin-bottom: 1em; }
+  #view-tn-body pre { background: #f1f5f9; padding: 12px; border-radius: 6px; overflow-x: auto; margin-bottom: 1em; border: 1px solid #e2e8f0; }
+  #view-tn-body code { font-family: monospace; background: #f1f5f9; padding: 2px 4px; border-radius: 4px; font-size: 13px; color: #db2777; }
+  #view-tn-body pre code { background: transparent; padding: 0; color: inherit; }
+  #view-tn-body ul, #view-tn-body ol { margin-left: 24px; margin-bottom: 1em; }
+  #view-tn-body blockquote { border-left: 4px solid #cbd5e1; padding-left: 12px; color: #64748b; margin-bottom: 1em; }
+</style>
+</head>
+<body>
+
+<!-- ── 로그인 / 회원가입 ── -->
+<div id="auth-wrap" class="auth-wrap">
+  <div class="auth-box">
+    <div class="auth-logo">🖥 SE Portal</div>
+    <div class="auth-sub">Server Engineer 업무 관리 포털</div>
+    <div class="auth-tabs">
+      <div class="auth-tab active" onclick="switchAuth('login')">로그인</div>
+      <div class="auth-tab" onclick="switchAuth('register')">회원가입</div>
+    </div>
+    <div class="auth-pane active" id="pane-login">
+      <div class="form-row"><label>아이디</label><input type="text" id="login-user" placeholder="아이디 입력"></div>
+      <div class="form-row"><label>비밀번호</label><input type="password" id="login-pw" placeholder="비밀번호 입력" onkeydown="if(event.key==='Enter')doLogin()"></div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:4px" onclick="doLogin()">로그인</button>
+      <div class="auth-err" id="login-err"></div>
+    </div>
+    <div class="auth-pane" id="pane-register">
+      <div class="form-row"><label>아이디</label><input type="text" id="reg-user" placeholder="영문/숫자 조합"></div>
+      <div class="form-row"><label>비밀번호</label><input type="password" id="reg-pw" placeholder="비밀번호 입력"></div>
+      <div class="form-row"><label>엔지니어 이름</label><input type="text" id="reg-eng" placeholder="본인 이름 (폴더명으로 사용)"></div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:4px" onclick="doRegister()">가입하기</button>
+      <div class="auth-err" id="reg-err"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── 메인 앱 ── -->
+<div id="main-app" class="app" style="display:none">
+  <div class="sidebar">
+    <div class="sidebar-logo">
+      <div style="width:32px;height:32px;background:#3b82f6;border-radius:8px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 10px rgba(59,130,246,0.3)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M20 16V7a2 2 0 00-2-2H6a2 2 0 00-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 01-.9 1.45H3.62a1 1 0 01-.9-1.45L4 16"/></svg>
+      </div>
+      <span class="sidebar-logo-text">SE Portal</span>
+    </div>
+    <div class="sidebar-eng">
+      <div style="display:flex;align-items:center;gap:6px">
+        <div style="width:26px;height:26px;border-radius:50%;background:#f0f7ff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#378ADD" id="sidebar-avatar">?</div>
+        <span class="sidebar-eng-name" id="sidebar-eng-name"></span>
+      </div>
+      <button onclick="doLogout()" style="font-size:10px;color:#888;background:transparent;border:1px solid #d4d4d0;border-radius:4px;cursor:pointer;padding:2px 7px;font-family:inherit;transition:all .12s" onmouseover="this.style.color='#1a1a1a'" onmouseout="this.style.color='#888'">로그아웃</button>
+    </div>
+    <!-- 대시보드 -->
+    <div class="nav-item active" data-page="dashboard" style="margin-top:6px">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>대시보드
+    </div>
+    <!-- 사이트 그룹 -->
+    <div class="nav-group">
+      <div class="nav-group-label">사이트</div>
+      <div class="nav-item" data-page="sites">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>사이트 관리
+      </div>
+      <div class="nav-item" data-page="checklist">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>사이트 체크리스트
+      </div>
+    </div>
+    <!-- 프로젝트 그룹 -->
+    <div class="nav-group">
+      <div class="nav-group-label">프로젝트</div>
+      <div class="nav-item" data-page="projects">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>프로젝트 관리
+      </div>
+      <div class="nav-item" data-page="proj-status">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>진행 현황
+      </div>
+    </div>
+    <!-- 점검 일정 그룹 -->
+    <div class="nav-group">
+      <div class="nav-group-label">점검 일정</div>
+      <div class="nav-item" data-page="schedule-mgmt">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>점검 일정 관리
+      </div>
+      <div class="nav-item" data-page="sched-history">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.95"/></svg>점검 이력
+      </div>
+    </div>
+    <!-- 작업 이력 그룹 -->
+    <div class="nav-group">
+      <div class="nav-group-label">작업 관리</div>
+      <div class="nav-item" data-page="work-plan">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>작업 계획
+      </div>
+      <div class="nav-item" data-page="logs">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>작업 현황/이력
+      </div>
+      <div class="nav-item" data-page="report">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/></svg>월간 보고서
+      </div>
+    </div>
+    <!-- 지식 창고 그룹 -->
+    <div class="nav-group">
+      <div class="nav-group-label">지식 창고</div>
+      <div class="nav-item" data-page="technotes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>기술 노트
+      </div>
+    </div>
+  </div>
+
+  <div class="main">
+    <!-- DASHBOARD -->
+    <div class="page active" id="page-dashboard">
+      <div class="page-title" id="dash-title">대시보드</div>
+      <div class="grid4" id="dash-metrics"></div>
+      <div class="dash-body">
+        <!-- 왼쪽 6 -->
+        <div class="dash-left">
+          <div class="card">
+            <div class="dash-card-title">🔴 사이트 이슈 <button class="btn btn-sm" id="btn-add-issue">+ 추가</button></div>
+            <div id="dash-issues" class="fixed-list"></div>
+            <div id="dash-issues-page" class="pagination"></div>
+          </div>
+          <div class="card">
+            <div class="dash-card-title">✅ 사이트 체크리스트</div>
+            <div id="dash-cl" class="fixed-list"></div>
+            <div id="dash-cl-page" class="pagination"></div>
+          </div>
+          <!-- 추후 콘텐츠 추가 예정 -->
+        </div>
+        <!-- 오른쪽 4 -->
+        <div class="dash-right">
+          <div class="card">
+            <div class="dash-card-title">
+              <span>📅 점검 일정 <span style="color:#d4d4d0;margin:0 6px">|</span><span id="sched-summary" style="font-size:12px;font-weight:600;color:#378ADD">0/0 완료</span></span>
+              <button class="btn btn-sm" id="btn-add-sched">+ 등록</button>
+            </div>
+            <div style="display:flex;gap:6px;margin-bottom:12px;align-items:center">
+              <button class="ds-tab active" data-dstab="month" onclick="switchDashSchedTab('month')">
+                🗓 이번 달 <span id="ds-month-cnt" style="font-size:10px;opacity:.8"></span>
+              </button>
+              <button class="ds-tab" data-dstab="quarter" onclick="switchDashSchedTab('quarter')" id="ds-quarter-btn">
+                📊 <span id="ds-quarter-label">2분기</span> <span id="ds-quarter-cnt" style="font-size:10px;opacity:.8"></span>
+              </button>
+              <div style="flex:1"></div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <div style="width:80px;background:#f0f0ee;border-radius:4px;height:6px;overflow:hidden">
+                  <div id="ds-prog-bar" style="height:100%;border-radius:4px;background:#378ADD;transition:width .3s;width:0%"></div>
+                </div>
+              </div>
+            </div>
+            <div id="dash-schedules"></div>
+          </div>
+
+          <div class="card">
+            <div class="dash-card-title">⚠️ 워런티 만료 임박</div>
+            <div id="dash-warranty"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SITE CHECKLIST -->
+    <div class="page" id="page-checklist">
+      <div class="page-title">사이트 체크리스트</div>
+      <div class="search-bar">
+        <select id="cl-site-sel" style="flex:1;padding:7px 10px;border:1px solid #d4d4d0;border-radius:7px;font-size:13px;font-family:inherit" onchange="renderChecklist()">
+          <option value="">— 사이트 선택 —</option>
+        </select>
+        <button class="btn btn-primary" onclick="openAddCLItem()">+ 항목 추가</button>
+      </div>
+      <div id="cl-content"></div>
+    </div>
+
+    <!-- SITES -->
+    <div class="page" id="page-sites">
+      <div class="page-title">사이트 관리</div>
+      <div class="search-bar">
+        <input type="text" id="site-search" placeholder="사이트명, 위치 검색...">
+        <button class="btn btn-primary" onclick="openModal('modal-add-site')">+ 사이트 추가</button>
+      </div>
+      <div id="site-list"></div>
+    </div>
+
+    <!-- SCHEDULE MGMT -->
+    <div class="page" id="page-schedule-mgmt">
+      <div class="page-title">점검 일정 관리</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap">
+        <div class="tabs" style="margin-bottom:0;border-bottom:none;gap:4px">
+          <button class="sm-tab active" data-smtab="monthly" onclick="switchSchedMgmtTab('monthly')">월별</button>
+          <button class="sm-tab" data-smtab="quarterly" onclick="switchSchedMgmtTab('quarterly')">분기별</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+          <button class="btn btn-sm" onclick="smYear(-1)">‹</button>
+          <span id="sm-year-label" style="font-size:14px;font-weight:600;min-width:50px;text-align:center"></span>
+          <button class="btn btn-sm" onclick="smYear(1)">›</button>
+        </div>
+        <button class="btn btn-primary" id="btn-sm-add">+ 일정 추가</button>
+      </div>
+      <div id="sm-content"></div>
+    </div>
+
+    <!-- PROJECTS -->
+    <div class="page" id="page-projects">
+      <div class="page-title">프로젝트 관리</div>
+      <div class="search-bar">
+        <input type="text" id="project-search" placeholder="프로젝트명, 고객사 검색...">
+        <button class="btn btn-primary" onclick="openAddProject()">+ 프로젝트 추가</button>
+      </div>
+      <div id="project-list"></div>
+    </div>
+
+    <!-- PROJ STATUS -->
+    <div class="page" id="page-proj-status">
+      <div class="page-title">진행 현황</div>
+      <div style="display:flex;align-items:center;justify-content:center;flex-direction:column;padding:60px 0;color:#bbb">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48" style="margin-bottom:12px;opacity:.4"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        <div style="font-size:14px;font-weight:500;margin-bottom:6px">준비 중인 기능입니다</div>
+        <div style="font-size:12px">다음 업데이트에서 추가될 예정입니다</div>
+      </div>
+    </div>
+
+    <!-- SCHED HISTORY -->
+    <div class="page" id="page-sched-history">
+      <div class="page-title">점검 이력</div>
+      <div class="card" style="padding:16px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:12px;">
+          <input type="text" id="sh-search" placeholder="사이트명 또는 제목 검색..." style="width:250px" oninput="renderSchedHistory()">
+        </div>
+        <div id="sh-list"></div>
+      </div>
+    </div>
+
+    <!-- REPORT -->
+    <div class="page" id="page-report">
+      <div class="page-title">월간 보고서</div>
+      <div style="display:flex;align-items:center;justify-content:center;flex-direction:column;padding:60px 0;color:#bbb">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48" style="margin-bottom:12px;opacity:.4"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/></svg>
+        <div style="font-size:14px;font-weight:500;margin-bottom:6px">준비 중인 기능입니다</div>
+        <div style="font-size:12px">월별 작업 내용 자동 요약 기능이 추가될 예정입니다</div>
+      </div>
+    </div>
+
+    <!-- WORK PLAN -->
+    <div class="page" id="page-work-plan">
+      <div class="page-title">작업 계획</div>
+      <div class="search-bar">
+        <input type="text" id="wp-search" placeholder="작업 계획명, 사이트 검색...">
+        <button class="btn btn-primary" onclick="openAddWorkPlan()">+ 계획 작성</button>
+      </div>
+      <div class="card"><div id="wp-list"></div></div>
+    </div>
+
+    <!-- LOGS -->
+    <div class="page" id="page-logs">
+      <div class="page-title">작업 현황/이력</div>
+      <div class="search-bar">
+        <input type="text" id="log-search" placeholder="사이트, 제목, 내용 검색...">
+        <button class="btn btn-primary" id="btn-add-log">+ 이력 추가</button>
+      </div>
+      <div class="card"><div id="log-list"></div></div>
+    </div>
+
+    <!-- TECH NOTES -->
+    <div class="page" id="page-technotes">
+      <div class="page-title">기술 노트</div>
+      <div class="search-bar">
+        <input type="text" id="tn-search" placeholder="제목, 내용, 태그 검색...">
+        <button class="btn btn-primary" onclick="openAddTechNote()">+ 노트 추가</button>
+      </div>
+      <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap" id="tn-category-filters">
+        <button class="badge b-blue active" style="cursor:pointer; border:none; font-family:inherit" onclick="filterTechNotes('전체')">전체</button>
+        <button class="badge b-gray" style="cursor:pointer; border:none; font-family:inherit" onclick="filterTechNotes('OS/서버구축')">OS/서버구축</button>
+        <button class="badge b-gray" style="cursor:pointer; border:none; font-family:inherit" onclick="filterTechNotes('HW장애/교체')">HW장애/교체</button>
+        <button class="badge b-gray" style="cursor:pointer; border:none; font-family:inherit" onclick="filterTechNotes('펌웨어/패치')">펌웨어/패치</button>
+        <button class="badge b-gray" style="cursor:pointer; border:none; font-family:inherit" onclick="filterTechNotes('Storage/SAN')">Storage/SAN</button>
+        <button class="badge b-gray" style="cursor:pointer; border:none; font-family:inherit" onclick="filterTechNotes('네트워크/케이블')">네트워크/케이블</button>
+        <button class="badge b-gray" style="cursor:pointer; border:none; font-family:inherit" onclick="filterTechNotes('기타')">기타</button>
+      </div>
+      <div id="technote-list" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:16px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── MODALS ── -->
+
+<!-- 사이트 상세 -->
+<div class="overlay" id="modal-site-detail">
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <div class="modal-title" id="detail-site-name"></div>
+      <button class="btn btn-sm" onclick="closeModal('modal-site-detail')">✕</button>
+    </div>
+    <div class="tabs">
+      <div class="tab active" data-dtab="devices">장비 리스트</div>
+      <div class="tab" data-dtab="access">접속 정보</div>
+      <div class="tab" data-dtab="reports">점검표 파일</div>
+      <div class="tab" data-dtab="notes">특이사항</div>
+    </div>
+    <div class="tab-pane active" id="dtab-devices">
+      <div class="sec-head"><span class="sec-label">장비 목록</span><button class="btn btn-sm" onclick="openModal('modal-add-device')">+ 장비 추가</button></div>
+      <div id="device-table"></div>
+    </div>
+    <div class="tab-pane" id="dtab-access">
+      <div class="sec-head"><span class="sec-label">접속 정보</span><button class="btn btn-sm" onclick="openModal('modal-add-access')">+ 추가</button></div>
+      <div id="access-table"></div>
+    </div>
+    <div class="tab-pane" id="dtab-reports">
+      <div class="sec-head"><span class="sec-label">점검표 파일</span></div>
+      <div style="margin-bottom:10px">
+        <input type="file" id="file-input" style="display:none" onchange="uploadReport(event)">
+        <button class="btn" onclick="document.getElementById('file-input').click()">↑ 파일 업로드</button>
+      </div>
+      <div id="report-table"></div>
+    </div>
+    <div class="tab-pane" id="dtab-notes">
+      <div class="sec-head"><span class="sec-label">특이사항</span><button class="btn btn-sm" onclick="openModal('modal-add-note')">+ 추가</button></div>
+      <div id="notes-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 장비 추가 -->
+<div class="overlay" id="modal-add-device">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title">장비 추가</div><button class="btn btn-sm" onclick="closeModal('modal-add-device')">✕</button></div>
+    <div class="grid2">
+      <div class="form-row"><label>장비명 *</label><input type="text" id="d-name"></div>
+      <div class="form-row"><label>모델명</label><input type="text" id="d-model"></div>
+    </div>
+    <div class="grid2">
+      <div class="form-row"><label>시리얼 번호</label><input type="text" id="d-sn"></div>
+      <div class="form-row"><label>유형</label><select id="d-type"><option>서버</option><option>스토리지</option><option>네트워크</option><option>기타</option></select></div>
+    </div>
+    <div class="grid2">
+      <div class="form-row"><label>OS</label><input type="text" id="d-os" placeholder="AIX 7.2, RHEL 9..."></div>
+      <div class="form-row"><label>상태</label><select id="d-status"><option>운영중</option><option>점검중</option><option>교체예정</option><option>철수</option></select></div>
+    </div>
+    <div class="grid2">
+      <div class="form-row"><label>구입일</label><input type="date" id="d-purchase"></div>
+      <div class="form-row"><label>워런티 만료일</label><input type="date" id="d-warranty"></div>
+    </div>
+    <div class="form-row"><label>메모</label><textarea id="d-memo" style="min-height:52px"></textarea></div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-add-device')">취소</button>
+      <button class="btn btn-primary" onclick="saveDevice()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 장비 수정 -->
+<div class="overlay" id="modal-edit-device">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title">장비 수정</div><button class="btn btn-sm" onclick="closeModal('modal-edit-device')">✕</button></div>
+    <input type="hidden" id="ed-id">
+    <div class="grid2">
+      <div class="form-row"><label>장비명 *</label><input type="text" id="ed-name"></div>
+      <div class="form-row"><label>모델명</label><input type="text" id="ed-model"></div>
+    </div>
+    <div class="grid2">
+      <div class="form-row"><label>시리얼 번호</label><input type="text" id="ed-sn"></div>
+      <div class="form-row"><label>유형</label><select id="ed-type"><option>서버</option><option>스토리지</option><option>네트워크</option><option>기타</option></select></div>
+    </div>
+    <div class="grid2">
+      <div class="form-row"><label>OS</label><input type="text" id="ed-os"></div>
+      <div class="form-row"><label>상태</label><select id="ed-status"><option>운영중</option><option>점검중</option><option>교체예정</option><option>철수</option></select></div>
+    </div>
+    <div class="grid2">
+      <div class="form-row"><label>구입일</label><input type="date" id="ed-purchase"></div>
+      <div class="form-row"><label>워런티 만료일</label><input type="date" id="ed-warranty"></div>
+    </div>
+    <div class="form-row"><label>메모</label><textarea id="ed-memo" style="min-height:52px"></textarea></div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-edit-device')">취소</button>
+      <button class="btn btn-primary" onclick="updateDevice()">수정</button>
+    </div>
+  </div>
+</div>
+
+<!-- 사이트 추가 -->
+<div class="overlay" id="modal-add-site">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title">사이트 추가</div><button class="btn btn-sm" onclick="closeModal('modal-add-site')">✕</button></div>
+    <div class="form-row"><label>사이트명 *</label><input type="text" id="s-name"></div>
+    <div class="grid2">
+      <div class="form-row"><label>위치</label><input type="text" id="s-loc"></div>
+      <div class="form-row"><label>담당자</label><input type="text" id="s-mgr"></div>
+    </div>
+    <div class="form-row"><label>연락처</label><input type="text" id="s-contact"></div>
+    <div class="form-row"><label>메모</label><textarea id="s-memo"></textarea></div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-add-site')">취소</button>
+      <button class="btn btn-primary" onclick="saveSite()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 접속 정보 추가 -->
+<div class="overlay" id="modal-add-access">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title">접속 정보 추가</div><button class="btn btn-sm" onclick="closeModal('modal-add-access')">✕</button></div>
+    <div class="grid2">
+      <div class="form-row"><label>구분 *</label><input type="text" id="a-name" placeholder="HMC, iDRAC, SSH..."></div>
+      <div class="form-row"><label>IP / 호스트</label><input type="text" id="a-ip"></div>
+    </div>
+    <div class="grid2">
+      <div class="form-row"><label>포트</label><input type="text" id="a-port"></div>
+      <div class="form-row"><label>프로토콜</label><select id="a-proto"><option>SSH</option><option>HTTPS</option><option>HTTP</option><option>RDP</option><option>기타</option></select></div>
+    </div>
+    <div class="grid2">
+      <div class="form-row"><label>계정</label><input type="text" id="a-user"></div>
+      <div class="form-row"><label>비밀번호</label><input type="password" id="a-pass"></div>
+    </div>
+    <div class="form-row"><label>메모</label><textarea id="a-memo" style="min-height:52px"></textarea></div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-add-access')">취소</button>
+      <button class="btn btn-primary" onclick="saveAccess()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 특이사항 추가 -->
+<div class="overlay" id="modal-add-note">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title">특이사항 추가</div><button class="btn btn-sm" onclick="closeModal('modal-add-note')">✕</button></div>
+    <div class="grid2">
+      <div class="form-row"><label>날짜</label><input type="date" id="n-date"></div>
+      <div class="form-row"><label>제목</label><input type="text" id="n-title"></div>
+    </div>
+    <div class="form-row"><label>내용 *</label><textarea id="n-body"></textarea></div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-add-note')">취소</button>
+      <button class="btn btn-primary" onclick="saveNote()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 작업 이력 추가/수정 -->
+<div class="overlay" id="modal-add-log">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title" id="log-modal-title">작업 이력 추가</div><button class="btn btn-sm" onclick="closeModal('modal-add-log')">✕</button></div>
+    <input type="hidden" id="l-id">
+    <div class="grid2">
+      <div class="form-row"><label>날짜 *</label><input type="date" id="l-date"></div>
+      <div class="form-row"><label>사이트</label><select id="l-site"></select></div>
+    </div>
+    <div class="form-row"><label>작업 유형</label><select id="l-type"><option>정기점검</option><option>장애처리</option><option>변경작업</option><option>설치/교체</option><option>기타</option></select></div>
+    <div class="form-row"><label>제목 *</label><input type="text" id="l-title"></div>
+    <div class="form-row"><label>작업 내용</label><textarea id="l-body"></textarea></div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-add-log')">취소</button>
+      <button class="btn btn-primary" onclick="saveLog()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 점검 일정 추가/수정 -->
+<div class="overlay" id="modal-add-sched">
+  <div class="modal modal-lg">
+    <div class="modal-head"><div class="modal-title" id="sched-modal-title">점검 일정 등록</div><button class="btn btn-sm" onclick="closeModal('modal-add-sched')">✕</button></div>
+    <input type="hidden" id="sched-id">
+    <div class="grid2">
+      <div class="form-row"><label>사이트 *</label><select id="sched-site"></select></div>
+      <div class="form-row"><label>제목 *</label><input type="text" id="sched-title"></div>
+    </div>
+    <div class="grid2">
+      <div class="form-row"><label>점검일 *</label><input type="date" id="sched-date"></div>
+      <div class="form-row"><label>점검 유형</label><select id="sched-type"><option>월간</option><option>분기</option><option>특별</option></select></div>
+    </div>
+    <div class="grid2">
+      <div class="form-row"><label>상태</label><select id="sched-status"><option>예정</option><option>완료</option></select></div>
+      <div class="form-row"><label>메모</label><input type="text" id="sched-memo"></div>
+    </div>
+    <div style="margin-top: 16px; margin-bottom: 12px; font-weight: 600; color: #378ADD; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+      <span>📝 작업 계획서 (MOP) 작성</span>
+      <button class="btn btn-sm" id="btn-sched-excel" style="display:none; color: #16a34a; border-color: #16a34a;" onclick="downloadSchedWorkPlanExcel()">Excel 다운로드</button>
+    </div>
+    <div class="grid2">
+      <div class="form-row"><label>작업자</label><input type="text" id="sched-worker" placeholder="예: 홍길동"></div>
+      <div class="form-row"><label>결재자/공유자</label><input type="text" id="sched-reviewer" placeholder="예: 이팀장"></div>
+    </div>
+    <div class="form-row"><label>MOP (Method of Procedure) 첨부 내용</label><div class="form-desc">한 줄에 '작업 내용 # 작업 상세(cli) # 소요시간(분) # 작업자 # 비고' 형식으로 입력하세요. (No.는 자동 생성됩니다.)</div><textarea id="sched-mop" style="min-height:150px" placeholder="위 형식에 맞춰 각 항목을 #으로 구분하여 입력합니다."></textarea></div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-add-sched')">취소</button>
+      <button class="btn btn-primary" onclick="saveSched()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 이슈 상세 팝업 -->
+<div class="overlay" id="modal-issue-popup">
+  <div class="issue-popup">
+    <div id="issue-popup-content"></div>
+  </div>
+</div>
+
+<!-- 이슈 추가/수정 -->
+<div class="overlay" id="modal-add-issue">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title" id="issue-modal-title">이슈 등록</div><button class="btn btn-sm" onclick="closeModal('modal-add-issue')">✕</button></div>
+    <input type="hidden" id="issue-id">
+    <div class="form-row"><label>사이트 *</label><select id="issue-site"></select></div>
+    <div class="form-row"><label>제목 *</label><input type="text" id="issue-title"></div>
+    <div class="form-row"><label>내용</label><textarea id="issue-body"></textarea></div>
+    <div class="grid2">
+      <div class="form-row"><label>심각도</label><select id="issue-severity"><option>긴급</option><option>높음</option><option>보통</option><option>낮음</option></select></div>
+      <div class="form-row"><label>상태</label><select id="issue-status"><option>오픈</option><option>처리중</option><option>완료</option></select></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-add-issue')">취소</button>
+      <button class="btn btn-primary" onclick="saveIssue()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 프로젝트 추가/수정 -->
+<div class="overlay" id="modal-add-project">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title" id="proj-modal-title">프로젝트 등록</div><button class="btn btn-sm" onclick="closeModal('modal-add-project')">✕</button></div>
+    <input type="hidden" id="p-id">
+    <div class="form-row"><label>프로젝트명 *</label><input type="text" id="p-name"></div>
+    <div class="form-row"><label>고객사</label><input type="text" id="p-customer"></div>
+    <div class="grid2">
+      <div class="form-row"><label>시작일 *</label><input type="date" id="p-start"></div>
+      <div class="form-row"><label>종료일</label><input type="date" id="p-end"></div>
+    </div>
+    <div class="grid2">
+      <div class="form-row"><label>일정 템플릿</label>
+        <select id="p-template">
+          <option value="">— 선택 안함 —</option>
+          <option value="storage">기본 스토리지 구축 (5주)</option>
+          <option value="server">기본 서버 구축 (5주)</option>
+        </select>
+      </div>
+      <div class="form-row"><label>상태</label>
+        <select id="p-status">
+          <option>진행 대기</option>
+          <option>진행 중</option>
+          <option>보류</option>
+          <option>완료</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row"><label>상세 내용</label><textarea id="p-desc" style="min-height:80px"></textarea></div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-add-project')">취소</button>
+      <button class="btn btn-primary" onclick="saveProject()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 프로젝트 상세 (태스크 관리) -->
+<div class="overlay" id="modal-project-detail">
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <div class="modal-title" id="detail-proj-name">프로젝트 상세</div>
+      <button class="btn btn-sm" onclick="closeModal('modal-project-detail')">✕</button>
+    </div>
+    <div class="sec-head">
+      <span class="sec-label">태스크 목록</span>
+      <button class="btn btn-sm" onclick="openAddTask()">+ 태스크 추가</button>
+    </div>
+    <div id="task-list"></div>
+  </div>
+</div>
+
+<!-- 태스크 추가/수정 -->
+<div class="overlay" id="modal-add-task">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title" id="task-modal-title">태스크 추가</div><button class="btn btn-sm" onclick="closeModal('modal-add-task')">✕</button></div>
+    <input type="hidden" id="t-id">
+    <div class="form-row"><label>태스크명 *</label><input type="text" id="t-name"></div>
+    <div class="grid2">
+      <div class="form-row"><label>상태</label>
+        <select id="t-status">
+          <option>대기</option>
+          <option>진행중</option>
+          <option>완료</option>
+        </select>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="form-row"><label>시작일</label><input type="date" id="t-start"></div>
+      <div class="form-row"><label>종료일</label><input type="date" id="t-end"></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-add-task')">취소</button>
+      <button class="btn btn-primary" onclick="saveTask()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 작업 계획 추가/수정 -->
+<div class="overlay" id="modal-add-workplan">
+  <div class="modal modal-lg">
+    <div class="modal-head"><div class="modal-title" id="wp-modal-title">작업 계획 작성</div><button class="btn btn-sm" onclick="closeModal('modal-add-workplan')">✕</button></div>
+    <input type="hidden" id="wp-id">
+
+    <div class="form-section">
+      <div class="form-section-title">1. 기본 정보</div>
+      <div class="form-row"><label>제목 *</label><input type="text" id="wp-title" placeholder="예: DB 서버 정기점검"></div>
+      <div class="grid2">
+        <div class="form-row"><label>작업 일시 *</label><input type="datetime-local" id="wp-date"></div>
+        <div class="form-row"><label>사이트</label><select id="wp-site"></select></div>
+      </div>
+      <div class="grid2">
+        <div class="form-row"><label>작업자</label><input type="text" id="wp-worker" placeholder="예: 홍길동, 이순신"></div>
+        <div class="form-row"><label>결재자/공유자</label><input type="text" id="wp-reviewer" placeholder="예: 김팀장"></div>
+      </div>
+      <div class="form-row"><label>상태</label><select id="wp-status"><option>계획중</option><option>결재대기</option><option>승인완료</option><option>작업완료</option></select></div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section-title">2. 작업 개요</div>
+      <div class="form-row"><label>작업 목적</label><textarea id="wp-purpose" style="min-height:60px" placeholder="작업을 수행하는 목적을 명확히 기재합니다."></textarea></div>
+      <div class="grid2">
+        <div class="form-row"><label>작업 영향도</label>
+          <select id="wp-impact">
+            <option>없음</option>
+            <option>낮음 (서비스 무중단)</option>
+            <option>중간 (일시적 성능 저하 또는 순단)</option>
+            <option>높음 (서비스 중단 발생)</option>
+          </select>
+        </div>
+        <div class="form-row"><label>사전 준비사항</label><input type="text" id="wp-prerequisites" placeholder="예: 백업 확인, 관련 담당자 통보"></div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section-title">3. 상세 작업 절차 (Method of Procedure)</div>
+      <div class="form-desc">한 줄에 '작업 내용 # 작업 상세(cli) # 소요시간(분) # 작업자 # 비고' 형식으로 입력하세요. (No.는 자동 생성됩니다.)</div>
+      <div class="form-row"><label>상세 작업 절차</label><textarea id="wp-mop" style="min-height:240px" placeholder="위 형식에 맞춰 각 항목을 #으로 구분하여 입력합니다."></textarea></div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section-title">4. 추가 계획</div>
+      <div class="form-row"><label>작업 후 확인사항</label><textarea id="wp-verification" style="min-height:60px" placeholder="작업 완료 후 정상 상태를 확인하기 위한 절차를 기재합니다."></textarea></div>
+      <div class="form-row"><label>비상 계획 (Rollback Plan)</label><textarea id="wp-rollback" style="min-height:60px" placeholder="문제 발생 시 작업을 원복하기 위한 절차를 기재합니다."></textarea></div>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-add-workplan')">취소</button>
+      <button class="btn btn-primary" onclick="saveWorkPlan()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 사이트별 체크리스트 항목 추가/수정 -->
+<div class="overlay" id="modal-cl-item">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title" id="cl-modal-title">체크리스트 항목 추가</div><button class="btn btn-sm" onclick="closeModal('modal-cl-item')">✕</button></div>
+    <input type="hidden" id="cl-item-id">
+    <div class="form-row"><label>카테고리</label><select id="cl-cat"><option>일반</option><option>월간</option><option>분기</option></select></div>
+    <div class="form-row"><label>항목 내용 *</label><input type="text" id="cl-text"></div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-cl-item')">취소</button>
+      <button class="btn btn-primary" onclick="saveCLItem()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 기술 노트 추가/수정 -->
+<div class="overlay" id="modal-add-technote">
+  <div class="modal modal-lg">
+    <div class="modal-head"><div class="modal-title" id="tn-modal-title">기술 노트 작성</div><button class="btn btn-sm" onclick="closeModal('modal-add-technote')">✕</button></div>
+    <input type="hidden" id="tn-id">
+    <div class="form-row"><label>제목 *</label><input type="text" id="tn-title" placeholder="노트 제목을 입력하세요"></div>
+    <div class="grid2">
+      <div class="form-row"><label>카테고리</label><select id="tn-category"><option>OS/서버구축</option><option>HW장애/교체</option><option>펌웨어/패치</option><option>Storage/SAN</option><option>네트워크/케이블</option><option>기타</option></select></div>
+      <div class="form-row"><label>태그</label><input type="text" id="tn-tags" placeholder="Linux, DB, 장애처리 (쉼표로 구분)"></div>
+    </div>
+    <div class="form-row"><label>내용 *</label><textarea id="tn-body" style="min-height:250px; font-family:monospace; font-size:13px; line-height:1.5" placeholder="기술 내용, 트러블슈팅 이력, 명령어, 코드 등을 자유롭게 작성하세요"></textarea></div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-add-technote')">취소</button>
+      <button class="btn btn-primary" onclick="saveTechNote()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 기술 노트 상세 뷰 -->
+<div class="overlay" id="modal-view-technote">
+  <div class="modal modal-lg">
+    <div class="modal-head">
+      <div class="modal-title" id="view-tn-title"></div>
+      <button class="btn btn-sm" onclick="closeModal('modal-view-technote')">✕</button>
+    </div>
+    <div style="display:flex; gap:8px; margin-bottom:16px; align-items:center;">
+      <span class="badge b-blue" id="view-tn-category"></span>
+      <span style="font-size:12px; color:#888;" id="view-tn-date"></span>
+      <div style="flex:1"></div>
+      <span style="font-size:12px; color:#666;" id="view-tn-tags"></span>
+    </div>
+    <div id="view-tn-body" style="background:#fff; padding:16px; border-radius:8px; font-size:14px; color:#1e293b; line-height:1.6; max-height:450px; overflow-y:auto; border:1px solid #e2e8f0;"></div>
+    <div class="form-actions" style="margin-top:16px;">
+      <button class="btn btn-primary" onclick="closeModal('modal-view-technote')">확인</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="/static/js/app.js?v=2"></script>
+</body>
+</html>

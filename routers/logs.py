@@ -1,0 +1,59 @@
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+from database import get_db, WorkLog, Engineer
+from pydantic import BaseModel
+from typing import Optional
+import uuid
+
+router = APIRouter(prefix="/api/engineers/{eng_id}/logs", tags=["logs"])
+
+@router.get("")
+def list_logs(eng_id: str, q: Optional[str] = None, db: Session = Depends(get_db)):
+    query = db.query(WorkLog).filter(WorkLog.engineer_id == eng_id).order_by(WorkLog.date.desc())
+    if q:
+        query = query.filter(
+            WorkLog.title.contains(q) |
+            WorkLog.site.contains(q) |
+            WorkLog.body.contains(q)
+        )
+    return [{"id": l.id, "date": l.date, "site": l.site,
+             "log_type": l.log_type, "title": l.title, "body": l.body}
+            for l in query.all()]
+
+class LogIn(BaseModel):
+    date:     Optional[str] = ""
+    site:     Optional[str] = ""
+    log_type: Optional[str] = "기타"
+    title:    str
+    body:     Optional[str] = ""
+
+@router.post("")
+def create_log(eng_id: str, data: LogIn, db: Session = Depends(get_db)):
+    log = WorkLog(id=str(uuid.uuid4()), engineer_id=eng_id, **data.dict())
+    db.add(log); db.commit()
+    return {"id": log.id}
+
+@router.delete("/{log_id}")
+def delete_log(eng_id: str, log_id: str, db: Session = Depends(get_db)):
+    log = db.query(WorkLog).filter(WorkLog.id == log_id, WorkLog.engineer_id == eng_id).first()
+    if log:
+        db.delete(log); db.commit()
+    return {"ok": True}
+
+class LogUpdate(BaseModel):
+    date:     Optional[str] = None
+    site:     Optional[str] = None
+    log_type: Optional[str] = None
+    title:    Optional[str] = None
+    body:     Optional[str] = None
+
+@router.patch("/{log_id}")
+def update_log(eng_id: str, log_id: str, data: LogUpdate, db: Session = Depends(get_db)):
+    from fastapi import HTTPException
+    log = db.query(WorkLog).filter(WorkLog.id == log_id, WorkLog.engineer_id == eng_id).first()
+    if not log:
+        raise HTTPException(404)
+    for k, v in data.dict(exclude_none=True).items():
+        setattr(log, k, v)
+    db.commit()
+    return {"id": log.id, "ok": True}
