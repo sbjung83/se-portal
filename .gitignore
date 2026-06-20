@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+.venv/
+pyenv/
+
+# Virtualenv
+*/bin/
+*/include/
+*/lib/
+*/lib64/
+
+# SQLite DB and uploads
+data/*.db
+uploads/
+
+# Logs and OS files
+*.log
+*.pot
+*.pyc
+*.swp
+.DS_Store
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
