@@ -5,10 +5,11 @@ from fastapi.requests import Request
 from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 from database import init_db
-from routers import auth, sites, logs, dashboard, schedules, issues, site_checklist, projects, technotes
+from routers import auth, sites, logs, dashboard, schedules, issues, site_checklist, projects, technotes, development
 import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 os.makedirs(os.path.join(BASE_DIR, "data"),    exist_ok=True)
 os.makedirs(os.path.join(BASE_DIR, "uploads"), exist_ok=True)
 
@@ -32,6 +33,7 @@ app.include_router(schedules.router)
 app.include_router(issues.router)
 app.include_router(site_checklist.router)
 app.include_router(technotes.router)
+app.include_router(development.router)
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):

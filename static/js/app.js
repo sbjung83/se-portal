@@ -7,7 +7,7 @@ const pgState = { issues:1, cl:1 };
 const PAGE_SIZE = 5;
 
 // 캐시
-let _allIssues=[], _allCLItems=[];
+let _allIssues=[], _allCLItems=[], _devChecklist={};
 
 // SVG 아이콘
 const ICO_EDIT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
@@ -94,6 +94,7 @@ document.querySelectorAll('.nav-item').forEach(el=>{
     if(page==='sched-history')  renderSchedHistory();
     if(page==='technotes')      renderTechNotes();
     if(page==='work-plan')      renderWorkPlans();
+    if(page==='dev-checklist')  loadDevChecklist();
     // if(page==='report') ...
   });
 });
@@ -1534,4 +1535,118 @@ async function deleteTechNote(id) {
   }
   renderTechNotes($('tn-search').value);
   toast('삭제됨');
+}
+
+// ── DEVELOPMENT CHECKLIST ─────────────────
+let _currentDevTab = 'all';
+
+async function loadDevChecklist() {
+  try {
+    _devChecklist = await api.get('/api/dev/checklist');
+    renderDevChecklist();
+  } catch (e) {
+    console.error('체크리스트 로드 실패:', e);
+  }
+}
+
+function switchDevTab(tab) {
+  _currentDevTab = tab;
+  document.querySelectorAll('[data-devtab]').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('data-devtab') === tab);
+  });
+  renderDevChecklist();
+}
+
+async function renderDevChecklist() {
+  const sections = _devChecklist.sections || [];
+  const content = $('dev-checklist-content');
+  
+  let filtered = [];
+  sections.forEach(sec => {
+    let items = sec.items || [];
+    if (_currentDevTab !== 'all') {
+      const statusMap = { completed: '완료', 'in-progress': '진행중', planned: '예정' };
+      items = items.filter(i => i.status === statusMap[_currentDevTab]);
+    }
+    if (items.length > 0) {
+      filtered.push({ category: sec.category, items });
+    }
+  });
+  
+  // 통계 업데이트
+  await updateDevStats();
+  
+  if (filtered.length === 0) {
+    content.innerHTML = '<div style="text-align:center;padding:40px;color:#888">항목이 없습니다</div>';
+    return;
+  }
+  
+  let html = '';
+  filtered.forEach(sec => {
+    html += `<div class="card" style="margin-bottom:16px">
+      <div style="font-size:13px;font-weight:700;color:#378ADD;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #e2e8f0">
+        ${sec.category}
+      </div>`;
+    
+    sec.items.forEach(item => {
+      const statusColor = item.status === '완료' ? '#22c55e' : 
+                         item.status === '진행중' ? '#f59e0b' : '#94a3b8';
+      const statusBg = item.status === '완료' ? '#dcfce7' : 
+                      item.status === '진행중' ? '#fef3c7' : '#f1f5f9';
+      
+      html += `<div style="padding:12px;background:#fafaf8;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:8px;display:flex;gap:10px;align-items:flex-start">
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:4px">${item.task}</div>
+          <div style="font-size:12px;color:#666;margin-bottom:6px">${item.notes || '—'}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <span style="padding:2px 8px;background:${statusBg};color:${statusColor};font-size:11px;font-weight:600;border-radius:3px">${item.status}</span>
+            <span style="padding:2px 8px;background:#f0f0ee;color:#666;font-size:11px;border-radius:3px">${item.priority}</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:4px">
+          <button class="btn btn-sm" onclick="changeDevItemStatus('${item.id}', '완료')" style="padding:4px 8px;font-size:11px">✅</button>
+          <button class="btn btn-sm" onclick="changeDevItemStatus('${item.id}', '진행중')" style="padding:4px 8px;font-size:11px">🔄</button>
+          <button class="btn btn-sm" onclick="changeDevItemStatus('${item.id}', '예정')" style="padding:4px 8px;font-size:11px">📋</button>
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+  });
+  
+  content.innerHTML = html;
+}
+
+async function changeDevItemStatus(itemId, newStatus) {
+  try {
+    await api.patch(`/api/dev/checklist/item/${itemId}`, { status: newStatus });
+    await loadDevChecklist();
+    toast(`상태가 변경되었습니다: ${newStatus}`);
+  } catch (e) {
+    toast('업데이트 실패');
+    console.error(e);
+  }
+}
+
+async function updateDevStats() {
+  try {
+    const stats = await api.get('/api/dev/checklist/stats');
+    let totalItems = 0, completed = 0, inProgress = 0, planned = 0;
+    
+    stats.forEach(sec => {
+      totalItems += sec.total || 0;
+      completed += sec.completed || 0;
+      inProgress += sec.in_progress || 0;
+      planned += sec.planned || 0;
+    });
+    
+    const rate = totalItems > 0 ? Math.round((completed / totalItems) * 100) : 0;
+    
+    $('stat-total').textContent = totalItems;
+    $('stat-completed').textContent = completed;
+    $('stat-in-progress').textContent = inProgress;
+    $('stat-planned').textContent = planned;
+    $('dev-completion-rate').textContent = `진행률: ${rate}%`;
+  } catch (e) {
+    console.error('통계 업데이트 실패:', e);
+  }
 }
