@@ -8,6 +8,7 @@ from datetime import datetime
 import uuid
 import io
 import re
+import json
 from openpyxl import Workbook
 from openpyxl.styles import Font, Border, Side, Alignment, PatternFill
 from urllib.parse import quote
@@ -199,12 +200,34 @@ def _span_width(c1: str, c2: str) -> float:
     return sum(_XL_WIDTHS[c] for c in _XL_COLS[i1:i2 + 1])
 
 
+_MOP_KEYS = ('task', 'detail', 'time', 'worker', 'note')
+
+
 def _parse_mop_line(line: str):
-    """'작업 내용 # 작업 상세 # 소요시간 # 작업자 # 비고' → 5개 컬럼.
-    CLI 등에 '#'이 더 들어있으면 남는 부분은 비고에 그대로 붙여 내용이 유실되지 않게 한다."""
+    """(구형식) '작업 내용 # 작업 상세 # 소요시간 # 작업자 # 비고' → 5개 컬럼.
+    '#'이 더 들어있으면 남는 부분은 비고에 그대로 붙여 내용이 유실되지 않게 한다."""
+    line = re.sub(r'^\s*#', '', line)  # 줄 맨 앞의 '#'은 구분자가 아닌 머리표로 간주
     parts = [p.strip() for p in line.split('#', 4)]
     parts += [''] * (5 - len(parts))
     return parts
+
+
+def _mop_rows(content) -> list:
+    """MOP 내용을 [[작업내용, 상세, 소요시간, 작업자, 비고], ...] 로 변환.
+    신형식: 화면 표 입력기가 저장하는 JSON 배열 [{task, detail, time, worker, note}]
+    구형식: '#' 구분 줄 텍스트"""
+    s = (content or '').strip()
+    if not s:
+        return []
+    if s.startswith('['):
+        try:
+            data = json.loads(s)
+            if isinstance(data, list):
+                rows = [[str((r or {}).get(k) or '').strip() for k in _MOP_KEYS] for r in data if isinstance(r, dict)]
+                return [r for r in rows if any(r)]
+        except ValueError:
+            pass
+    return [_parse_mop_line(l) for l in s.splitlines() if l.strip()]
 
 
 def _build_work_plan_workbook(plan, engineer_name: str) -> Workbook:
@@ -319,13 +342,13 @@ def _build_work_plan_workbook(plan, engineer_name: str) -> Workbook:
     mop_header_row = row
     row += 1
 
-    mop_lines = [l for l in (plan.mop_content or '').splitlines() if l.strip()]
-    if not mop_lines:
+    mop_rows = _mop_rows(plan.mop_content)
+    if not mop_rows:
         put(f'A{row}:F{row + 2}', "작성된 작업 절차가 없습니다.", align=center)
         row += 3
     else:
-        for idx, line in enumerate(mop_lines, 1):
-            values = [idx] + _parse_mop_line(line)
+        for idx, cols in enumerate(mop_rows, 1):
+            values = [idx] + cols
             lines = 1
             for i, v in enumerate(values):
                 col = _XL_COLS[i]
@@ -351,7 +374,7 @@ def _build_work_plan_workbook(plan, engineer_name: str) -> Workbook:
     ws.page_margins.top = ws.page_margins.bottom = 0.5
     ws.print_options.horizontalCentered = True
     ws.print_area = f'A1:F{row - 1}'
-    ws.print_title_rows = f'{mop_header_row}:{mop_header_row}' if len(mop_lines) > 20 else None
+    ws.print_title_rows = f'{mop_header_row}:{mop_header_row}' if len(mop_rows) > 20 else None
     return wb
 
 

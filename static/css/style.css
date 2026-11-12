@@ -185,3 +185,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .issue-popup-title{font-size:15px;font-weight:600;line-height:1.5;margin-bottom:10px;padding-right:8px}
 .issue-popup-meta{display:flex;gap:6px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
 .issue-popup-body{font-size:13px;color:#444;line-height:1.8;white-space:pre-wrap;background:#f9f9f8;border-radius:8px;padding:14px 16px;border:1px solid #e8e8e4;min-height:60px}
+
+/* ── MOP 표 입력기 (작업계획 상세 작업 절차) ── */
+.mop-grid{border:1px solid #d4d4d0;border-radius:8px;overflow-x:auto;background:#fff}
+.mop-grid table{width:100%;border-collapse:collapse;table-layout:fixed;min-width:760px}
+.mop-grid th{background:#f3f6fb;font-size:12px;font-weight:600;color:#555;padding:7px 6px;border-bottom:1px solid #d4d4d0;border-right:1px solid #e8e8e4;text-align:center}
+.mop-grid td{border-bottom:1px solid #ececea;border-right:1px solid #ececea;padding:0;vertical-align:top}
+.mop-grid th:last-child,.mop-grid td:last-child{border-right:none}
+.mop-grid td.mop-no{text-align:center;font-size:12px;color:#888;padding-top:8px;background:#fafaf9}
+.mop-grid .mop-cell{display:block;width:100%;border:none!important;border-radius:0!important;padding:7px 8px!important;font-size:13px;font-family:inherit;background:transparent;resize:none;overflow:hidden;line-height:1.45;min-height:32px}
+.mop-grid textarea.mop-cell{min-height:32px}
+.mop-grid .mop-cell.mono{font-family:Consolas,'D2Coding',monospace;font-size:12.5px}
+.mop-grid .mop-cell:focus{outline:2px solid #378ADD;outline-offset:-2px;background:#f5f9ff}
+.mop-grid td.mop-act{text-align:center;white-space:nowrap;padding:4px 2px}
+.mop-grid td.mop-act button{border:none;background:none;cursor:pointer;color:#999;font-size:13px;padding:2px 4px;border-radius:4px}
+.mop-grid td.mop-act button:hover{background:#f0f0ee;color:#333}
+.mop-grid td.mop-act button.del:hover{color:#dc2626;background:#fef2f2}
+.mop-grid .mop-foot{display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:#fafaf9;border-top:1px solid #ececea;font-size:11.5px;color:#999}

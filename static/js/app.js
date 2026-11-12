@@ -22,7 +22,7 @@ const api = {
 };
 
 function toast(msg){const e=$('toast');e.textContent=msg;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),2200)}
-function openModal(id){$(id).classList.add('open')}
+function openModal(id){$(id).classList.add('open'); $(id).querySelectorAll('.mop-grid textarea').forEach(mopGrow)}
 function closeModal(id){$(id).classList.remove('open')}
 document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open')}));
 
@@ -238,7 +238,8 @@ async function fillSiteSel(selId, selectedId=''){
 $('btn-sm-add') && $('btn-sm-add').addEventListener('click', async()=>{
   $('sched-modal-title').textContent='점검 일정 등록';
   $('sched-id').value='';
-  ['sched-title','sched-memo','sched-worker','sched-reviewer','sched-mop'].forEach(id=>$(id).value='');
+  ['sched-title','sched-memo','sched-worker','sched-reviewer'].forEach(id=>$(id).value='');
+  mopSet('sched-mop', '');
   $('sched-date').value=new Date().toISOString().slice(0,10);
   $('sched-type').value='월간'; $('sched-status').value='예정';
   $('btn-sched-excel').style.display='none';
@@ -249,7 +250,8 @@ $('btn-sm-add') && $('btn-sm-add').addEventListener('click', async()=>{
 $('btn-add-sched').addEventListener('click', async()=>{
   $('sched-modal-title').textContent='점검 일정 등록';
   $('sched-id').value='';
-  ['sched-title','sched-memo','sched-worker','sched-reviewer','sched-mop'].forEach(id=>$(id).value='');
+  ['sched-title','sched-memo','sched-worker','sched-reviewer'].forEach(id=>$(id).value='');
+  mopSet('sched-mop', '');
   $('sched-date').value=new Date().toISOString().slice(0,10);
   $('sched-type').value='월간'; $('sched-status').value='예정';
   $('btn-sched-excel').style.display='none';
@@ -267,7 +269,8 @@ async function openEditSched(s){
   $('sched-status').value=s.status;
   $('sched-memo').value=s.memo||'';
   
-  ['sched-worker','sched-reviewer','sched-mop'].forEach(id=>$(id).value='');
+  ['sched-worker','sched-reviewer'].forEach(id=>$(id).value='');
+  mopSet('sched-mop', '');
   $('btn-sched-excel').style.display='none';
   
   if(!_allWorkPlans.length) { try { _allWorkPlans = await api.get(`/api/engineers/${ENG_ID}/workplans`); } catch(e){} }
@@ -275,7 +278,7 @@ async function openEditSched(s){
   if(wp) {
     $('sched-worker').value = wp.worker || '';
     $('sched-reviewer').value = wp.reviewer || '';
-    $('sched-mop').value = wp.mop_content || '';
+    mopSet('sched-mop', wp.mop_content || '');
     $('btn-sched-excel').style.display='block';
   }
 
@@ -298,7 +301,7 @@ async function saveSched(){
   
   const worker = $('sched-worker').value.trim();
   const reviewer = $('sched-reviewer').value.trim();
-  const mop = $('sched-mop').value.trim();
+  const mop = mopGet('sched-mop');
   if(worker || reviewer || mop || id) {
     const wpPayload = {
       id: schedId, title: title, work_date: $('sched-date').value,
@@ -714,6 +717,183 @@ async function deleteLog(id){
   renderLogs(); toast('삭제됨');
 }
 
+// ── MOP 표 입력기 ───────────────────────────
+// 저장 형식: JSON 배열 [{task, detail, time, worker, note}, ...]
+// 기존 '작업내용 # 상세 # 소요시간 # 작업자 # 비고' 줄 형식도 읽어서 표로 변환한다.
+const MOP_COLS = [
+  {key:'task',   label:'작업 내용', width:'22%', multi:true},
+  {key:'detail', label:'작업 상세 (CLI 및 상세 내용)', width:'37%', multi:true, mono:true},
+  {key:'time',   label:'소요시간', width:'10%'},
+  {key:'worker', label:'작업자', width:'12%'},
+  {key:'note',   label:'비고', width:'19%', multi:true},
+];
+
+function mopParse(content){
+  const s = (content || '').trim();
+  if(!s) return [];
+  if(s.startsWith('[')){
+    try {
+      const arr = JSON.parse(s);
+      if(Array.isArray(arr)) return arr.map(r => Object.fromEntries(MOP_COLS.map(c => [c.key, String((r||{})[c.key] ?? '')])));
+    } catch(e) {}
+  }
+  return s.split('\n').filter(l => l.trim()).map(l => {
+    const p = l.replace(/^\s*#/, '').split('#');  // 줄 맨 앞 '#'은 머리표로 간주
+    const parts = [...p.slice(0, 4), p.slice(4).join('#')].map(x => (x || '').trim());
+    return Object.fromEntries(MOP_COLS.map((c, i) => [c.key, parts[i] || '']));
+  });
+}
+
+function mopGrow(ta){
+  if(!ta || !ta.offsetParent) return;
+  ta.style.height = 'auto';
+  ta.style.height = ta.scrollHeight + 'px';
+}
+
+function _mopBody(id){ return $(id).querySelector('tbody'); }
+
+function _mopRenumber(id){
+  _mopBody(id).querySelectorAll('tr').forEach((tr, i) => tr.querySelector('.mop-no').textContent = i + 1);
+}
+
+function _mopNewRow(id, data = {}, beforeTr = null){
+  const tr = document.createElement('tr');
+  const no = document.createElement('td'); no.className = 'mop-no'; tr.appendChild(no);
+  MOP_COLS.forEach(c => {
+    const td = document.createElement('td');
+    const ta = document.createElement('textarea');
+    ta.rows = 1;
+    ta.className = 'mop-cell' + (c.mono ? ' mono' : '');
+    ta.dataset.key = c.key;
+    ta.value = data[c.key] || '';
+    td.appendChild(ta); tr.appendChild(td);
+  });
+  const act = document.createElement('td'); act.className = 'mop-act';
+  act.innerHTML = '<button type="button" tabindex="-1" title="위로" data-act="up">▲</button>'
+                + '<button type="button" tabindex="-1" title="아래로" data-act="down">▼</button>'
+                + '<button type="button" tabindex="-1" title="행 삭제" class="del" data-act="del">✕</button>';
+  tr.appendChild(act);
+  _mopBody(id).insertBefore(tr, beforeTr);
+  tr.querySelectorAll('textarea').forEach(mopGrow);
+  return tr;
+}
+
+function mopAddRow(id, focus = true){
+  const rows = _mopBody(id).querySelectorAll('tr');
+  const last = rows[rows.length - 1];
+  // 작업자는 바로 윗 행 값을 기본으로 이어받음
+  const worker = last ? last.querySelector('[data-key="worker"]').value : '';
+  const tr = _mopNewRow(id, {worker});
+  _mopRenumber(id);
+  if(focus) tr.querySelector('textarea').focus();
+  return tr;
+}
+
+function _parseTSV(text){
+  text = text.replace(/\r\n?/g, '\n').replace(/\n$/, '');
+  const rows = []; let row = [], cell = '', q = false;
+  for(let i = 0; i < text.length; i++){
+    const ch = text[i];
+    if(q){
+      if(ch === '"'){ if(text[i+1] === '"'){ cell += '"'; i++; } else q = false; }
+      else cell += ch;
+    }
+    else if(ch === '"' && cell === '') q = true;
+    else if(ch === '\t'){ row.push(cell); cell = ''; }
+    else if(ch === '\n'){ row.push(cell); rows.push(row); row = []; cell = ''; }
+    else cell += ch;
+  }
+  row.push(cell); rows.push(row);
+  return rows;
+}
+
+function _mopInit(id){
+  const box = $(id);
+  if(box.dataset.ready) return;
+  box.dataset.ready = '1';
+  const cols = MOP_COLS.map(c => `<col style="width:${c.width}">`).join('');
+  const ths = MOP_COLS.map(c => `<th>${c.label}</th>`).join('');
+  box.innerHTML = `<table><colgroup><col style="width:42px">${cols}<col style="width:78px"></colgroup>
+    <thead><tr><th>No.</th>${ths}<th></th></tr></thead><tbody></tbody></table>
+    <div class="mop-foot"><span>Enter: 아래 칸 · Shift+Enter: 줄바꿈 · Tab: 다음 칸 · 엑셀 복사/붙여넣기 가능</span>
+    <button type="button" class="btn btn-sm">+ 행 추가</button></div>`;
+  box.querySelector('.mop-foot button').addEventListener('click', () => mopAddRow(id));
+
+  box.addEventListener('input', e => { if(e.target.matches('textarea')) mopGrow(e.target); });
+
+  box.addEventListener('click', e => {
+    const b = e.target.closest('button[data-act]'); if(!b) return;
+    const tr = b.closest('tr'), body = _mopBody(id);
+    if(b.dataset.act === 'up' && tr.previousElementSibling) body.insertBefore(tr, tr.previousElementSibling);
+    if(b.dataset.act === 'down' && tr.nextElementSibling) body.insertBefore(tr.nextElementSibling, tr);
+    if(b.dataset.act === 'del'){
+      tr.remove();
+      if(!body.children.length) mopAddRow(id, false);
+    }
+    _mopRenumber(id);
+  });
+
+  box.addEventListener('keydown', e => {
+    const ta = e.target; if(!ta.matches('textarea.mop-cell') || e.isComposing) return;
+    const tr = ta.closest('tr'), key = ta.dataset.key;
+    if(e.key === 'Enter' && !e.shiftKey && !e.altKey){
+      // 엑셀처럼 Enter = 아래 칸 이동 (마지막 행이면 행 추가)
+      e.preventDefault();
+      const next = tr.nextElementSibling || mopAddRow(id, false);
+      next.querySelector(`[data-key="${key}"]`).focus();
+    } else if(e.key === 'Enter' && e.altKey){
+      e.preventDefault();
+      const p = ta.selectionStart;
+      ta.setRangeText('\n', p, ta.selectionEnd, 'end'); mopGrow(ta);
+    } else if(e.key === 'Tab' && !e.shiftKey && key === MOP_COLS[MOP_COLS.length-1].key && !tr.nextElementSibling){
+      e.preventDefault();
+      mopAddRow(id);
+    }
+  });
+
+  box.addEventListener('paste', e => {
+    const ta = e.target; if(!ta.matches('textarea.mop-cell')) return;
+    const text = (e.clipboardData || window.clipboardData).getData('text');
+    if(_mopPasteText(id, ta, text)) e.preventDefault();
+  });
+}
+
+// 엑셀/표 형태(탭 구분) 텍스트를 현재 칸부터 여러 행/열로 채운다. 처리했으면 true.
+function _mopPasteText(id, ta, text){
+  const colIdx = MOP_COLS.findIndex(c => c.key === ta.dataset.key);
+  const single = !MOP_COLS[colIdx].multi;
+  if(!text || (!text.includes('\t') && !(single && text.includes('\n')))) return false;  // 일반 붙여넣기
+  let data = _parseTSV(text);
+  // 엑셀 계획서에서 No. 열까지 복사한 경우 첫 열 제거
+  if(colIdx === 0 && data.every(r => r.length > MOP_COLS.length && /^\d*$/.test(r[0].trim()))) data = data.map(r => r.slice(1));
+  let tr = ta.closest('tr');
+  data.forEach((vals, ri) => {
+    if(ri > 0) tr = tr.nextElementSibling || _mopNewRow(id);
+    vals.forEach((v, ci) => {
+      const c = MOP_COLS[colIdx + ci]; if(!c) return;
+      const cell = tr.querySelector(`[data-key="${c.key}"]`);
+      cell.value = v.trim(); mopGrow(cell);
+    });
+  });
+  _mopRenumber(id);
+  return true;
+}
+
+function mopSet(id, content){
+  _mopInit(id);
+  _mopBody(id).innerHTML = '';
+  const rows = mopParse(content);
+  (rows.length ? rows : [{}, {}, {}]).forEach(r => _mopNewRow(id, r));
+  _mopRenumber(id);
+}
+
+function mopGet(id){
+  const rows = [..._mopBody(id).querySelectorAll('tr')].map(tr =>
+    Object.fromEntries(MOP_COLS.map(c => [c.key, tr.querySelector(`[data-key="${c.key}"]`).value.trim()])))
+    .filter(r => MOP_COLS.some(c => r[c.key]));
+  return rows.length ? JSON.stringify(rows) : '';
+}
+
 // ── WORK PLANS ──────────────────────────────
 let _allWorkPlans = [];
 async function renderWorkPlans(filter='') {
@@ -761,7 +941,8 @@ async function fillWpSiteSel(selectedSite=''){
 async function openAddWorkPlan() {
   $('wp-modal-title').textContent = '작업 계획 작성';
   $('wp-id').value = '';
-  ['wp-title', 'wp-worker', 'wp-reviewer', 'wp-purpose', 'wp-prerequisites', 'wp-mop', 'wp-verification', 'wp-rollback'].forEach(id => $(id).value='');
+  ['wp-title', 'wp-worker', 'wp-reviewer', 'wp-purpose', 'wp-prerequisites', 'wp-verification', 'wp-rollback'].forEach(id => $(id).value='');
+  mopSet('wp-mop', '');
   $('wp-date').value = '';
   $('wp-status').value = '계획중';
   $('wp-impact').value = '없음';
@@ -786,7 +967,7 @@ async function openEditWorkPlan(p) {
   $('wp-purpose').value = p.purpose || '';
   $('wp-impact').value = p.impact || '없음';
   $('wp-prerequisites').value = p.prerequisites || '';
-  $('wp-mop').value = p.mop_content || '';
+  mopSet('wp-mop', p.mop_content || '');
   $('wp-verification').value = p.verification || '';
   $('wp-rollback').value = p.rollback_plan || '';
   try {
@@ -811,7 +992,7 @@ async function saveWorkPlan() {
     purpose: $('wp-purpose').value,
     impact: $('wp-impact').value,
     prerequisites: $('wp-prerequisites').value,
-    mop_content: $('wp-mop').value,
+    mop_content: mopGet('wp-mop'),
     verification: $('wp-verification').value,
     rollback_plan: $('wp-rollback').value
   };
@@ -856,7 +1037,7 @@ async function downloadSchedWorkPlanExcel() {
   const title = $('sched-title').value;
   const worker = $('sched-worker').value;
   const reviewer = $('sched-reviewer').value;
-  const mop = $('sched-mop').value;
+  const mop = mopGet('sched-mop');
   
   const wpPayload = {
     id: id, title: title, work_date: $('sched-date').value,
