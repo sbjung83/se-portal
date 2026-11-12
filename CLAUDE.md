@@ -1,5 +1,5 @@
 # CLAUDE.md
-
+Always respond and explain everything in Korean. (모든 대답과 설명은 무조건 한국어로 할 것)
 SE Portal — 서버 엔지니어 업무 관리 포탈 (사이트/장비/점검일정/이슈/프로젝트/작업계획/기술노트).
 단일 페이지(SPA) 프론트 + FastAPI REST 백엔드 + SQLite. Rocky Linux 9 / systemd + nginx 로 운영.
 
