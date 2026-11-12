@@ -1,0 +1,168 @@
+================================================================
+ SE Portal 프로젝트 구조 파악 메모
+ 작성일: 2026-11-12
+================================================================
+
+[1] 개요
+----------------------------------------------------------------
+- 이름   : SE Portal (서버 엔지니어 업무 관리 포탈)
+- 위치   : /opt/se-portal
+- 구성   : FastAPI(백엔드) + SQLite(DB) + 바닐라 JS SPA(프론트)
+- 운영   : Rocky Linux 9 / systemd(se-portal.service) + nginx(80 → 8000)
+- 실행 계정: appuser
+- 주요 패키지: fastapi 0.111, uvicorn 0.29, sqlalchemy 2.0, jinja2,
+              python-multipart, aiofiles, openpyxl(install.sh에서 설치)
+
+
+[2] 디렉토리 / 파일
+----------------------------------------------------------------
+/opt/se-portal
+ ├─ app.py                 진입점. 라우터 등록, /static 마운트, "/" → index.html
+ ├─ database.py            DB 연결 + 모든 ORM 모델 + init_db()
+ ├─ requirements.txt
+ ├─ install.sh             Rocky 9 설치 스크립트 (패키지/유저/venv/nginx/SELinux)
+ ├─ se-portal.service      systemd 유닛
+ ├─ se-portal.nginx.conf   nginx 리버스 프록시 (업로드 50MB)
+ ├─ routers/
+ │   ├─ auth.py            회원가입/로그인/로그아웃/me (세션 쿠키)
+ │   ├─ dashboard.py       대시보드 집계 (이번달 일정, 미해결 이슈, 보증만료 장비)
+ │   ├─ sites.py           사이트 + 장비/접속정보/점검보고서(업로드)/메모
+ │   ├─ schedules.py       점검 일정 (목록/이력/전체/CRUD)
+ │   ├─ issues.py          사이트 이슈 CRUD
+ │   ├─ site_checklist.py  사이트별 체크리스트 (+ 초기화)
+ │   ├─ projects.py        프로젝트 + 태스크 (storage/server 템플릿 자동 생성)
+ │   ├─ logs.py            작업 이력
+ │   ├─ technotes.py       기술 노트 + 작업 계획(MOP) + 엑셀 다운로드
+ │   ├─ development.py     개발 체크리스트 (JSON 파일 기반)
+ │   ├─ engineers.py       ※ app.py 에 등록 안 됨 (미사용)
+ │   └─ *.py_bk            백업 파일
+ ├─ templates/index.html   SPA 전체 마크업 (page-*, modal-*)
+ ├─ static/js/app.js       프론트 로직 전체 (약 1,650줄)
+ ├─ static/css/style.css
+ ├─ data/portal.db                 SQLite (git 제외)
+ ├─ data/portal-development.json   개발 체크리스트 데이터 (git 추적)
+ ├─ uploads/               업로드 보고서 (git 제외)
+ ├─ venv/                  가상환경
+ └─ 기타 스크립트 (일회성, 재실행 금지)
+     patch.py, patch_html.py, patch_js.py, patch_projects.py,
+     patch_schedules.py, split_frontend.py, update_tasks.py,
+     query_db.py, query_db_2.py, query_routes.py(라우트 목록 출력),
+     test_logic.py, test_new_logic.py (주차 계산 로직 확인)
+
+
+[3] 요청 흐름
+----------------------------------------------------------------
+ 브라우저 → nginx:80 → uvicorn:8000 (app.py)
+   "/"         → templates/index.html (SPA 한 장)
+   "/static/*" → static/
+   "/api/*"    → routers/*.py → database.get_db() → data/portal.db
+   "/api/dev/*"→ data/portal-development.json (DB 아님)
+
+
+[4] API 경로 규칙
+----------------------------------------------------------------
+ /api/auth/{register|login|logout|me}
+ /api/engineers/{eng_id}/dashboard
+ /api/engineers/{eng_id}/sites[/{site_id}/devices|accesses|reports|notes]
+ /api/engineers/{eng_id}/schedules[/history|/all]
+ /api/engineers/{eng_id}/issues
+ /api/engineers/{eng_id}/site-checklist[/{site_id}|/reset/{site_id}]
+ /api/engineers/{eng_id}/projects[/{id}/tasks]
+ /api/engineers/{eng_id}/logs
+ /api/engineers/{eng_id}/technotes
+ /api/engineers/{eng_id}/workplans[/{id}/download]
+ /api/dev/checklist[/summary|/stats|/section/..|/status/..|/item/{id}]
+
+ → 엔지니어 소유 데이터는 전부 /api/engineers/{eng_id}/ 하위.
+ → 쿼리마다 engineer_id == eng_id 로 필터.
+
+
+[5] DB 모델 (database.py)
+----------------------------------------------------------------
+ users          (id, username, password[sha256], engineer_id)
+ engineers      (id, name, memo)
+ sessions       (id, user_id, engineer_id)   ← 로그인 세션 토큰
+ sites          (engineer_id, name, location, manager, contact, memo)
+   ├ devices    (site_id, name, model, serial_no, dev_type, os, warranty, status ...)
+   ├ accesses   (site_id, ip, port, protocol, username, password ...)
+   ├ reports    (site_id, filename, stored_name, size, uploaded_at)
+   ├ notes      (site_id, date, title, body)
+   ├ schedules  (site_id, engineer_id, title, sched_date, sched_type, status)
+   ├ issues     (site_id, engineer_id, title, body, severity, status)
+   └ site_checklists (site_id, engineer_id, category, text, done)
+ worklogs       (engineer_id, date, site[문자열], log_type, title, body)
+ workplans      (engineer_id, title, work_date, purpose, impact, mop_content,
+                 verification, rollback_plan, status ...)
+ projects       (engineer_id, name, customer, start/end_date, status)
+   └ project_tasks (project_id, name, status, start/end_date, order_idx)
+ technotes      (engineer_id, title, category, tags, body[마크다운])
+
+ * PK 는 모두 uuid4 문자열
+ * 날짜는 대부분 "YYYY-MM-DD" 문자열
+ * Site 삭제 시 하위 데이터 cascade 삭제
+ * init_db() = create_all → 새 테이블만 생성, 컬럼 변경은 수동 ALTER 필요
+
+
+[6] 상태값 (한국어 고정 문자열)
+----------------------------------------------------------------
+ 점검일정  status : 예정 / 완료        type : 월간 / 분기 / 특별
+ 이슈      severity: 긴급/높음/보통/낮음  status: 오픈 / 처리중 / 완료
+ 프로젝트  status : 진행 대기 / 진행 중 / 보류 / 완료
+ 태스크    status : 대기 / 진행중 / 완료
+ 체크리스트 category: 일반 / 월간 / 분기
+ 작업계획  status 기본값: 계획중
+ 개발체크  status : 예정 / 진행중 / 완료
+
+
+[7] 백엔드 코딩 패턴
+----------------------------------------------------------------
+ - router = APIRouter(prefix="...", tags=[...])
+ - db: Session = Depends(get_db)
+ - 입력: XxxIn (생성), XxxUpdate (수정, 전부 Optional)
+ - PATCH: data.dict(exclude_none=True) → setattr
+ - 응답: _xxx_dict() 헬퍼로 dict 변환
+ - 삭제 응답: {"ok": True} / 없으면 HTTPException(404)
+ - 에러 메시지는 한국어
+ - 새 라우터는 app.py 에 import + include_router 필수
+
+
+[8] 프론트엔드 구조
+----------------------------------------------------------------
+ - 화면 전환: 사이드바 .nav-item[data-page=X] 클릭
+              → #page-X 활성화 → app.js 에서 renderX() 호출
+ - 페이지: dashboard, sites, checklist, projects, proj-status,
+           schedule-mgmt, sched-history, work-plan, logs, report(미구현),
+           technotes, dev-checklist
+ - 모달: .overlay#modal-xxx + openModal()/closeModal()
+ - 공통 헬퍼: $(id), api.get/post/patch/del, toast(), renderPagination()
+ - 전역 상태: ENG_ID, ENG_NAME (로그인 후 /api/auth/me 로 복원)
+ - 함수명 규칙: renderXxx / openAddXxx / openEditXxx / saveXxx / deleteXxx
+ - CDN: marked(기술노트 마크다운), highlight.js
+ - 캐시버스팅: index.html 의 app.js?v=2
+
+
+[9] 새 기능 추가 체크리스트
+----------------------------------------------------------------
+ [ ] database.py 에 모델 추가 (기존 테이블 컬럼 추가면 ALTER TABLE)
+ [ ] routers/새도메인.py 작성 (위 패턴대로)
+ [ ] app.py import + include_router
+ [ ] index.html : nav-item + page 섹션 + 필요 시 modal
+ [ ] app.js : NAV 분기 + renderXxx/saveXxx 등
+ [ ] app.js?v= 버전 올리기
+ [ ] systemctl restart se-portal
+
+
+[10] 발견된 이슈 / 개선 포인트
+----------------------------------------------------------------
+ ! 인증 미적용: get_current_user 가 /api/auth/me 에만 걸려 있음.
+   다른 API 는 URL 의 eng_id 만 신뢰 → 다른 엔지니어 데이터 접근 가능.
+ ! 비밀번호 SHA-256 무솔트 해시 (bcrypt 등 권장).
+ ! accesses.password 가 평문 저장.
+ ! openpyxl 이 requirements.txt 에 없음 (install.sh 에서만 설치).
+ ! routers/engineers.py 미등록 (죽은 코드).
+ ! projects.py 템플릿 생성 시 예외를 except: pass 로 무시.
+ ! development.py _update_summary 가 파일을 두 번 저장.
+ ! 마이그레이션 도구 없음 (Alembic 미사용).
+ ! 루트에 일회성 patch/query 스크립트와 *_bk 파일 산재 → 정리 필요.
+ ! 자동 테스트 없음.
+================================================================
