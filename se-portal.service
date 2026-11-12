@@ -1,6 +1,7 @@
 [Unit]
 Description=SE Portal - Server Engineer Management App
 After=network.target
+RequiresMountsFor=/opt/se-portal
 
 [Service]
 Type=simple
