@@ -88,14 +88,14 @@ document.querySelectorAll('.nav-item').forEach(el=>{
     if(page==='checklist')      renderChecklistPage();
     if(page==='sites')          renderSites();
     if(page==='schedule-mgmt'){ _smYear=new Date().getFullYear(); renderSchedMgmt(); }
-    if(page==='logs')           renderLogs();
     if(page==='projects')       renderProjects();
     if(page==='proj-status')    renderProjStatus();
     if(page==='sched-history')  renderSchedHistory();
     if(page==='technotes')      renderTechNotes();
     if(page==='work-plan')      renderWorkPlans();
+    if(page==='incidents')      renderIncidents();
+    if(page==='service-history') renderServiceHistory();
     if(page==='dev-checklist')  loadDevChecklist();
-    // if(page==='report') ...
   });
 });
 
@@ -119,7 +119,7 @@ async function renderDashboard(){
     <div class="metric"><div class="metric-label">전체 장비 수</div><div class="metric-value">${d.device_count}</div></div>
     <div class="metric"><div class="metric-label">이번 달 점검</div><div class="metric-value">${d.schedule_summary.done}/${d.schedule_summary.total}</div>
       <div class="prog-wrap"><div class="prog-bar" style="width:${d.schedule_summary.total?Math.round(d.schedule_summary.done/d.schedule_summary.total*100):0}%"></div></div></div>
-    <div class="metric"><div class="metric-label">이번 달 작업 이력</div><div class="metric-value">${d.monthly_log_count}건</div></div>`;
+    ${_svcMetric(d)}`;
 
   // 이슈 렌더 (페이지네이션)
   renderIssuesPage(1);
@@ -329,7 +329,7 @@ async function saveSched(){
     <div class="metric"><div class="metric-label">전체 장비 수</div><div class="metric-value">${d2.device_count}</div></div>
     <div class="metric"><div class="metric-label">이번 달 점검</div><div class="metric-value">${d2.schedule_summary.done}/${d2.schedule_summary.total}</div>
       <div class="prog-wrap"><div class="prog-bar" style="width:${d2.schedule_summary.total?Math.round(d2.schedule_summary.done/d2.schedule_summary.total*100):0}%"></div></div></div>
-    <div class="metric"><div class="metric-label">이번 달 작업 이력</div><div class="metric-value">${d2.monthly_log_count}건</div></div>`;
+    ${_svcMetric(d2)}`;
   if($('page-schedule-mgmt').classList.contains('active')) renderSchedMgmt();
   toast(id?'일정 수정됨':'일정 등록됨');
 }
@@ -649,74 +649,6 @@ async function deleteNote(id){
   loadNotes(); toast('삭제됨');
 }
 
-// ── LOGS ──────────────────────────────────
-async function renderLogs(filter=''){
-  const url=filter?`/api/engineers/${ENG_ID}/logs?q=${encodeURIComponent(filter)}`:`/api/engineers/${ENG_ID}/logs`;
-  const logs=await api.get(url);
-  const el=$('log-list');
-  if(!logs.length){el.innerHTML='<div class="empty">작업 이력이 없습니다</div>';return}
-  const tc={정기점검:'b-blue',장애처리:'b-red',변경작업:'b-amber','설치/교체':'b-green',기타:'b-gray'};
-  el.innerHTML=logs.map(l=>`
-    <div class="log-row">
-      <div class="log-date">${l.date}</div>
-      <div style="flex:1">
-        <div style="margin-bottom:3px">${l.site?`<span style="font-size:11px;color:#888">${l.site} · </span>`:''}<span class="badge ${tc[l.log_type]||'b-gray'}">${l.log_type}</span></div>
-        <div style="font-weight:500">${l.title}</div>
-        ${l.body?`<div style="font-size:12px;color:#888;margin-top:2px">${l.body}</div>`:''}
-      </div>
-      <div style="display:flex;gap:3px;flex-shrink:0">
-        <button class="icon-btn edit" title="수정" onclick="openEditLog(${JSON.stringify(l).replace(/"/g,'&quot;')})">${ICO_EDIT}</button>
-        <button class="icon-btn del"  title="삭제" onclick="deleteLog('${l.id}')">${ICO_DEL}</button>
-      </div>
-    </div>`).join('');
-}
-$('log-search').addEventListener('input',e=>renderLogs(e.target.value));
-
-async function fillLogSiteSel(selectedSite=''){
-  const sites=await api.get(`/api/engineers/${ENG_ID}/sites`);
-  $('l-site').innerHTML='<option value="">-</option>'+
-    sites.map(s=>`<option ${s.name===selectedSite?'selected':''}>${s.name}</option>`).join('');
-}
-
-$('btn-add-log').addEventListener('click', async()=>{
-  $('log-modal-title').textContent='작업 이력 추가';
-  $('l-id').value='';
-  ['l-title','l-body'].forEach(id=>$(id).value='');
-  $('l-date').value=new Date().toISOString().slice(0,10);
-  $('l-type').value='정기점검';
-  await fillLogSiteSel();
-  openModal('modal-add-log');
-});
-document.querySelector('.nav-item[data-page="logs"]').addEventListener('click',()=>fillLogSiteSel());
-
-async function openEditLog(l){
-  $('log-modal-title').textContent='작업 이력 수정';
-  $('l-id').value=l.id;
-  $('l-date').value=l.date;
-  $('l-type').value=l.log_type;
-  $('l-title').value=l.title;
-  $('l-body').value=l.body||'';
-  await fillLogSiteSel(l.site||'');
-  openModal('modal-add-log');
-}
-
-async function saveLog(){
-  const title=$('l-title').value.trim(); if(!title){toast('제목을 입력해주세요');return}
-  const id=$('l-id').value;
-  const payload={date:$('l-date').value,site:$('l-site').value,log_type:$('l-type').value,title,body:$('l-body').value};
-  if(id) await api.patch(`/api/engineers/${ENG_ID}/logs/${id}`,payload);
-  else   await api.post(`/api/engineers/${ENG_ID}/logs`,payload);
-  closeModal('modal-add-log');
-  ['l-title','l-body'].forEach(id=>$(id).value='');
-  renderLogs(); toast(id?'이력 수정됨':'작업 이력 추가됨');
-}
-
-async function deleteLog(id){
-  if(!confirm('작업 이력을 삭제하시겠습니까?'))return;
-  await api.del(`/api/engineers/${ENG_ID}/logs/${id}`);
-  renderLogs(); toast('삭제됨');
-}
-
 // ── MOP 표 입력기 ───────────────────────────
 // 저장 형식: JSON 배열 [{task, detail, time, worker, note}, ...]
 // 기존 '작업내용 # 상세 # 소요시간 # 작업자 # 비고' 줄 형식도 읽어서 표로 변환한다.
@@ -904,13 +836,13 @@ async function renderWorkPlans(filter='') {
     _allWorkPlans = plans;
   } catch (e) {
     console.error("Failed to load work plans:", e);
-    el.innerHTML = '<div class="empty" style="color:#dc2626; line-height:1.6;">작업 계획을 불러오는 중 오류가 발생했습니다.<br>백엔드 서버가 재시작되었는지 확인해주세요.</div>';
+    el.innerHTML = '<div class="empty" style="color:#dc2626; line-height:1.6;">기술지원 목록을 불러오는 중 오류가 발생했습니다.<br>백엔드 서버가 재시작되었는지 확인해주세요.</div>';
     return;
   }
 
   const q = filter.toLowerCase().trim();
   const filtered = plans.filter(p => (p.title||'').toLowerCase().includes(q) || (p.site||'').toLowerCase().includes(q));
-  if(!filtered.length) { el.innerHTML = '<div class="empty">등록된 작업 계획이 없습니다</div>'; return; }
+  if(!filtered.length) { el.innerHTML = '<div class="empty">등록된 기술지원이 없습니다</div>'; return; }
   
   const stCls = {'계획중':'b-gray', '결재대기':'b-amber', '승인완료':'b-blue', '작업완료':'b-green'};
   el.innerHTML = filtered.map(p => `
@@ -939,7 +871,7 @@ async function fillWpSiteSel(selectedSite=''){
 }
 
 async function openAddWorkPlan() {
-  $('wp-modal-title').textContent = '작업 계획 작성';
+  $('wp-modal-title').textContent = '기술지원 등록';
   $('wp-id').value = '';
   ['wp-title', 'wp-worker', 'wp-reviewer', 'wp-purpose', 'wp-prerequisites', 'wp-verification', 'wp-rollback'].forEach(id => $(id).value='');
   mopSet('wp-mop', '');
@@ -957,7 +889,7 @@ async function openAddWorkPlan() {
 }
 
 async function openEditWorkPlan(p) {
-  $('wp-modal-title').textContent = '작업 계획 수정';
+  $('wp-modal-title').textContent = '기술지원 수정';
   $('wp-id').value = p.id;
   $('wp-title').value = p.title;
   $('wp-date').value = p.work_date || '';
@@ -1002,18 +934,18 @@ async function saveWorkPlan() {
     const r = await fetch(url, {method: id ? 'PATCH' : 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
   } catch(e) {
-    console.error('작업 계획 저장 실패:', e);
+    console.error('기술지원 저장 실패:', e);
     toast('저장 실패: 서버 오류가 발생했습니다. 입력 내용은 유지됩니다.');
     return;
   }
   closeModal('modal-add-workplan');
-  renderWorkPlans(); toast(id ? '계획 수정됨' : '계획 저장됨');
+  renderWorkPlans(); _refreshSvcHistory(); toast(id ? '기술지원 수정됨' : '기술지원 등록됨');
 }
 
 async function deleteWorkPlan(id) {
-  if(!confirm('해당 작업 계획을 삭제하시겠습니까?')) return;
+  if(!confirm('해당 기술지원을 삭제하시겠습니까?')) return;
   await api.del(`/api/engineers/${ENG_ID}/workplans/${id}`);
-  renderWorkPlans(); toast('삭제됨');
+  renderWorkPlans(); _refreshSvcHistory(); toast('삭제됨');
 }
 
 function downloadWorkPlanExcel(id) {
@@ -1049,6 +981,240 @@ async function downloadSchedWorkPlanExcel() {
   
   // 백엔드 다운로드 엔드포인트로 리디렉션
   window.location.href = `/api/engineers/${ENG_ID}/workplans/${id}/download`;
+}
+
+// ── 서비스 지원 공통 ─────────────────────────
+function esc(v){
+  return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmtDT(v){ return v ? String(v).replace('T', ' ') : '-'; }
+function fmtDuration(min){
+  if(min === null || min === undefined) return '';
+  const d = Math.floor(min / 1440), h = Math.floor(min % 1440 / 60), m = min % 60;
+  return [d ? `${d}일` : '', h ? `${h}시간` : '', (m || (!d && !h)) ? `${m}분` : ''].filter(Boolean).join(' ');
+}
+function _svcMetric(d){
+  const a = d.monthly_support_count ?? 0, b = d.monthly_incident_count ?? 0;
+  return `<div class="metric" style="cursor:pointer" title="월별 기술지원 및 장애처리 이력으로 이동"
+      onclick="document.querySelector('.nav-item[data-page=\\'service-history\\']').click()">
+    <div class="metric-label">이번 달 기술지원 · 장애</div>
+    <div class="metric-value">${a + b}건</div>
+    <div style="font-size:11px;color:#64748b;margin-top:4px">기술지원 ${a} · 장애처리 ${b}</div></div>`;
+}
+function _refreshSvcHistory(){
+  if($('page-service-history').classList.contains('active')) renderServiceHistory();
+}
+
+// ── 장애처리 ─────────────────────────────────
+const INC_SEV_CLS = {'긴급':'b-red', '높음':'b-amber', '보통':'b-blue', '낮음':'b-gray'};
+const INC_ST_CLS  = {'접수':'b-purple', '처리중':'b-amber', '완료':'b-green'};
+let _allIncidents = [];
+
+async function renderIncidents(){
+  const el = $('inc-list');
+  const q = $('inc-search').value.trim(), st = $('inc-status-filter').value;
+  const params = new URLSearchParams();
+  if(q) params.set('q', q);
+  if(st) params.set('status', st);
+  let list;
+  try {
+    const r = await fetch(`/api/engineers/${ENG_ID}/incidents?${params}`);
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    list = await r.json();
+  } catch(e) {
+    console.error('장애 목록 조회 실패:', e);
+    el.innerHTML = '<div class="empty" style="color:#dc2626">장애 목록을 불러오지 못했습니다.</div>';
+    return;
+  }
+  _allIncidents = list;
+  if(!list.length){ el.innerHTML = '<div class="empty">등록된 장애가 없습니다</div>'; return; }
+  el.innerHTML = list.map(i => `
+    <div class="svc-row">
+      <div style="flex:1;min-width:0;cursor:pointer" onclick="openEditIncident('${i.id}')">
+        <div style="margin-bottom:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span class="badge ${INC_SEV_CLS[i.severity]||'b-gray'}">${esc(i.severity)}</span>
+          <span class="badge ${INC_ST_CLS[i.status]||'b-gray'}">${esc(i.status)}</span>
+          <span style="font-size:12px;color:#888">발생 ${esc(fmtDT(i.occurred_at))}${i.recovered_at ? ` → 복구 ${esc(fmtDT(i.recovered_at))}` : ''}</span>
+          ${i.downtime_min !== null ? `<span style="font-size:12px;color:#dc2626;font-weight:600">장애 ${fmtDuration(i.downtime_min)}</span>` : ''}
+        </div>
+        <div style="font-weight:700;font-size:14px;margin-bottom:4px">${esc(i.title)}</div>
+        <div style="font-size:12px;color:#666">사이트: <b>${esc(i.site||'-')}</b> | 장비: ${esc(i.device||'-')} | 처리자: ${esc(i.worker||'-')}</div>
+        ${i.cause ? `<div class="svc-sub">원인: ${esc(i.cause)}</div>` : ''}
+      </div>
+      <div style="display:flex;gap:4px;align-items:flex-start">
+        <button class="icon-btn edit" title="수정" onclick="openEditIncident('${i.id}')">${ICO_EDIT}</button>
+        <button class="icon-btn del" title="삭제" onclick="deleteIncident('${i.id}')">${ICO_DEL}</button>
+      </div>
+    </div>`).join('');
+}
+$('inc-search').addEventListener('input', () => { clearTimeout(window._incT); window._incT = setTimeout(renderIncidents, 250); });
+$('inc-status-filter').addEventListener('change', renderIncidents);
+
+async function _fillIncSiteSel(selected=''){
+  try {
+    const sites = await api.get(`/api/engineers/${ENG_ID}/sites`);
+    const names = sites.map(s => s.name);
+    if(selected && !names.includes(selected)) names.unshift(selected);   // 삭제된 사이트명도 보존
+    $('inc-site').innerHTML = '<option value="">-</option>' + names.map(n => `<option ${n===selected?'selected':''}>${esc(n)}</option>`).join('');
+  } catch(e) {
+    $('inc-site').innerHTML = '<option value="">사이트 로딩 실패</option>';
+  }
+}
+
+function _nowLocal(){
+  const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+}
+
+async function openAddIncident(){
+  $('inc-modal-title').textContent = '장애 등록';
+  $('inc-id').value = '';
+  ['inc-title','inc-device','inc-recovered','inc-worker','inc-symptom','inc-cause','inc-action','inc-prevention'].forEach(id => $(id).value = '');
+  $('inc-occurred').value = _nowLocal();
+  $('inc-severity').value = '보통';
+  $('inc-status').value = '접수';
+  $('inc-worker').value = ENG_NAME || '';
+  await _fillIncSiteSel();
+  openModal('modal-add-incident');
+}
+
+async function openEditIncident(id){
+  let i = _allIncidents.find(x => x.id === id);
+  if(!i){
+    try { _allIncidents = await api.get(`/api/engineers/${ENG_ID}/incidents`); } catch(e) {}
+    i = _allIncidents.find(x => x.id === id);
+  }
+  if(!i){ toast('장애 기록을 찾을 수 없습니다'); return; }
+  $('inc-modal-title').textContent = '장애 수정';
+  $('inc-id').value = i.id;
+  $('inc-title').value = i.title || '';
+  $('inc-device').value = i.device || '';
+  $('inc-occurred').value = i.occurred_at || '';
+  $('inc-recovered').value = i.recovered_at || '';
+  $('inc-severity').value = i.severity || '보통';
+  $('inc-status').value = i.status || '접수';
+  $('inc-worker').value = i.worker || '';
+  $('inc-symptom').value = i.symptom || '';
+  $('inc-cause').value = i.cause || '';
+  $('inc-action').value = i.action || '';
+  $('inc-prevention').value = i.prevention || '';
+  await _fillIncSiteSel(i.site || '');
+  openModal('modal-add-incident');
+}
+
+async function saveIncident(){
+  const title = $('inc-title').value.trim();
+  const occurred = $('inc-occurred').value;
+  if(!title){ toast('장애명을 입력해주세요'); return; }
+  if(!occurred){ toast('발생 일시를 입력해주세요'); return; }
+  const recovered = $('inc-recovered').value;
+  if(recovered && recovered < occurred){ toast('복구 일시가 발생 일시보다 빠릅니다'); return; }
+  let status = $('inc-status').value;
+  if(recovered && status === '접수') status = '처리중';
+  const payload = {
+    title, site: $('inc-site').value, device: $('inc-device').value.trim(),
+    severity: $('inc-severity').value, status,
+    occurred_at: occurred, recovered_at: recovered, worker: $('inc-worker').value.trim(),
+    symptom: $('inc-symptom').value, cause: $('inc-cause').value,
+    action: $('inc-action').value, prevention: $('inc-prevention').value,
+  };
+  const id = $('inc-id').value;
+  const url = id ? `/api/engineers/${ENG_ID}/incidents/${id}` : `/api/engineers/${ENG_ID}/incidents`;
+  try {
+    const r = await fetch(url, {method: id ? 'PATCH' : 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+  } catch(e) {
+    console.error('장애 저장 실패:', e);
+    toast('저장 실패: 서버 오류가 발생했습니다. 입력 내용은 유지됩니다.');
+    return;
+  }
+  closeModal('modal-add-incident');
+  if($('page-incidents').classList.contains('active')) renderIncidents();
+  _refreshSvcHistory();
+  toast(id ? '장애 수정됨' : '장애 등록됨');
+}
+
+async function deleteIncident(id){
+  if(!confirm('해당 장애 기록을 삭제하시겠습니까?')) return;
+  await api.del(`/api/engineers/${ENG_ID}/incidents/${id}`);
+  renderIncidents(); _refreshSvcHistory(); toast('삭제됨');
+}
+
+// ── 월별 기술지원 및 장애처리 이력 ─────────────
+let _svhTab = 'all';
+
+function _ym(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+
+function svhMove(delta){
+  if(delta === 0){ $('svh-month').value = _ym(new Date()); }
+  else {
+    const [y, m] = ($('svh-month').value || _ym(new Date())).split('-').map(Number);
+    $('svh-month').value = _ym(new Date(y, m - 1 + delta, 1));
+  }
+  renderServiceHistory();
+}
+$('svh-month').addEventListener('change', renderServiceHistory);
+document.querySelectorAll('.svh-tab').forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('.svh-tab').forEach(x => x.classList.toggle('active', x === t));
+  _svhTab = t.dataset.svh;
+  renderServiceHistory();
+}));
+
+async function renderServiceHistory(){
+  if(!$('svh-month').value) $('svh-month').value = _ym(new Date());
+  const ym = $('svh-month').value;
+  const el = $('svh-list');
+  let plans, incs;
+  try {
+    [plans, incs] = await Promise.all([
+      api.get(`/api/engineers/${ENG_ID}/workplans`),
+      api.get(`/api/engineers/${ENG_ID}/incidents?month=${ym}`),
+    ]);
+  } catch(e) {
+    console.error('월별 이력 조회 실패:', e);
+    el.innerHTML = '<div class="empty" style="color:#dc2626">이력을 불러오지 못했습니다.</div>';
+    return;
+  }
+  _allWorkPlans = plans;
+  _allIncidents = incs;
+  const sup = plans.filter(p => (p.work_date || '').startsWith(ym));
+
+  const downMin = incs.reduce((a, i) => a + (i.downtime_min || 0), 0);
+  const openInc = incs.filter(i => i.status !== '완료').length;
+  const supDone = sup.filter(p => p.status === '작업완료').length;
+  $('svh-summary').innerHTML = `
+    <div class="metric"><div class="metric-label">기술지원</div><div class="metric-value">${sup.length}건</div>
+      <div style="font-size:11px;color:#64748b;margin-top:4px">작업완료 ${supDone}건</div></div>
+    <div class="metric"><div class="metric-label">장애처리</div><div class="metric-value">${incs.length}건</div>
+      <div style="font-size:11px;color:#64748b;margin-top:4px">긴급·높음 ${incs.filter(i => i.severity==='긴급'||i.severity==='높음').length}건</div></div>
+    <div class="metric"><div class="metric-label">미완료 장애</div><div class="metric-value" style="${openInc?'color:#dc2626':''}">${openInc}건</div></div>
+    <div class="metric"><div class="metric-label">누적 장애 시간</div><div class="metric-value" style="font-size:20px">${downMin ? fmtDuration(downMin) : '-'}</div></div>`;
+
+  const rows = [];
+  if(_svhTab !== 'incident') sup.forEach(p => rows.push({
+    kind:'support', date:p.work_date, site:p.site, title:p.title, worker:p.worker,
+    status:p.status, stCls:{'계획중':'b-gray','결재대기':'b-amber','승인완료':'b-blue','작업완료':'b-green'}[p.status]||'b-gray',
+    extra:'', open:`openEditWorkPlan(_allWorkPlans.find(x=>x.id==='${p.id}'))`,
+  }));
+  if(_svhTab !== 'support') incs.forEach(i => rows.push({
+    kind:'incident', date:i.occurred_at, site:i.site, title:i.title, worker:i.worker,
+    status:i.status, stCls:INC_ST_CLS[i.status]||'b-gray',
+    extra:`<span class="badge ${INC_SEV_CLS[i.severity]||'b-gray'}">${esc(i.severity)}</span>${i.downtime_min!==null?` <span style="font-size:11px;color:#dc2626">${fmtDuration(i.downtime_min)}</span>`:''}`,
+    open:`openEditIncident('${i.id}')`,
+  }));
+  rows.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  if(!rows.length){ el.innerHTML = `<div class="empty">${ym} 이력이 없습니다</div>`; return; }
+  el.innerHTML = `<div class="svh-table-wrap"><table class="svh-table">
+    <thead><tr><th style="width:84px">구분</th><th style="width:130px">일시</th><th style="width:150px">사이트</th><th>제목</th><th style="width:110px">처리자</th><th style="width:170px">상태</th></tr></thead>
+    <tbody>${rows.map(r => `<tr onclick="${r.open}">
+      <td><span class="badge ${r.kind==='support'?'b-blue':'b-red'}">${r.kind==='support'?'기술지원':'장애처리'}</span></td>
+      <td style="color:#666">${esc(fmtDT(r.date))}</td>
+      <td>${esc(r.site||'-')}</td>
+      <td style="font-weight:600">${esc(r.title)}</td>
+      <td>${esc(r.worker||'-')}</td>
+      <td><span class="badge ${r.stCls}">${esc(r.status)}</span> ${r.extra}</td>
+    </tr>`).join('')}</tbody></table></div>`;
 }
 
 // ── 대시보드 점검일정 탭 ──────────────────

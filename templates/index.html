@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=2">
+<link rel="stylesheet" href="/static/css/style.css?v=3">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -95,17 +95,17 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.95"/></svg>점검 이력
       </div>
     </div>
-    <!-- 작업 이력 그룹 -->
+    <!-- 서비스 지원 그룹 -->
     <div class="nav-group">
-      <div class="nav-group-label">작업 관리</div>
+      <div class="nav-group-label">서비스 지원</div>
       <div class="nav-item" data-page="work-plan">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>작업 계획
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>기술지원
       </div>
-      <div class="nav-item" data-page="logs">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>작업 현황/이력
+      <div class="nav-item" data-page="incidents">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>장애처리
       </div>
-      <div class="nav-item" data-page="report">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/></svg>월간 보고서
+      <div class="nav-item" data-page="service-history">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>월별 기술지원 및 장애처리 이력
       </div>
     </div>
     <!-- 지식 창고 그룹 -->
@@ -247,34 +247,47 @@
       </div>
     </div>
 
-    <!-- REPORT -->
-    <div class="page" id="page-report">
-      <div class="page-title">월간 보고서</div>
-      <div style="display:flex;align-items:center;justify-content:center;flex-direction:column;padding:60px 0;color:#bbb">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48" style="margin-bottom:12px;opacity:.4"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/></svg>
-        <div style="font-size:14px;font-weight:500;margin-bottom:6px">준비 중인 기능입니다</div>
-        <div style="font-size:12px">월별 작업 내용 자동 요약 기능이 추가될 예정입니다</div>
-      </div>
-    </div>
-
-    <!-- WORK PLAN -->
+    <!-- 기술지원 (작업 계획) -->
     <div class="page" id="page-work-plan">
-      <div class="page-title">작업 계획</div>
+      <div class="page-title">기술지원</div>
       <div class="search-bar">
-        <input type="text" id="wp-search" placeholder="작업 계획명, 사이트 검색...">
-        <button class="btn btn-primary" onclick="openAddWorkPlan()">+ 계획 작성</button>
+        <input type="text" id="wp-search" placeholder="기술지원명, 사이트 검색...">
+        <button class="btn btn-primary" onclick="openAddWorkPlan()">+ 기술지원 등록</button>
       </div>
       <div class="card"><div id="wp-list"></div></div>
     </div>
 
-    <!-- LOGS -->
-    <div class="page" id="page-logs">
-      <div class="page-title">작업 현황/이력</div>
+    <!-- 장애처리 -->
+    <div class="page" id="page-incidents">
+      <div class="page-title">장애처리</div>
       <div class="search-bar">
-        <input type="text" id="log-search" placeholder="사이트, 제목, 내용 검색...">
-        <button class="btn btn-primary" id="btn-add-log">+ 이력 추가</button>
+        <input type="text" id="inc-search" placeholder="장애명, 사이트, 장비 검색...">
+        <select id="inc-status-filter" class="filter-select">
+          <option value="">전체 상태</option><option>접수</option><option>처리중</option><option>완료</option>
+        </select>
+        <button class="btn btn-primary" onclick="openAddIncident()">+ 장애 등록</button>
       </div>
-      <div class="card"><div id="log-list"></div></div>
+      <div class="card"><div id="inc-list"></div></div>
+    </div>
+
+    <!-- 월별 기술지원 및 장애처리 이력 -->
+    <div class="page" id="page-service-history">
+      <div class="page-title">월별 기술지원 및 장애처리 이력</div>
+      <div class="svh-bar">
+        <div class="svh-month">
+          <button class="btn btn-sm" onclick="svhMove(-1)" title="이전 달">◀</button>
+          <input type="month" id="svh-month">
+          <button class="btn btn-sm" onclick="svhMove(1)" title="다음 달">▶</button>
+          <button class="btn btn-sm" onclick="svhMove(0)">이번 달</button>
+        </div>
+        <div class="svh-tabs">
+          <button class="svh-tab active" data-svh="all">전체</button>
+          <button class="svh-tab" data-svh="support">기술지원</button>
+          <button class="svh-tab" data-svh="incident">장애처리</button>
+        </div>
+      </div>
+      <div class="grid4" id="svh-summary" style="margin-bottom:14px"></div>
+      <div class="card"><div id="svh-list"></div></div>
     </div>
 
     <!-- TECH NOTES -->
@@ -486,25 +499,6 @@
   </div>
 </div>
 
-<!-- 작업 이력 추가/수정 -->
-<div class="overlay" id="modal-add-log">
-  <div class="modal">
-    <div class="modal-head"><div class="modal-title" id="log-modal-title">작업 이력 추가</div><button class="btn btn-sm" onclick="closeModal('modal-add-log')">✕</button></div>
-    <input type="hidden" id="l-id">
-    <div class="grid2">
-      <div class="form-row"><label>날짜 *</label><input type="date" id="l-date"></div>
-      <div class="form-row"><label>사이트</label><select id="l-site"></select></div>
-    </div>
-    <div class="form-row"><label>작업 유형</label><select id="l-type"><option>정기점검</option><option>장애처리</option><option>변경작업</option><option>설치/교체</option><option>기타</option></select></div>
-    <div class="form-row"><label>제목 *</label><input type="text" id="l-title"></div>
-    <div class="form-row"><label>작업 내용</label><textarea id="l-body"></textarea></div>
-    <div class="form-actions">
-      <button class="btn" onclick="closeModal('modal-add-log')">취소</button>
-      <button class="btn btn-primary" onclick="saveLog()">저장</button>
-    </div>
-  </div>
-</div>
-
 <!-- 점검 일정 추가/수정 -->
 <div class="overlay" id="modal-add-sched">
   <div class="modal modal-lg">
@@ -641,10 +635,49 @@
   </div>
 </div>
 
-<!-- 작업 계획 추가/수정 -->
+<!-- 장애처리 등록/수정 -->
+<div class="overlay" id="modal-add-incident">
+  <div class="modal modal-lg">
+    <div class="modal-head"><div class="modal-title" id="inc-modal-title">장애 등록</div><button class="btn btn-sm" onclick="closeModal('modal-add-incident')">✕</button></div>
+    <input type="hidden" id="inc-id">
+
+    <div class="form-section">
+      <div class="form-section-title">1. 기본 정보</div>
+      <div class="form-row"><label>장애명 *</label><input type="text" id="inc-title" placeholder="예: DB 서버 디스크 장애로 서비스 지연"></div>
+      <div class="grid2">
+        <div class="form-row"><label>사이트</label><select id="inc-site"></select></div>
+        <div class="form-row"><label>장애 장비/시스템</label><input type="text" id="inc-device" placeholder="예: DB01 (Dell R750)"></div>
+      </div>
+      <div class="grid2">
+        <div class="form-row"><label>발생 일시 *</label><input type="datetime-local" id="inc-occurred"></div>
+        <div class="form-row"><label>복구 일시</label><input type="datetime-local" id="inc-recovered"></div>
+      </div>
+      <div class="grid2">
+        <div class="form-row"><label>심각도</label><select id="inc-severity"><option>긴급</option><option>높음</option><option selected>보통</option><option>낮음</option></select></div>
+        <div class="form-row"><label>상태</label><select id="inc-status"><option>접수</option><option>처리중</option><option>완료</option></select></div>
+      </div>
+      <div class="form-row"><label>처리자</label><input type="text" id="inc-worker" placeholder="예: 홍길동"></div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section-title">2. 장애 내용</div>
+      <div class="form-row"><label>장애 증상</label><textarea id="inc-symptom" style="min-height:70px" placeholder="장애 현상, 영향 범위, 인지 경로 등을 기재합니다."></textarea></div>
+      <div class="form-row"><label>원인</label><textarea id="inc-cause" style="min-height:70px" placeholder="확인된 장애 원인을 기재합니다."></textarea></div>
+      <div class="form-row"><label>조치 내용</label><textarea id="inc-action" style="min-height:90px" placeholder="복구를 위해 수행한 조치를 순서대로 기재합니다."></textarea></div>
+      <div class="form-row"><label>재발 방지 대책</label><textarea id="inc-prevention" style="min-height:60px" placeholder="재발 방지를 위한 후속 조치를 기재합니다."></textarea></div>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-add-incident')">취소</button>
+      <button class="btn btn-primary" onclick="saveIncident()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 기술지원(작업 계획) 추가/수정 -->
 <div class="overlay" id="modal-add-workplan">
   <div class="modal modal-lg">
-    <div class="modal-head"><div class="modal-title" id="wp-modal-title">작업 계획 작성</div><button class="btn btn-sm" onclick="closeModal('modal-add-workplan')">✕</button></div>
+    <div class="modal-head"><div class="modal-title" id="wp-modal-title">기술지원 등록</div><button class="btn btn-sm" onclick="closeModal('modal-add-workplan')">✕</button></div>
     <input type="hidden" id="wp-id">
 
     <div class="form-section">
@@ -750,6 +783,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=4"></script>
+<script src="/static/js/app.js?v=5"></script>
 </body>
 </html>

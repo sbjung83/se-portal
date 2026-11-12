@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from database import get_db, Site, Device, WorkLog, Schedule, Issue
+from database import get_db, Site, Device, Schedule, Issue, WorkPlan, Incident
 from datetime import datetime
 
 router = APIRouter(prefix="/api/engineers/{eng_id}/dashboard", tags=["dashboard"])
@@ -11,9 +11,14 @@ def get_dashboard(eng_id: str, db: Session = Depends(get_db)):
     sites       = db.query(Site).filter(Site.engineer_id == eng_id).all()
     site_ids    = [s.id for s in sites]
     all_devices = db.query(Device).filter(Device.site_id.in_(site_ids)).all() if site_ids else []
-    monthly_logs = db.query(WorkLog).filter(
-        WorkLog.engineer_id == eng_id,
-        WorkLog.date.startswith(today_ym)
+    # 이번 달 서비스 지원 실적 (기술지원 = 작업계획, 장애처리 = Incident)
+    monthly_support = db.query(WorkPlan).filter(
+        WorkPlan.engineer_id == eng_id,
+        WorkPlan.work_date.startswith(today_ym)
+    ).count()
+    monthly_incidents = db.query(Incident).filter(
+        Incident.engineer_id == eng_id,
+        Incident.occurred_at.startswith(today_ym)
     ).count()
     schedules_this_month = db.query(Schedule).filter(
         Schedule.engineer_id == eng_id,
@@ -43,7 +48,8 @@ def get_dashboard(eng_id: str, db: Session = Depends(get_db)):
     return {
         "site_count":        len(sites),
         "device_count":      len(all_devices),
-        "monthly_log_count": monthly_logs,
+        "monthly_support_count":  monthly_support,
+        "monthly_incident_count": monthly_incidents,
         "schedule_summary":  {"total": sched_total, "done": sched_done},
         "schedules":  [_sch(s, sites) for s in schedules_this_month],
         "issues":     [_iss(i, sites) for i in open_issues],   # 전체

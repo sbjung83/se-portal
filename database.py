@@ -178,6 +178,25 @@ class WorkPlan(Base):
     rollback_plan = Column(Text, default="")
     status        = Column(String, default="계획중")
 
+# ── 장애처리 ─────────────────────────────────
+class Incident(Base):
+    __tablename__ = "incidents"
+    id           = Column(String, primary_key=True)
+    engineer_id  = Column(String, ForeignKey("engineers.id"), nullable=True)
+    title        = Column(String, nullable=False)
+    site         = Column(String, default="")        # 사이트명 (WorkPlan과 동일 방식)
+    device       = Column(String, default="")        # 장애 장비/시스템
+    severity     = Column(String, default="보통")    # 긴급/높음/보통/낮음
+    status       = Column(String, default="접수")    # 접수/처리중/완료
+    occurred_at  = Column(String, default="")        # 발생 일시 "YYYY-MM-DDTHH:MM"
+    recovered_at = Column(String, default="")        # 복구 일시
+    worker       = Column(String, default="")        # 처리자
+    symptom      = Column(Text, default="")          # 장애 증상
+    cause        = Column(Text, default="")          # 원인
+    action       = Column(Text, default="")          # 조치 내용
+    prevention   = Column(Text, default="")          # 재발 방지 대책
+    created_at   = Column(String, default="")
+
 class SessionToken(Base):
     __tablename__ = "sessions"
     id          = Column(String, primary_key=True)
