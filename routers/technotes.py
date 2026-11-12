@@ -170,259 +170,210 @@ def delete_work_plan(eng_id: str, plan_id: str, db: Session = Depends(get_db)):
     db.commit()
     return {"detail": "삭제되었습니다"}
 
+# ── 작업계획서 엑셀 생성 ─────────────────────────
+# 레이아웃은 작업 계획 작성/수정 모달과 동일한 구성(1.기본 정보 / 2.작업 개요 / 3.MOP / 4.추가 계획)을 따른다.
+_XL_COLS = ['A', 'B', 'C', 'D', 'E', 'F']
+_XL_WIDTHS = {'A': 6, 'B': 24, 'C': 46, 'D': 12, 'E': 14, 'F': 20}
+_LINE_HEIGHT = 15  # 10pt 맑은 고딕 한 줄 높이(pt)
+
+
+def _text_width(s: str) -> int:
+    """엑셀 열 너비 단위 기준 대략적인 표시 폭 (한글/전각 = 2, 그 외 = 1)."""
+    return sum(2 if ord(ch) > 0x2E7F else 1 for ch in s)
+
+
+def _line_count(text, width_units: float) -> int:
+    """주어진 너비(열 너비 합)에서 줄바꿈 포함 몇 줄로 표시될지 추정."""
+    if text is None or text == "":
+        return 1
+    usable = max(width_units - 2, 4)
+    total = 0
+    for line in str(text).split('\n'):
+        w = _text_width(line)
+        total += max(1, -(-w // int(usable)))
+    return total
+
+
+def _span_width(c1: str, c2: str) -> float:
+    i1, i2 = _XL_COLS.index(c1), _XL_COLS.index(c2)
+    return sum(_XL_WIDTHS[c] for c in _XL_COLS[i1:i2 + 1])
+
+
+def _parse_mop_line(line: str):
+    """'작업 내용 # 작업 상세 # 소요시간 # 작업자 # 비고' → 5개 컬럼.
+    CLI 등에 '#'이 더 들어있으면 남는 부분은 비고에 그대로 붙여 내용이 유실되지 않게 한다."""
+    parts = [p.strip() for p in line.split('#', 4)]
+    parts += [''] * (5 - len(parts))
+    return parts
+
+
+def _build_work_plan_workbook(plan, engineer_name: str) -> Workbook:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "작업계획서"
+
+    thin = Side(style='thin', color="808080")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    center = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    left = Alignment(horizontal='left', vertical='center', wrap_text=True)
+    left_top = Alignment(horizontal='left', vertical='top', wrap_text=True)
+
+    f_title = Font(name='맑은 고딕', size=18, bold=True)
+    f_section = Font(name='맑은 고딕', size=11, bold=True, color="FFFFFF")
+    f_header = Font(name='맑은 고딕', size=10, bold=True)
+    f_label = Font(name='맑은 고딕', size=10, bold=True)
+    f_body = Font(name='맑은 고딕', size=10)
+
+    fill_section = PatternFill("solid", start_color="2F5597", end_color="2F5597")
+    fill_header = PatternFill("solid", start_color="D9E1F2", end_color="D9E1F2")
+    fill_label = PatternFill("solid", start_color="F2F2F2", end_color="F2F2F2")
+
+    for col, w in _XL_WIDTHS.items():
+        ws.column_dimensions[col].width = w
+
+    def put(rng: str, value=None, font=f_body, align=left, fill=None):
+        """범위에 테두리/스타일을 먼저 입힌 뒤 병합하고 값을 기록."""
+        for row in ws[rng] if ':' in rng else [[ws[rng]]]:
+            for c in row:
+                c.border = border
+                if fill:
+                    c.fill = fill
+        if ':' in rng:
+            ws.merge_cells(rng)
+        tl = ws[rng.split(':')[0]]
+        tl.value = value
+        tl.font = font
+        tl.alignment = align
+        return tl
+
+    def set_height(r: int, lines: int, min_h: float = 22):
+        h = max(min_h, lines * _LINE_HEIGHT + 8)
+        cur = ws.row_dimensions[r].height or 0
+        ws.row_dimensions[r].height = min(max(cur, h), 409)
+
+    # --- 제목 + 결재란 (1~4행) ---
+    put('A1:D4', "작 업 계 획 서", font=f_title, align=center)
+    put('E1:F1', "결   재", font=f_label, align=center, fill=fill_label)
+    put('E2', "담당", font=f_label, align=center, fill=fill_label)
+    put('F2', "팀장", font=f_label, align=center, fill=fill_label)
+    put('E3:E4', None, align=center)
+    put('F3:F4', None, align=center)
+    for r, h in ((1, 20), (2, 20), (3, 24), (4, 24)):
+        ws.row_dimensions[r].height = h
+
+    row = 6
+
+    def section(title: str):
+        nonlocal row
+        put(f'A{row}:F{row}', title, font=f_section, align=left, fill=fill_section)
+        ws.row_dimensions[row].height = 22
+        row += 1
+
+    def full_row(label: str, value, empty_text="-", min_lines=1):
+        """라벨(A:B) + 값(C:F) 한 줄. 값 길이에 맞춰 행 높이 자동 계산."""
+        nonlocal row
+        value = (value or "").strip() or empty_text
+        put(f'A{row}:B{row}', label, font=f_label, align=center, fill=fill_label)
+        put(f'C{row}:F{row}', value, align=left_top if min_lines > 1 or '\n' in value else left)
+        lines = max(min_lines, _line_count(value, _span_width('C', 'F')))
+        set_height(row, lines)
+        row += 1
+
+    def pair_row(l1: str, v1, l2: str, v2):
+        """라벨(A:B) + 값(C:D) + 라벨(E) + 값(F)."""
+        nonlocal row
+        v1 = (v1 or "").strip() or "-"
+        v2 = (v2 or "").strip() or "-"
+        put(f'A{row}:B{row}', l1, font=f_label, align=center, fill=fill_label)
+        put(f'C{row}:D{row}', v1)
+        put(f'E{row}', l2, font=f_label, align=center, fill=fill_label)
+        put(f'F{row}', v2)
+        lines = max(_line_count(v1, _span_width('C', 'D')), _line_count(v2, _XL_WIDTHS['F']))
+        set_height(row, lines)
+        row += 1
+
+    work_date = (plan.work_date or "").replace('T', ' ')
+
+    # --- 1. 기본 정보 ---
+    section("1. 기본 정보")
+    full_row("작업명", plan.title)
+    pair_row("작업 일시", work_date, "상태", plan.status)
+    pair_row("사이트", plan.site, "작성자", engineer_name)
+    pair_row("작업자", plan.worker, "결재/공유", plan.reviewer)
+    pair_row("문서번호", plan.id, "작성일", datetime.now().strftime("%Y-%m-%d"))
+    row += 1
+
+    # --- 2. 작업 개요 ---
+    section("2. 작업 개요")
+    full_row("작업 목적", plan.purpose, min_lines=2)
+    full_row("작업 영향도", plan.impact)
+    full_row("사전 준비사항", plan.prerequisites, empty_text="해당 없음")
+    row += 1
+
+    # --- 3. 상세 작업 절차 (MOP) ---
+    section("3. 상세 작업 절차 (Method of Procedure)")
+    headers = ['No.', '작업 내용', '작업 상세 (CLI 및 상세 내용)', '소요시간', '작업자', '비고']
+    for i, h in enumerate(headers):
+        put(f'{_XL_COLS[i]}{row}', h, font=f_header, align=center, fill=fill_header)
+    ws.row_dimensions[row].height = 22
+    mop_header_row = row
+    row += 1
+
+    mop_lines = [l for l in (plan.mop_content or '').splitlines() if l.strip()]
+    if not mop_lines:
+        put(f'A{row}:F{row + 2}', "작성된 작업 절차가 없습니다.", align=center)
+        row += 3
+    else:
+        for idx, line in enumerate(mop_lines, 1):
+            values = [idx] + _parse_mop_line(line)
+            lines = 1
+            for i, v in enumerate(values):
+                col = _XL_COLS[i]
+                put(f'{col}{row}', v, align=center if col in ('A', 'D', 'E') else left)
+                lines = max(lines, _line_count(v, _XL_WIDTHS[col]))
+            set_height(row, lines)
+            row += 1
+    row += 1
+
+    # --- 4. 추가 계획 ---
+    section("4. 추가 계획")
+    full_row("작업 후 확인사항", plan.verification, empty_text="해당 없음", min_lines=2)
+    full_row("비상 계획\n(Rollback)", plan.rollback_plan, empty_text="해당 없음", min_lines=2)
+
+    # --- 인쇄/보기 설정: A4 세로, 가로 1페이지 맞춤 ---
+    ws.sheet_view.showGridLines = False
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_margins.left = ws.page_margins.right = 0.4
+    ws.page_margins.top = ws.page_margins.bottom = 0.5
+    ws.print_options.horizontalCentered = True
+    ws.print_area = f'A1:F{row - 1}'
+    ws.print_title_rows = f'{mop_header_row}:{mop_header_row}' if len(mop_lines) > 20 else None
+    return wb
+
+
 @router.get("/api/engineers/{eng_id}/workplans/{plan_id}/download")
 def download_work_plan_excel_template(eng_id: str, plan_id: str, db: Session = Depends(get_db)):
     plan = db.query(WorkPlan).filter(WorkPlan.id == plan_id, WorkPlan.engineer_id == eng_id).first()
     if not plan:
         raise HTTPException(status_code=404, detail="작업 계획을 찾을 수 없습니다")
-    
+
     engineer = db.query(Engineer).filter(Engineer.id == eng_id).first()
-    engineer_name = engineer.name if engineer else ""
+    wb = _build_work_plan_workbook(plan, engineer.name if engineer else "")
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "작업계획서"
-
-    # --- Styles ---
-    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
-    center_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    top_left_align = Alignment(horizontal='left', vertical='top', wrap_text=True)
-    
-    title_font = Font(name='맑은 고딕', size=20, bold=True)
-    group_title_font = Font(name='맑은 고딕', size=13, bold=True)
-    header_font = Font(name='맑은 고딕', size=10, bold=True, color="FFFFFF")
-    label_font = Font(name='맑은 고딕', size=10, bold=True)
-    content_font = Font(name='맑은 고딕', size=10)
-    
-    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-    label_fill = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")
-
-    # --- Helper to apply border to merged cells ---
-    def apply_border_to_merged_cells(cell_range_str):
-        cells = ws[cell_range_str]
-        # Handle both single cells and ranges
-        if hasattr(cells, '__iter__') and not isinstance(cells, str):
-            for row in cells:
-                for cell in row:
-                    cell.border = thin_border
-        else:
-            cells.border = thin_border
-
-    # --- Column Widths (6-column layout) ---
-    ws.column_dimensions['A'].width = 5   # No.
-    ws.column_dimensions['B'].width = 30  # 작업 내용
-    ws.column_dimensions['C'].width = 55  # 작업 상세
-    ws.column_dimensions['D'].width = 15  # 소요시간(분)
-    ws.column_dimensions['E'].width = 15  # 작업자
-    ws.column_dimensions['F'].width = 25  # 비고
-
-    # --- Main Title ---
-    ws['A1'].value = "작업 계획서 (Work Plan)"
-    ws['A1'].font = title_font
-    ws['A1'].alignment = center_align
-    ws.merge_cells('A1:D2')
-    apply_border_to_merged_cells('A1:D2')
-
-    # --- Approval Section ---
-    ws['E1'].value = "결   재"
-    ws['E1'].font = label_font
-    ws['E1'].alignment = center_align
-    ws['E1'].fill = label_fill
-    ws.merge_cells('E1:F1')
-    
-    ws['E2'].value = "담당"
-    ws['E2'].font = label_font
-    ws['E2'].alignment = center_align
-    ws['E2'].fill = label_fill
-    
-    ws['F2'].value = "팀장"
-    ws['F2'].font = label_font
-    ws['F2'].alignment = center_align
-    ws['F2'].fill = label_fill
-    
-    ws.merge_cells('E3:E4')
-    ws.merge_cells('F3:F4')
-    for cell_range in ['E1:F1', 'E2', 'F2', 'E3:E4', 'F3:F4']:
-        apply_border_to_merged_cells(cell_range if ':' in cell_range else cell_range)
-
-    # --- Section 1: 개요 ---
-    current_row = 6
-    cell = ws[f'A{current_row}']
-    cell.value = "1. 작업 개요"
-    cell.font = group_title_font
-    cell.fill = label_fill
-    cell.alignment = center_align
-    ws.merge_cells(f'A{current_row}:F{current_row}')
-    apply_border_to_merged_cells(f'A{current_row}:F{current_row}')
-    current_row += 1
-
-    overview_data = [
-        ("문서번호", plan.id, "작성자", engineer_name),
-        ("작성일", datetime.now().strftime("%Y-%m-%d"), "문서상태", plan.status),
-        ("작업명", plan.title, None, None),
-        ("작업일시", plan.work_date.replace('T', ' ') if plan.work_date else '', "대상 사이트", plan.site),
-        ("작업자", plan.worker, "공유/검토", plan.reviewer),
-        ("작업 목적", plan.purpose, None, None),
-        ("작업 영향도", plan.impact, None, None),
-    ]
-
-    for item1, value1, item2, value2 in overview_data:
-        cell = ws[f'A{current_row}']
-        cell.value = item1
-        cell.font = label_font
-        cell.fill = label_fill
-        cell.alignment = center_align
-        ws.merge_cells(f'A{current_row}:B{current_row}')
-        apply_border_to_merged_cells(f'A{current_row}:B{current_row}')
-        
-        if item2 is not None:
-            cell = ws[f'C{current_row}']
-            cell.value = value1
-            cell.font = content_font
-            cell.alignment = top_left_align
-            ws.merge_cells(f'C{current_row}:D{current_row}')
-            apply_border_to_merged_cells(f'C{current_row}:D{current_row}')
-
-            ws[f'E{current_row}'].value = item2
-            ws[f'E{current_row}'].font = label_font
-            ws[f'E{current_row}'].fill = label_fill
-            ws[f'E{current_row}'].alignment = center_align
-            ws[f'E{current_row}'].border = thin_border
-            
-            ws[f'F{current_row}'].value = value2
-            ws[f'F{current_row}'].font = content_font
-            ws[f'F{current_row}'].alignment = top_left_align
-            ws[f'F{current_row}'].border = thin_border
-        else:
-            cell = ws[f'C{current_row}']
-            cell.value = value1
-            cell.font = content_font
-            cell.alignment = top_left_align
-            ws.merge_cells(f'C{current_row}:F{current_row}')
-            apply_border_to_merged_cells(f'C{current_row}:F{current_row}')
-        current_row += 1
-    
-    # --- Section 2: 사전 계획 ---
-    current_row += 1
-    cell = ws[f'A{current_row}']
-    cell.value = "2. 사전 준비 및 계획"
-    cell.font = group_title_font
-    cell.fill = label_fill
-    cell.alignment = center_align
-    ws.merge_cells(f'A{current_row}:F{current_row}')
-    apply_border_to_merged_cells(f'A{current_row}:F{current_row}')
-    current_row += 1
-
-    plan_data = [("사전 준비사항", plan.prerequisites), ("비상 계획 (Rollback)", plan.rollback_plan)]
-    for label, value in plan_data:
-        cell = ws[f'A{current_row}']
-        cell.value = label
-        cell.font = label_font
-        cell.fill = label_fill
-        cell.alignment = center_align
-        ws.merge_cells(f'A{current_row}:B{current_row}')
-        apply_border_to_merged_cells(f'A{current_row}:B{current_row}')
-        
-        cell = ws[f'C{current_row}']
-        cell.value = value or "해당 없음"
-        cell.font = content_font
-        cell.alignment = top_left_align
-        ws.merge_cells(f'C{current_row}:F{current_row+1}')
-        apply_border_to_merged_cells(f'C{current_row}:F{current_row+1}')
-        ws.row_dimensions[current_row].height = 30
-        ws.row_dimensions[current_row+1].height = 30
-        current_row += 2
-
-    # --- Section 3: MOP ---
-    current_row += 1
-    cell = ws[f'A{current_row}']
-    cell.value = "3. 상세 작업 절차 (MOP)"
-    cell.font = group_title_font
-    cell.fill = label_fill
-    cell.alignment = center_align
-    ws.merge_cells(f'A{current_row}:F{current_row}')
-    apply_border_to_merged_cells(f'A{current_row}:F{current_row}')
-    current_row += 1
-    
-    mop_headers = ['No.', '작업 내용', '작업 상세 (cli 및 상세 내용)', '소요시간(분)', '작업자', '비고']
-    for i, header in enumerate(mop_headers, 1):
-        cell = ws.cell(row=current_row, column=i, value=header)
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = center_align
-        cell.border = thin_border
-    current_row += 1
-    
-    mop_lines = [line for line in (plan.mop_content or '').split('\n') if line.strip()]
-    if not mop_lines:
-        cell = ws[f'A{current_row}']
-        cell.value = "작성된 MOP 내용이 없습니다."
-        cell.font = content_font
-        cell.alignment = center_align
-        ws.merge_cells(f'A{current_row}:F{current_row+4}')
-        apply_border_to_merged_cells(f'A{current_row}:F{current_row+4}')
-        current_row += 5
-    else:
-        for index, line in enumerate(mop_lines, 1):
-            parts = [p.strip() for p in line.split('#')]
-            row_data = [
-                index,
-                parts[0] if len(parts) > 0 else '',
-                parts[1] if len(parts) > 1 else '',
-                parts[2] if len(parts) > 2 else '',
-                parts[3] if len(parts) > 3 else '',
-                parts[4] if len(parts) > 4 else '',
-            ]
-            for col, value in enumerate(row_data, 1):
-                cell = ws.cell(row=current_row, column=col, value=value)
-                cell.font = content_font
-                cell.border = thin_border
-                if col in [1, 4, 5]: 
-                    cell.alignment = center_align
-                else: 
-                    cell.alignment = top_left_align
-            ws.row_dimensions[current_row].height = 40
-            current_row += 1
-
-    # --- Section 4: 작업 후 확인 ---
-    current_row += 1
-    cell = ws[f'A{current_row}']
-    cell.value = "4. 작업 후 확인사항"
-    cell.font = group_title_font
-    cell.fill = label_fill
-    cell.alignment = center_align
-    ws.merge_cells(f'A{current_row}:F{current_row}')
-    apply_border_to_merged_cells(f'A{current_row}:F{current_row}')
-    current_row += 1
-    
-    cell = ws[f'A{current_row}']
-    cell.value = "확인 절차"
-    cell.font = label_font
-    cell.fill = label_fill
-    cell.alignment = center_align
-    ws.merge_cells(f'A{current_row}:B{current_row}')
-    apply_border_to_merged_cells(f'A{current_row}:B{current_row}')
-    
-    cell = ws[f'C{current_row}']
-    cell.value = plan.verification or "해당 없음"
-    cell.font = content_font
-    cell.alignment = top_left_align
-    ws.merge_cells(f'C{current_row}:F{current_row+2}')
-    apply_border_to_merged_cells(f'C{current_row}:F{current_row+2}')
-    ws.row_dimensions[current_row].height = 30
-    ws.row_dimensions[current_row+1].height = 30
-    ws.row_dimensions[current_row+2].height = 30
-
-    # --- Filename and Stream response ---
     stream = io.BytesIO()
     wb.save(stream)
     stream.seek(0)
-    
-    safe_title = re.sub(r'[\\/*?:"<>|]', "_", plan.title)
-    work_date_str = (datetime.fromisoformat(plan.work_date.replace('T', ' ')).strftime("%Y%m%d") if plan.work_date else "N_A")
+
+    safe_title = re.sub(r'[\\/*?:"<>|]', "_", plan.title or "")
+    m = re.match(r'(\d{4})-(\d{2})-(\d{2})', plan.work_date or "")
+    work_date_str = "".join(m.groups()) if m else "N_A"
     filename = f"작업계획서_{work_date_str}_{safe_title}.xlsx"
     filename_encoded = quote(filename)
 
-    return StreamingResponse(stream, 
+    return StreamingResponse(stream,
                              media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                              headers={'Content-Disposition': f"attachment; filename*=UTF-8''{filename_encoded}"})
