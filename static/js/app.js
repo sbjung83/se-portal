@@ -816,8 +816,15 @@ async function saveWorkPlan() {
     rollback_plan: $('wp-rollback').value
   };
   const id = $('wp-id').value;
-  if(id) await api.patch(`/api/engineers/${ENG_ID}/workplans/${id}`, payload);
-  else await api.post(`/api/engineers/${ENG_ID}/workplans`, payload);
+  const url = id ? `/api/engineers/${ENG_ID}/workplans/${id}` : `/api/engineers/${ENG_ID}/workplans`;
+  try {
+    const r = await fetch(url, {method: id ? 'PATCH' : 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+  } catch(e) {
+    console.error('작업 계획 저장 실패:', e);
+    toast('저장 실패: 서버 오류가 발생했습니다. 입력 내용은 유지됩니다.');
+    return;
+  }
   closeModal('modal-add-workplan');
   renderWorkPlans(); toast(id ? '계획 수정됨' : '계획 저장됨');
 }
