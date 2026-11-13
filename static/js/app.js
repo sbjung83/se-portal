@@ -86,7 +86,6 @@ document.querySelectorAll('.nav-item').forEach(el=>{
     if(page==='sites')          renderSites();
     if(page==='schedule-mgmt'){ _smYear=new Date().getFullYear(); renderSchedMgmt(); }
     if(page==='projects')       renderProjects();
-    if(page==='proj-status')    renderProjStatus();
     if(page==='sched-history')  renderSchedHistory();
     if(page==='technotes')      renderTechNotes();
     if(page==='work-plan')      renderWorkPlans();
@@ -2245,46 +2244,93 @@ $('n-date').value=new Date().toISOString().slice(0,10);
 
 // ── PROJECTS ─────────────────────────────────
 let _currentProjectId = null;
+let _projs = [], _projTab = '';
+const PROJ_ST_CLS = {'진행 대기':'b-gray', '진행 중':'b-blue', '보류':'b-amber', '완료':'b-green'};
+const TASK_ST_CLS = {'대기':'b-gray', '진행중':'b-blue', '완료':'b-done'};
+const TASK_ST_NEXT = {'대기':'진행중', '진행중':'완료', '완료':'대기'};
+const _projBase = () => `/api/engineers/${ENG_ID}/projects`;
 
-async function renderProjects(filter='') {
-  const projs = await api.get(`/api/engineers/${ENG_ID}/projects`);
-  const el = $('project-list');
-  const filtered = projs.filter(p => p.name.includes(filter) || (p.customer||'').includes(filter));
-  if(!filtered.length) { el.innerHTML = '<div class="empty">프로젝트가 없습니다</div>'; return; }
-  
-  const statusCls = {'진행 대기':'b-gray', '진행 중':'b-blue', '보류':'b-amber', '완료':'b-green'};
-  el.innerHTML = filtered.map(p => `
-    <div class="card" style="cursor:pointer" onclick="openProjectDetail('${p.id}')">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start">
-        <div style="flex:1">
-          <div style="font-size:15px;font-weight:700;margin-bottom:6px;color:#1e293b">${p.name}</div>
-          <div style="font-size:12px;color:#64748b;margin-bottom:10px">고객사: ${p.customer||'-'} <span style="margin:0 6px">|</span> 기간: ${p.start_date||'-'} ~ ${p.end_date||'-'}</div>
-          <div style="font-size:12px;color:#888;margin-bottom:10px">${p.description||''}</div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span class="badge ${statusCls[p.status]||'b-gray'}">${p.status}</span>
-            <div style="flex:1;max-width:200px;height:6px;background:#f1f5f9;border-radius:6px;overflow:hidden">
-              <div style="width:${p.progress}%;height:100%;background:${p.progress===100?'#22c55e':'#3b82f6'};transition:width 0.3s"></div>
-            </div>
-            <span style="font-size:11px;color:#888">${p.progress}% (${p.tasks.filter(t=>t.status==='완료').length}/${p.tasks.length})</span>
-          </div>
-        </div>
-        <div style="display:flex;gap:4px;flex-shrink:0">
-          <button class="icon-btn edit" title="수정" onclick="event.stopPropagation();openEditProject(${JSON.stringify(p).replace(/"/g,'&quot;')})">${ICO_EDIT}</button>
-          <button class="icon-btn del" title="삭제" onclick="event.stopPropagation();deleteProject('${p.id}')">${ICO_DEL}</button>
-        </div>
-      </div>
-    </div>`).join('');
+function _addDays(day, n){ const [y,m,d] = day.split('-').map(Number); return _ymd(new Date(y, m-1, d+n)); }
+function _projDone(p){ return p.tasks.filter(t => t.status === '완료').length; }
+// 종료일이 지났는데 끝나지 않은 프로젝트의 지연 일수 (해당 없으면 0)
+function _projLate(p){
+  if(!p.end_date || p.status === '완료' || p.status === '보류') return 0;
+  return Math.max(0, _daysBetween(p.end_date, _ymd(new Date())));
+}
+function _projBar(p, width){
+  const n = _projDone(p);
+  return `<div class="pj-prog"><div class="prog-wrap" style="${width ? `width:${width}px;` : 'flex:1;'}margin-top:0"><div class="prog-bar" style="width:${p.progress}%;${p.progress === 100 ? 'background:#22c55e' : ''}"></div></div>
+    <span class="pj-prog-txt">${p.tasks.length ? `${n}/${p.tasks.length} (${p.progress}%)` : '태스크 없음'}</span></div>`;
+}
+function _projBadges(p){
+  const late = _projLate(p);
+  return `<span class="badge ${PROJ_ST_CLS[p.status] || 'b-gray'}">${esc(p.status || '-')}</span>${late ? `<span class="badge b-red" title="종료일 ${esc(p.end_date)}이 지났습니다">지연 D+${late}</span>` : ''}`;
 }
 
-const projectSearch = $('project-search');
-if (projectSearch) projectSearch.addEventListener('input', e => renderProjects(e.target.value));
+async function renderProjects(){
+  try { _projs = await _apiSend('GET', _projBase()); }
+  catch(e){ $('project-list').innerHTML = `<div class="cl-panel"><div class="empty">프로젝트를 불러오지 못했습니다: ${esc(e.message)}</div></div>`; return; }
+  drawProjects();
+}
+
+function projSetTab(tab){
+  _projTab = tab;
+  drawProjects();
+}
+
+function drawProjects(){
+  const inTab = (p, t) => !t || (t === '지연' ? _projLate(p) > 0 : p.status === t);
+  const cnt = t => _projs.filter(p => inTab(p, t)).length;
+
+  // 요약 카드 (누르면 해당 조건만 보기)
+  const cards = [['', '전체 프로젝트', 'm-gray'], ['진행 중', '진행 중', 'm-blue'], ['지연', '지연', 'm-red'], ['완료', '완료', 'm-green']];
+  $('proj-summary').innerHTML = cards.map(([t, label, cls]) => `
+    <div class="metric ${cls} ${_projTab === t ? 'active' : ''}" onclick="projSetTab('${t}')">
+      <div class="metric-label">${label}</div>
+      <div class="metric-value" style="${t === '지연' && cnt(t) ? 'color:#dc2626' : ''}">${cnt(t)}<small>건</small></div>
+    </div>`).join('');
+  $('proj-tabs').innerHTML = ['', '지연', '진행 중', '진행 대기', '보류', '완료'].map(t =>
+    `<button class="svh-tab ${_projTab === t ? 'active' : ''}" onclick="projSetTab('${t}')">${t || '전체'} ${cnt(t)}</button>`).join('');
+
+  const q = $('project-search').value.trim().toLowerCase();
+  const rank = p => _projLate(p) ? 0 : ({'진행 중':1, '진행 대기':2, '보류':3, '완료':4}[p.status] ?? 5);
+  const list = _projs.filter(p => inTab(p, _projTab))
+    .filter(p => !q || (p.name || '').toLowerCase().includes(q) || (p.customer || '').toLowerCase().includes(q))
+    .sort((a, b) => rank(a) - rank(b) || (a.end_date || '9999').localeCompare(b.end_date || '9999'));
+
+  const row = p => {
+    const desc = (p.description || '').split('\n').map(x => x.trim()).filter(Boolean)[0] || '';
+    const canFinish = p.tasks.length && p.progress === 100 && p.status !== '완료';
+    return `<tr onclick="openProjectDetail('${p.id}')">
+      <td><div class="pj-name">${esc(p.name)}</div>${desc ? `<div class="pj-desc" title="${esc(p.description)}">${esc(desc)}</div>` : ''}</td>
+      <td>${esc(p.customer || '-')}</td>
+      <td class="pj-period">${esc(p.start_date || '-')} ~ ${esc(p.end_date || '-')}</td>
+      <td><div class="pj-badges">${_projBadges(p)}${canFinish ? `<button class="btn btn-sm pj-finish" title="태스크가 모두 완료되었습니다" onclick="event.stopPropagation();completeProject('${p.id}')">완료 처리</button>` : ''}</div></td>
+      <td>${_projBar(p)}</td>
+      <td class="c cl-act"><button class="icon-btn edit" title="수정" onclick="event.stopPropagation();openEditProject('${p.id}')">${ICO_EDIT}</button><button class="icon-btn del" title="삭제" onclick="event.stopPropagation();deleteProject('${p.id}')">${ICO_DEL}</button></td>
+    </tr>`;
+  };
+  $('project-list').innerHTML = `<div class="cl-panel"><table class="cl-table pj-table">
+    <thead><tr><th>프로젝트</th><th style="width:16%">고객사</th><th style="width:180px">기간</th><th style="width:176px">상태</th><th style="width:176px">진척 (완료 태스크)</th><th class="c" style="width:86px">관리</th></tr></thead>
+    <tbody>${list.length ? list.map(row).join('') : `<tr class="cl-msg"><td colspan="6">${
+      !_projs.length ? '등록된 프로젝트가 없습니다' : '조건에 맞는 프로젝트가 없습니다'}</td></tr>`}</tbody></table></div>`;
+}
+
+$('project-search').addEventListener('input', drawProjects);
+
+// 목록과 열려 있는 상세 창을 함께 새로 그림
+async function _reloadProj(){
+  try { _projs = await _apiSend('GET', _projBase()); } catch(e){ toast('새로고침 실패: ' + e.message); return; }
+  if($('page-projects').classList.contains('active')) drawProjects();
+  if($('modal-project-detail').classList.contains('open')) drawProjectDetail();
+}
 
 function openAddProject() {
   $('proj-modal-title').textContent = '프로젝트 등록';
   $('p-id').value = '';
   $('p-name').value = '';
   $('p-customer').value = '';
-  $('p-start').value = new Date().toISOString().slice(0,10);
+  $('p-start').value = _ymd(new Date());
   $('p-end').value = '';
   $('p-status').value = '진행 대기';
   $('p-desc').value = '';
@@ -2293,7 +2339,9 @@ function openAddProject() {
   openModal('modal-add-project');
 }
 
-function openEditProject(p) {
+function openEditProject(id) {
+  const p = _projs.find(x => x.id === id);
+  if(!p) return;
   $('proj-modal-title').textContent = '프로젝트 수정';
   $('p-id').value = p.id;
   $('p-name').value = p.name;
@@ -2312,118 +2360,123 @@ async function saveProject() {
   if(!name) { toast('프로젝트명을 입력해주세요'); return; }
   const id = $('p-id').value;
   const payload = {
-    name, customer: $('p-customer').value,
+    name, customer: $('p-customer').value.trim(),
     start_date: $('p-start').value, end_date: $('p-end').value,
     status: $('p-status').value, description: $('p-desc').value
   };
+  if(payload.start_date && payload.end_date && payload.end_date < payload.start_date){ toast('종료일이 시작일보다 빠릅니다'); return; }
   if(!id) {
     const tmpl = $('p-template').value;
-    if(tmpl && !payload.start_date) {
-      toast('템플릿을 사용하려면 시작일을 지정해야 합니다.'); return;
-    }
+    if(tmpl && !payload.start_date) { toast('템플릿을 사용하려면 시작일을 지정해야 합니다.'); return; }
     payload.template = tmpl;
   }
-  
-  if(id) await api.patch(`/api/engineers/${ENG_ID}/projects/${id}`, payload);
-  else   await api.post(`/api/engineers/${ENG_ID}/projects`, payload);
+  try {
+    if(id) await _apiSend('PATCH', `${_projBase()}/${id}`, payload);
+    else   await _apiSend('POST', _projBase(), payload);
+  } catch(e){ toast('저장 실패: ' + e.message); return; }
   closeModal('modal-add-project');
-  renderProjects(); toast(id ? '수정됨' : '등록됨');
+  await _reloadProj(); toast(id ? '수정됨' : '등록됨');
 }
 
 async function deleteProject(id) {
-  if(!confirm('프로젝트를 삭제하시겠습니까? 관련 태스크도 모두 삭제됩니다.')) return;
-  await api.del(`/api/engineers/${ENG_ID}/projects/${id}`);
-  renderProjects(); toast('삭제됨');
+  const p = _projs.find(x => x.id === id);
+  if(!confirm(`프로젝트${p ? ` "${p.name}"` : ''}를 삭제하시겠습니까?\n태스크${p ? ` ${p.tasks.length}개` : ''}도 모두 삭제됩니다.`)) return;
+  try { await _apiSend('DELETE', `${_projBase()}/${id}`); } catch(e){ toast('삭제 실패: ' + e.message); return; }
+  await _reloadProj(); toast('삭제됨');
+}
+
+async function completeProject(id){
+  try { await _apiSend('PATCH', `${_projBase()}/${id}`, {status: '완료'}); } catch(e){ toast('변경 실패: ' + e.message); return; }
+  await _reloadProj(); toast('프로젝트 완료 처리됨');
 }
 
 // ── PROJECT DETAIL (TASKS) ───────────────────
 async function openProjectDetail(id) {
   _currentProjectId = id;
-  const projs = await api.get(`/api/engineers/${ENG_ID}/projects`);
-  const p = projs.find(x => x.id === id);
-  if(!p) return;
-  $('detail-proj-name').textContent = p.name;
-  renderTasks(p);
+  if(!_projs.some(x => x.id === id)){
+    try { _projs = await _apiSend('GET', _projBase()); } catch(e){ toast('조회 실패: ' + e.message); return; }
+  }
+  if(!_projs.some(x => x.id === id)) return;
+  drawProjectDetail();
   openModal('modal-project-detail');
+}
+
+function drawProjectDetail(){
+  const p = _projs.find(x => x.id === _currentProjectId);
+  if(!p){ closeModal('modal-project-detail'); return; }
+  $('detail-proj-name').textContent = p.name;
+  const canFinish = p.tasks.length && p.progress === 100 && p.status !== '완료';
+  $('proj-detail-info').innerHTML = `
+    <div class="pj-info-top">
+      <div class="pj-badges">${_projBadges(p)}</div>
+      <span class="pj-info-item"><b>고객사</b>${esc(p.customer || '-')}</span>
+      <span class="pj-info-item"><b>기간</b>${esc(p.start_date || '-')} ~ ${esc(p.end_date || '-')}</span>
+      <span style="flex:1"></span>
+      ${canFinish ? `<button class="btn btn-sm pj-finish" onclick="completeProject('${p.id}')">완료 처리</button>` : ''}
+      <button class="btn btn-sm" onclick="openEditProject('${p.id}')">프로젝트 수정</button>
+    </div>
+    ${_projBar(p)}
+    ${(p.description || '').trim() ? `<div class="pj-info-desc">${esc(p.description.trim())}</div>` : ''}`;
+  renderTasks(p);
 }
 
 function renderTasks(p) {
   const tasks = p.tasks || [];
   const el = $('task-list');
-  if(!tasks.length) { el.innerHTML = '<div class="empty">등록된 태스크가 없습니다.</div>'; return; }
-  
-  let minDate = new Date(p.start_date || '2099-12-31');
-  let maxDate = new Date(p.end_date || '1970-01-01');
-  
-  tasks.forEach(t => {
-    if(t.start_date) { const d = new Date(t.start_date); if(d < minDate) minDate = d; }
-    if(t.end_date) { const d = new Date(t.end_date); if(d > maxDate) maxDate = d; }
-  });
+  if(!tasks.length) { el.innerHTML = '<div class="empty">등록된 태스크가 없습니다. 위의 "+ 태스크 추가"로 등록하세요.</div>'; return; }
 
-  if (minDate > maxDate) {
-    minDate = new Date();
-    maxDate = new Date();
+  // 간트 범위: 프로젝트·태스크 날짜 전체를 포함하는 주(월~일) 단위
+  const dates = [p.start_date, p.end_date, ...tasks.flatMap(t => [t.start_date, t.end_date])].filter(d => /^\d{4}-\d{2}-\d{2}/.test(d || '')).map(d => d.slice(0, 10)).sort();
+  const today = _ymd(new Date());
+  let gStart = '', total = 0, weeks = 0;
+  if(dates.length){
+    const [y, m, d] = dates[0].split('-').map(Number);
+    gStart = _addDays(dates[0], -((new Date(y, m-1, d).getDay() + 6) % 7));
+    weeks = Math.floor(_daysBetween(gStart, dates[dates.length - 1]) / 7) + 1;
+    total = weeks * 7;
   }
+  const pct = n => (n / total * 100).toFixed(3);
+  const todayOff = gStart ? _daysBetween(gStart, today) : -1;
+  const todayLine = todayOff >= 0 && todayOff < total ? `<div class="pj-today" style="left:${pct(todayOff + 0.5)}%"></div>` : '';
+  const grid = Array.from({length: weeks}, () => '<div class="pj-wk"></div>').join('');
 
-  const totalDays = Math.max(1, Math.ceil((maxDate - minDate) / (1000 * 60 * 60 * 24)));
-  const weeksCount = Math.max(1, Math.ceil(totalDays / 7));
-
-  const statusCls = {'대기':'b-gray', '진행중':'b-blue', '완료':'b-done'};
-  
-  let timelineHTML = `<div style="display:flex; margin-bottom: 8px; border-bottom:1px solid #e2e8f0; padding-bottom: 4px;">
-    <div style="width: 200px; font-weight: 600; font-size: 12px; color: #64748b;">태스크명</div>
-    <div style="flex:1; display:flex;">
-      ${Array.from({length: weeksCount}).map((_, i) => {
-        const cur = new Date(minDate.getTime() + i * 7 * 24 * 60 * 60 * 1000);
-        const getMonthWeek = (d) => {
-          const fDay = new Date(d.getFullYear(), d.getMonth(), 1);
-          const firstMon = 1 + (8 - fDay.getDay()) % 7;
-          if (d.getDate() < firstMon) {
-            return getMonthWeek(new Date(d.getFullYear(), d.getMonth(), 0));
-          }
-          const wNum = Math.floor((d.getDate() - firstMon) / 7) + 1;
-          return `${d.getMonth() + 1}월 ${wNum}주차`;
-        };
-        return `<div style="flex:1; text-align:center; font-size:11px; color:#64748b; border-left:1px solid #e2e8f0;">${getMonthWeek(cur)}</div>`;
-      }).join('')}
-    </div>
-    <div style="width: 70px; text-align:right;"></div>
-  </div>`;
-
-  const tasksHTML = tasks.map(t => {
-    let barLeft = 0;
-    let barWidth = 0;
-    if (t.start_date && t.end_date) {
-      const s = new Date(t.start_date);
-      const e = new Date(t.end_date);
-      barLeft = Math.max(0, (s - minDate) / (1000 * 60 * 60 * 24) / totalDays * 100);
-      barWidth = Math.max(2, (e - s + (1000*60*60*24)) / (1000 * 60 * 60 * 24) / totalDays * 100);
-      if (barLeft + barWidth > 100) barWidth = 100 - barLeft;
-    }
-
-    const barColor = t.status === '완료' ? '#10b981' : (t.status === '진행중' ? '#3b82f6' : '#cbd5e1');
-
-    return `
-      <div style="display:flex;align-items:center;padding:8px 0;border-bottom:1px solid #f1f5f9;">
-        <div style="width: 200px; padding-right: 12px; display:flex; flex-direction:column; justify-content:center;">
-          <div style="font-weight:600; font-size:13px; color:#1e293b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; ${t.status==='완료'?'text-decoration:line-through;opacity:.6':''}">${t.name}</div>
-          <div style="font-size:11px; color:#94a3b8">${t.start_date||'-'} ~ ${t.end_date||'-'}</div>
-          <div style="margin-top:2px"><span class="badge ${statusCls[t.status]||'b-gray'}" style="padding:2px 4px; font-size:10px;">${t.status}</span></div>
-        </div>
-        <div style="flex:1; position:relative; height: 24px; background:#f8fafc; border-radius:4px; overflow:hidden; display:flex;">
-          ${Array.from({length: weeksCount}).map((_, i) => `<div style="flex:1; border-left:1px dashed #e2e8f0; height:100%;"></div>`).join('')}
-          ${t.start_date && t.end_date ? `<div style="position:absolute; top:4px; left:${barLeft}%; width:${barWidth}%; height:16px; background:${barColor}; border-radius:4px; transition:all 0.3s;"></div>` : ''}
-        </div>
-        <div style="width: 70px; display:flex; justify-content:flex-end; gap:4px;">
-          <button class="icon-btn edit" onclick="openEditTask(${JSON.stringify(t).replace(/"/g,'&quot;')})">${ICO_EDIT}</button>
-          <button class="icon-btn del" onclick="deleteTask('${t.id}')">${ICO_DEL}</button>
-        </div>
-      </div>
-    `;
+  const head = Array.from({length: weeks}, (_, i) => {
+    const day = _addDays(gStart, i * 7), prev = i ? _addDays(gStart, (i - 1) * 7) : '';
+    const mm = Number(day.slice(5, 7)), dd = Number(day.slice(8, 10));
+    const label = weeks <= 14 ? `${mm}/${dd}` : (!prev || prev.slice(5, 7) !== day.slice(5, 7) ? `${mm}월` : '');
+    return `<div class="pj-wk" title="${day} 주">${label}</div>`;
   }).join('');
 
-  el.innerHTML = timelineHTML + tasksHTML;
+  const rows = tasks.map((t, i) => {
+    let bar = '';
+    const s = (t.start_date || '').slice(0, 10), e = (t.end_date || t.start_date || '').slice(0, 10);
+    if(gStart && s && e >= s){
+      const left = _daysBetween(gStart, s), len = _daysBetween(s, e) + 1;
+      const late = t.status !== '완료' && e < today;
+      bar = `<div class="pj-bar st-${t.status === '완료' ? 'done' : t.status === '진행중' ? 'doing' : 'wait'} ${late ? 'late' : ''}" style="left:${pct(left)}%;width:${pct(len)}%" title="${esc(t.name)}\n${s} ~ ${e}${late ? '\n종료일이 지났습니다' : ''}"></div>`;
+    }
+    const lateTxt = t.status !== '완료' && e && e < today;
+    return `<div class="pj-trow ${t.status === '완료' ? 'done' : ''}">
+      <div><button class="badge ${TASK_ST_CLS[t.status] || 'b-gray'} pj-st" title="눌러서 상태 변경 (대기 → 진행중 → 완료)" onclick="cycleTask('${t.id}')">${esc(t.status || '대기')}</button></div>
+      <div class="pj-tname"><div class="pj-tname-txt" title="${esc(t.name)}">${esc(t.name)}</div>
+        <div class="pj-tdate ${lateTxt ? 'late' : ''}">${s ? `${s.slice(5).replace('-', '/')} ~ ${e.slice(5).replace('-', '/')}` : '날짜 미정'}${lateTxt ? ' · 지연' : ''}</div></div>
+      <div class="pj-track">${grid}${bar}${todayLine}</div>
+      <div class="pj-tact">
+        <button class="icon-btn" title="위로" ${i === 0 ? 'disabled' : ''} onclick="moveTask('${t.id}',-1)">▲</button>
+        <button class="icon-btn" title="아래로" ${i === tasks.length - 1 ? 'disabled' : ''} onclick="moveTask('${t.id}',1)">▼</button>
+        <button class="icon-btn edit" title="수정" onclick="openEditTask('${t.id}')">${ICO_EDIT}</button>
+        <button class="icon-btn del" title="삭제" onclick="deleteTask('${t.id}')">${ICO_DEL}</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `<div class="pj-gantt">
+    <div class="pj-trow pj-thead"><div>상태</div><div>태스크</div>
+      <div class="pj-track">${head}${todayLine ? `<div class="pj-today-label" style="left:${pct(todayOff + 0.5)}%">오늘</div>` : ''}</div><div style="text-align:center">순서 / 관리</div></div>
+    ${rows}</div>`;
 }
+
+function _curProj(){ return _projs.find(x => x.id === _currentProjectId); }
 
 function openAddTask() {
   $('task-modal-title').textContent = '태스크 추가';
@@ -2433,9 +2486,12 @@ function openAddTask() {
   $('t-start').value = '';
   $('t-end').value = '';
   openModal('modal-add-task');
+  setTimeout(() => $('t-name').focus(), 50);
 }
 
-function openEditTask(t) {
+function openEditTask(tid) {
+  const t = (_curProj()?.tasks || []).find(x => x.id === tid);
+  if(!t) return;
   $('task-modal-title').textContent = '태스크 수정';
   $('t-id').value = t.id;
   $('t-name').value = t.name;
@@ -2445,59 +2501,55 @@ function openEditTask(t) {
   openModal('modal-add-task');
 }
 
+// 태스크가 모두 완료되면 프로젝트도 완료로 바꿀지 물어봄
+async function _askFinishProject(){
+  const p = _curProj();
+  if(p && p.tasks.length && p.progress === 100 && p.status !== '완료'
+     && confirm('모든 태스크가 완료되었습니다.\n프로젝트 상태를 "완료"로 바꿀까요?')) await completeProject(p.id);
+}
+
 async function saveTask() {
   const name = $('t-name').value.trim();
   if(!name) { toast('태스크명을 입력해주세요'); return; }
   const payload = { name, status: $('t-status').value, start_date: $('t-start').value, end_date: $('t-end').value };
-  const tid = $('t-id').value;
-  if(tid) await api.patch(`/api/engineers/${ENG_ID}/projects/${_currentProjectId}/tasks/${tid}`, payload);
-  else    await api.post(`/api/engineers/${ENG_ID}/projects/${_currentProjectId}/tasks`, payload);
+  if(payload.start_date && payload.end_date && payload.end_date < payload.start_date){ toast('종료일이 시작일보다 빠릅니다'); return; }
+  const tid = $('t-id').value, base = `${_projBase()}/${_currentProjectId}/tasks`;
+  try {
+    if(tid) await _apiSend('PATCH', `${base}/${tid}`, payload);
+    else    await _apiSend('POST', base, payload);
+  } catch(e){ toast('저장 실패: ' + e.message); return; }
   closeModal('modal-add-task');
-  
-  // Refresh detail view
-  const projs = await api.get(`/api/engineers/${ENG_ID}/projects`);
-  const p = projs.find(x => x.id === _currentProjectId);
-  if(p) renderTasks(p);
-  if($('page-projects').classList.contains('active')) renderProjects(); // update progress bar
+  await _reloadProj();
   toast(tid ? '태스크 수정됨' : '태스크 추가됨');
+  if(payload.status === '완료') await _askFinishProject();
+}
+
+async function cycleTask(tid){
+  const t = (_curProj()?.tasks || []).find(x => x.id === tid);
+  if(!t) return;
+  const next = TASK_ST_NEXT[t.status] || '진행중';
+  try { await _apiSend('PATCH', `${_projBase()}/${_currentProjectId}/tasks/${tid}`, {status: next}); }
+  catch(e){ toast('변경 실패: ' + e.message); return; }
+  await _reloadProj();
+  if(next === '완료') await _askFinishProject();
+}
+
+async function moveTask(tid, dir){
+  const ids = (_curProj()?.tasks || []).map(t => t.id);
+  const i = ids.indexOf(tid), j = i + dir;
+  if(i < 0 || j < 0 || j >= ids.length) return;
+  [ids[i], ids[j]] = [ids[j], ids[i]];
+  try { await _apiSend('POST', `${_projBase()}/${_currentProjectId}/tasks/reorder`, {ids}); }
+  catch(e){ toast('순서 변경 실패: ' + e.message); return; }
+  await _reloadProj();
 }
 
 async function deleteTask(tid) {
   if(!confirm('태스크를 삭제하시겠습니까?')) return;
-  await api.del(`/api/engineers/${ENG_ID}/projects/${_currentProjectId}/tasks/${tid}`);
-  const projs = await api.get(`/api/engineers/${ENG_ID}/projects`);
-  const p = projs.find(x => x.id === _currentProjectId);
-  if(p) renderTasks(p);
-  if($('page-projects').classList.contains('active')) renderProjects();
+  try { await _apiSend('DELETE', `${_projBase()}/${_currentProjectId}/tasks/${tid}`); }
+  catch(e){ toast('삭제 실패: ' + e.message); return; }
+  await _reloadProj();
   toast('삭제됨');
-}
-
-// ── PROJ STATUS ──────────────────────────────
-async function renderProjStatus() {
-  const projs = await api.get(`/api/engineers/${ENG_ID}/projects`);
-  const el = $('page-proj-status');
-  el.innerHTML = `
-    <div class="page-title">진행 현황</div>
-    <div class="grid3">
-      <div class="metric"><div class="metric-label">전체 프로젝트</div><div class="metric-value">${projs.length}</div></div>
-      <div class="metric"><div class="metric-label">진행 중</div><div class="metric-value" style="color:#2563eb">${projs.filter(p=>p.status==='진행 중').length}</div></div>
-      <div class="metric"><div class="metric-label">완료</div><div class="metric-value" style="color:#16a34a">${projs.filter(p=>p.status==='완료').length}</div></div>
-    </div>
-    <div style="margin-top:24px">
-      <div class="dash-card-title">프로젝트 태스크 진척도</div>
-      ${projs.length ? projs.map(p => `
-        <div class="card" style="margin-bottom:12px;cursor:pointer" onclick="document.querySelector('.nav-item[data-page=\\'projects\\']').click(); setTimeout(()=>openProjectDetail('${p.id}'), 100);">
-          <div style="display:flex;justify-content:space-between;margin-bottom:8px">
-            <span style="font-weight:700;color:#1e293b">${p.name} <span style="font-size:12px;font-weight:normal;color:#94a3b8;margin-left:8px">(${p.tasks.length}개 태스크)</span></span>
-            <span style="font-size:12px;font-weight:600;color:${p.progress===100?'#16a34a':'#3b82f6'}">${p.progress}%</span>
-          </div>
-          <div style="width:100%;height:8px;background:#f1f5f9;border-radius:4px;overflow:hidden">
-            <div style="width:${p.progress}%;height:100%;background:${p.progress===100?'#22c55e':'#3b82f6'};transition:width 0.4s"></div>
-          </div>
-        </div>
-      `).join('') : '<div class="empty">프로젝트가 없습니다.</div>'}
-    </div>
-  `;
 }
 
 // ── SCHED HISTORY ─────────────────────────────
