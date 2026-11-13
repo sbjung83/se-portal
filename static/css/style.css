@@ -220,4 +220,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .svh-table td{padding:10px;border-bottom:1px solid #f0f0ee;vertical-align:middle}
 .svh-table tbody tr{cursor:pointer}
 .svh-table tbody tr:hover{background:#f8fafc}
+.svh-stat-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.svh-legend{display:flex;gap:6px;font-size:11px}
+.svh-stat{min-width:900px}
+.svh-stat th,.svh-stat td{text-align:center;padding:7px 4px;white-space:nowrap}
+.svh-stat thead th:not(.svh-site):not(.svh-year){cursor:pointer}
+.svh-stat thead th:not(.svh-site):not(.svh-year):hover{color:#2563eb}
+.svh-stat tbody tr{cursor:default}
+.svh-stat .svh-site{text-align:left;padding-left:10px;font-weight:600;max-width:160px;overflow:hidden;text-overflow:ellipsis}
+.svh-stat .svh-sel{background:#eff6ff}
+.svh-stat .svh-year{background:#f8fafc;font-weight:700;border-left:1px solid #e8e8e4}
+.svh-stat tfoot td{font-weight:700;border-top:1px solid #d4d4d0;background:#fafaf9}
+.svh-n{display:inline-block;min-width:20px;padding:1px 5px;margin:0 1px;border-radius:5px;font-size:11.5px;font-weight:700;line-height:16px}
+.svh-n.sup{background:#dbeafe;color:#1d4ed8}
+.svh-n.inc{background:#fee2e2;color:#b91c1c}
+.svh-n.zero{color:#cbd5e1;font-weight:400}
 .nav-item{word-break:keep-all;line-height:1.35}

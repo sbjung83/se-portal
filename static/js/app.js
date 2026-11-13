@@ -1168,7 +1168,7 @@ async function renderServiceHistory(){
   try {
     [plans, incs] = await Promise.all([
       api.get(`/api/engineers/${ENG_ID}/workplans`),
-      api.get(`/api/engineers/${ENG_ID}/incidents?month=${ym}`),
+      api.get(`/api/engineers/${ENG_ID}/incidents`),
     ]);
   } catch(e) {
     console.error('월별 이력 조회 실패:', e);
@@ -1177,6 +1177,8 @@ async function renderServiceHistory(){
   }
   _allWorkPlans = plans;
   _allIncidents = incs;
+  renderSvhSiteStats(plans, incs, ym);
+  incs = incs.filter(i => (i.occurred_at || '').startsWith(ym));
   const sup = plans.filter(p => (p.work_date || '').startsWith(ym));
 
   const downMin = incs.reduce((a, i) => a + (i.downtime_min || 0), 0);
@@ -1215,6 +1217,56 @@ async function renderServiceHistory(){
       <td>${esc(r.worker||'-')}</td>
       <td><span class="badge ${r.stCls}">${esc(r.status)}</span> ${r.extra}</td>
     </tr>`).join('')}</tbody></table></div>`;
+}
+
+// 사이트별 월별/연간 기술지원·장애처리 횟수 (선택 월의 연도 기준)
+function renderSvhSiteStats(plans, incs, ym){
+  const year = ym.slice(0, 4);
+  const selM = Number(ym.slice(5, 7));
+  const showSup = _svhTab !== 'incident', showInc = _svhTab !== 'support';
+  const stats = {};   // site -> { sup:[13], inc:[13] }  (index 0 = 연간 합계)
+  const total = { sup: Array(13).fill(0), inc: Array(13).fill(0) };
+  const add = (site, date, kind) => {
+    if(!(date || '').startsWith(year)) return;
+    const m = Number(date.slice(5, 7));
+    if(!(m >= 1 && m <= 12)) return;
+    const key = (site || '').trim() || '(미지정)';
+    const s = stats[key] || (stats[key] = { sup: Array(13).fill(0), inc: Array(13).fill(0) });
+    s[kind][m]++; s[kind][0]++; total[kind][m]++; total[kind][0]++;
+  };
+  if(showSup) plans.forEach(p => add(p.site, p.work_date, 'sup'));
+  if(showInc) incs.forEach(i => add(i.site, i.occurred_at, 'inc'));
+
+  $('svh-stat-title').textContent = `${year}년 사이트별 월별·연간 통계`;
+  const sites = Object.keys(stats).sort((a, b) =>
+    (stats[b].sup[0] + stats[b].inc[0]) - (stats[a].sup[0] + stats[a].inc[0]) || a.localeCompare(b, 'ko'));
+  const el = $('svh-site-stats');
+  if(!sites.length){ el.innerHTML = `<div class="empty">${year}년 이력이 없습니다</div>`; return; }
+
+  const cell = (s, m) => {
+    const parts = [];
+    if(showSup) parts.push(s.sup[m] ? `<span class="svh-n sup">${s.sup[m]}</span>` : '<span class="svh-n zero">·</span>');
+    if(showInc) parts.push(s.inc[m] ? `<span class="svh-n inc">${s.inc[m]}</span>` : '<span class="svh-n zero">·</span>');
+    return parts.join('');
+  };
+  const months = Array.from({ length: 12 }, (_, i) => i + 1);
+  const mCls = m => m === selM ? ' class="svh-sel"' : '';
+  el.innerHTML = `<div class="svh-table-wrap"><table class="svh-table svh-stat">
+    <thead><tr><th class="svh-site">사이트</th>${months.map(m =>
+      `<th${mCls(m)} title="${m}월 이력 보기" onclick="svhGoMonth(${year},${m})">${m}월</th>`).join('')}<th class="svh-year">연간</th></tr></thead>
+    <tbody>${sites.map(site => `<tr>
+      <td class="svh-site">${esc(site)}</td>
+      ${months.map(m => `<td${mCls(m)}>${cell(stats[site], m)}</td>`).join('')}
+      <td class="svh-year">${cell(stats[site], 0)}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td class="svh-site">합계</td>
+      ${months.map(m => `<td${mCls(m)}>${cell(total, m)}</td>`).join('')}
+      <td class="svh-year">${cell(total, 0)}</td></tr></tfoot>
+  </table></div>`;
+}
+
+function svhGoMonth(y, m){
+  $('svh-month').value = `${y}-${String(m).padStart(2,'0')}`;
+  renderServiceHistory();
 }
 
 // ── 대시보드 점검일정 탭 ──────────────────
