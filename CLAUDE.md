@@ -28,12 +28,13 @@ journalctl -u se-portal -f
 app.py               FastAPI 진입점: 라우터 등록, /static 마운트, "/" → templates/index.html
 database.py          SQLAlchemy 엔진/세션(get_db), 전체 ORM 모델, init_db()
 routers/<도메인>.py   도메인별 APIRouter (auth, dashboard, sites, projects, logs,
-                     schedules, issues, site_checklist, technotes, development, incidents)
+                     schedules, issues, site_checklist, technotes, development, incidents, reports)
 templates/index.html SPA 전체 마크업 (모든 page-* 섹션과 modal-* 오버레이)
 static/js/app.js     프론트 로직 전체 (바닐라 JS, 프레임워크 없음)
 static/css/style.css 공통 스타일
 data/portal.db       SQLite DB (git 제외)
 data/portal-development.json  개발 체크리스트 (JSON 파일 저장소, git 추적)
+data/report_templates/weekly_report.xlsx  주간보고서 엑셀 양식 (사용자 제공, routers/reports.py가 채움)
 uploads/             사이트 점검 보고서 업로드 파일 (git 제외)
 ```
 
@@ -43,6 +44,8 @@ uploads/             사이트 점검 보고서 업로드 파일 (git 제외)
     기술지원 실적(목록·월별 이력·대시보드)에서 제외. `GET /workplans?scope=support(기본)|schedule|all`, 백엔드는 `support_only()` 사용.
 - **장애처리** (`page-incidents`) = Incident 모델, `routers/incidents.py`.
 - **월별 기술지원 및 장애처리 이력** (`page-service-history`) = 위 둘을 월 단위로 합쳐 보는 화면 (프론트에서 조합).
+- **주간보고서** (`page-weekly-report`) = `routers/reports.py`. 주(월~일) 단위로 점검(완료)·기술지원(작업완료)·장애(발생)를 사이트+일자 1행으로 묶어 양식에 채움.
+  양식 열: F 정기점검 / G 장애지원 / H~L 은 WorkPlan.support_type(기술지원/납품/유선원격/이전/기타).
 - 기존 "작업 현황/이력"(WorkLog, `/logs`) 메뉴와 "월간 보고서" 메뉴는 폐지. `/logs` API와 `worklogs` 테이블은 남아 있음.
 
 ## 아키텍처 규칙
@@ -66,7 +69,7 @@ uploads/             사이트 점검 보고서 업로드 파일 (git 제외)
   - Schedule.status: 예정/완료, sched_type: 월간/분기/특별
   - Issue.severity: 긴급/높음/보통/낮음, status: 오픈/처리중/완료
   - Project.status: 진행 대기/진행 중/보류/완료, ProjectTask.status: 대기/진행중/완료
-  - WorkPlan(기술지원).status: 계획중/결재대기/승인완료/작업완료
+  - WorkPlan(기술지원).status: 계획중/결재대기/승인완료/작업완료, support_type: 기술지원/납품/유선원격/이전/기타
   - Incident(장애처리).severity: 긴급/높음/보통/낮음, status: 접수/처리중/완료
   - 개발 체크리스트 status: 예정/진행중/완료
   - SiteChecklist.category: 일반/월간/분기 — 월간·분기는 `done_period`("YYYY-MM"/"YYYY-Qn")가 현재 주기와 같을 때만 완료로 응답(주기 바뀌면 자동 초기화, `routers/site_checklist.py` `period_info`)

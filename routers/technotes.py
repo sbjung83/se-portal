@@ -94,6 +94,7 @@ class WorkPlanIn(BaseModel):
     mop_content: Optional[str] = ""
     verification: Optional[str] = ""
     rollback_plan: Optional[str] = ""
+    support_type: Optional[str] = "기술지원"
 
 class WorkPlanUpdate(BaseModel):
     title: Optional[str] = None
@@ -108,8 +109,10 @@ class WorkPlanUpdate(BaseModel):
     mop_content: Optional[str] = None
     verification: Optional[str] = None
     rollback_plan: Optional[str] = None
+    support_type: Optional[str] = None
 
 WP_STATUSES = ("계획중", "결재대기", "승인완료", "작업완료")
+SUPPORT_TYPES = ("기술지원", "납품", "유선원격", "이전", "기타")
 
 # 기술지원 화면에서 등록한 건은 id가 "wp-" 로 시작한다.
 # 그 외(id = Schedule.id)는 점검일정 모달에서 작업자/결재자/MOP 보관용으로 만든 레코드 → 기술지원 실적에서 제외.
@@ -134,6 +137,7 @@ def _wp_dict(p):
         "mop_content": p.mop_content,
         "verification": p.verification,
         "rollback_plan": p.rollback_plan,
+        "support_type": p.support_type or "기술지원",
     }
 
 @router.get("/api/engineers/{eng_id}/workplans")
@@ -173,7 +177,8 @@ def create_work_plan(eng_id: str, plan: WorkPlanIn, db: Session = Depends(get_db
         prerequisites=plan.prerequisites,
         mop_content=plan.mop_content,
         verification=plan.verification,
-        rollback_plan=plan.rollback_plan
+        rollback_plan=plan.rollback_plan,
+        support_type=plan.support_type if plan.support_type in SUPPORT_TYPES else "기술지원"
     )
     db.add(new_plan)
     db.commit()
@@ -187,6 +192,8 @@ def update_work_plan(eng_id: str, plan_id: str, plan_update: WorkPlanUpdate, db:
         raise HTTPException(status_code=404, detail="작업 계획을 찾을 수 없습니다")
     if plan_update.status is not None and plan_update.status not in WP_STATUSES:
         raise HTTPException(status_code=400, detail="올바르지 않은 상태 값입니다")
+    if plan_update.support_type is not None and plan_update.support_type not in SUPPORT_TYPES:
+        raise HTTPException(status_code=400, detail="올바르지 않은 지원 구분입니다")
     if plan_update.title is not None and not plan_update.title.strip():
         raise HTTPException(status_code=400, detail="제목을 입력해주세요")
     

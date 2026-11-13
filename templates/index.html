@@ -107,6 +107,9 @@
       <div class="nav-item" data-page="service-history">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>월별 기술지원 및 장애처리 이력
       </div>
+      <div class="nav-item" data-page="weekly-report">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>주간보고서
+      </div>
     </div>
     <!-- 지식 창고 그룹 -->
     <div class="nav-group">
@@ -197,8 +200,8 @@
     <div class="page" id="page-sites">
       <div class="page-title">사이트 관리</div>
       <div class="search-bar">
-        <input type="text" id="site-search" placeholder="사이트명, 위치 검색...">
-        <button class="btn btn-primary" onclick="openModal('modal-add-site')">+ 사이트 추가</button>
+        <input type="text" id="site-search" placeholder="사이트명, 위치, 담당자 검색...">
+        <button class="btn btn-primary" onclick="openAddSite()">+ 사이트 추가</button>
       </div>
       <div id="site-list"></div>
     </div>
@@ -317,6 +320,37 @@
       <div id="svh-site-stats"></div>
     </div>
 
+    <!-- 주간보고서 -->
+    <div class="page" id="page-weekly-report">
+      <div class="page-title">주간보고서</div>
+      <div class="svh-bar">
+        <div class="svh-month">
+          <button class="btn btn-sm" onclick="wrMove(-1)" title="이전 주">◀</button>
+          <span id="wr-range" class="wr-range"></span>
+          <button class="btn btn-sm" onclick="wrMove(1)" title="다음 주">▶</button>
+          <button class="btn btn-sm" onclick="wrMove(0)">이번 주</button>
+        </div>
+        <button class="btn btn-primary" id="wr-download" onclick="downloadWeeklyReport()">엑셀 다운로드</button>
+      </div>
+      <div class="grid4" id="wr-summary" style="margin-bottom:14px"></div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-title">지원 내역 미리보기 <span class="wr-help">점검은 '완료', 기술지원은 '작업완료', 장애처리는 그 주에 발생한 건 기준 · 같은 날 같은 사이트는 한 줄로 묶음</span></div>
+        <div id="wr-rows"></div>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <div class="card-title"><span>특이사항</span><button class="btn btn-sm" onclick="wrReset('notes')">기본값으로</button></div>
+          <textarea id="wr-notes" class="wr-text" placeholder="엑셀의 특이사항 칸에 들어갑니다"></textarea>
+          <div class="wr-help">기본값: 미해결 이슈 + 진행 중 장애</div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>확정사항 (다음 주 점검일정)</span><button class="btn btn-sm" onclick="wrReset('confirmed')">기본값으로</button></div>
+          <textarea id="wr-confirmed" class="wr-text" placeholder="엑셀의 확정사항 칸에 들어갑니다"></textarea>
+          <div class="wr-help">기본값: 다음 주에 등록된 점검일정</div>
+        </div>
+      </div>
+    </div>
+
     <!-- TECH NOTES -->
     <div class="page" id="page-technotes">
       <div class="page-title">기술 노트</div>
@@ -377,23 +411,35 @@
 
 <!-- 사이트 상세 -->
 <div class="overlay" id="modal-site-detail">
-  <div class="modal modal-lg">
+  <div class="modal modal-lg site-detail-modal">
     <div class="modal-head">
-      <div class="modal-title" id="detail-site-name"></div>
-      <button class="btn btn-sm" onclick="closeModal('modal-site-detail')">✕</button>
+      <div style="min-width:0">
+        <div class="modal-title" id="detail-site-name"></div>
+        <div id="detail-site-info" class="site-info-line"></div>
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        <button class="btn btn-sm" onclick="openEditSite(currentSiteId)">정보 수정</button>
+        <button class="btn btn-sm" onclick="closeModal('modal-site-detail')">✕</button>
+      </div>
     </div>
     <div class="tabs">
-      <div class="tab active" data-dtab="devices">장비 리스트</div>
+      <div class="tab active" data-dtab="overview">개요</div>
+      <div class="tab" data-dtab="devices">장비 리스트</div>
       <div class="tab" data-dtab="access">접속 정보</div>
       <div class="tab" data-dtab="reports">점검표 파일</div>
       <div class="tab" data-dtab="notes">특이사항</div>
     </div>
-    <div class="tab-pane active" id="dtab-devices">
-      <div class="sec-head"><span class="sec-label">장비 목록</span><button class="btn btn-sm" onclick="openModal('modal-add-device')">+ 장비 추가</button></div>
+    <div class="tab-pane active" id="dtab-overview"><div id="site-overview"></div></div>
+    <div class="tab-pane" id="dtab-devices">
+      <div class="dev-bar">
+        <input type="text" id="dev-search" placeholder="장비명, 모델, S/N, OS 검색...">
+        <div class="svh-tabs" id="dev-type-tabs"></div>
+        <button class="btn btn-sm" onclick="openModal('modal-add-device')">+ 장비 추가</button>
+      </div>
       <div id="device-table"></div>
     </div>
     <div class="tab-pane" id="dtab-access">
-      <div class="sec-head"><span class="sec-label">접속 정보</span><button class="btn btn-sm" onclick="openModal('modal-add-access')">+ 추가</button></div>
+      <div class="sec-head"><span class="sec-label">접속 정보</span><button class="btn btn-sm" onclick="openAddAccess()">+ 추가</button></div>
       <div id="access-table"></div>
     </div>
     <div class="tab-pane" id="dtab-reports">
@@ -405,7 +451,7 @@
       <div id="report-table"></div>
     </div>
     <div class="tab-pane" id="dtab-notes">
-      <div class="sec-head"><span class="sec-label">특이사항</span><button class="btn btn-sm" onclick="openModal('modal-add-note')">+ 추가</button></div>
+      <div class="sec-head"><span class="sec-label">특이사항</span><button class="btn btn-sm" onclick="openAddNote()">+ 추가</button></div>
       <div id="notes-list"></div>
     </div>
   </div>
@@ -471,8 +517,10 @@
 <!-- 사이트 추가 -->
 <div class="overlay" id="modal-add-site">
   <div class="modal">
-    <div class="modal-head"><div class="modal-title">사이트 추가</div><button class="btn btn-sm" onclick="closeModal('modal-add-site')">✕</button></div>
+    <div class="modal-head"><div class="modal-title" id="site-modal-title">사이트 추가</div><button class="btn btn-sm" onclick="closeModal('modal-add-site')">✕</button></div>
+    <input type="hidden" id="s-id">
     <div class="form-row"><label>사이트명 *</label><input type="text" id="s-name"></div>
+    <div class="form-desc" id="s-name-note" style="display:none">사이트명을 바꾸면 기술지원·장애처리 기록의 사이트명도 함께 바뀝니다.</div>
     <div class="grid2">
       <div class="form-row"><label>위치</label><input type="text" id="s-loc"></div>
       <div class="form-row"><label>담당자</label><input type="text" id="s-mgr"></div>
@@ -489,7 +537,8 @@
 <!-- 접속 정보 추가 -->
 <div class="overlay" id="modal-add-access">
   <div class="modal">
-    <div class="modal-head"><div class="modal-title">접속 정보 추가</div><button class="btn btn-sm" onclick="closeModal('modal-add-access')">✕</button></div>
+    <div class="modal-head"><div class="modal-title" id="acc-modal-title">접속 정보 추가</div><button class="btn btn-sm" onclick="closeModal('modal-add-access')">✕</button></div>
+    <input type="hidden" id="a-id">
     <div class="grid2">
       <div class="form-row"><label>구분 *</label><input type="text" id="a-name" placeholder="HMC, iDRAC, SSH..."></div>
       <div class="form-row"><label>IP / 호스트</label><input type="text" id="a-ip"></div>
@@ -500,7 +549,7 @@
     </div>
     <div class="grid2">
       <div class="form-row"><label>계정</label><input type="text" id="a-user"></div>
-      <div class="form-row"><label>비밀번호</label><input type="password" id="a-pass"></div>
+      <div class="form-row"><label>비밀번호</label><input type="password" id="a-pass" autocomplete="new-password"></div>
     </div>
     <div class="form-row"><label>메모</label><textarea id="a-memo" style="min-height:52px"></textarea></div>
     <div class="form-actions">
@@ -513,7 +562,8 @@
 <!-- 특이사항 추가 -->
 <div class="overlay" id="modal-add-note">
   <div class="modal">
-    <div class="modal-head"><div class="modal-title">특이사항 추가</div><button class="btn btn-sm" onclick="closeModal('modal-add-note')">✕</button></div>
+    <div class="modal-head"><div class="modal-title" id="note-modal-title">특이사항 추가</div><button class="btn btn-sm" onclick="closeModal('modal-add-note')">✕</button></div>
+    <input type="hidden" id="n-id">
     <div class="grid2">
       <div class="form-row"><label>날짜</label><input type="date" id="n-date"></div>
       <div class="form-row"><label>제목</label><input type="text" id="n-title"></div>
@@ -718,7 +768,10 @@
         <div class="form-row"><label>작업자</label><input type="text" id="wp-worker" placeholder="예: 홍길동, 이순신"></div>
         <div class="form-row"><label>결재자/공유자</label><input type="text" id="wp-reviewer" placeholder="예: 김팀장"></div>
       </div>
-      <div class="form-row"><label>상태</label><select id="wp-status"><option>계획중</option><option>결재대기</option><option>승인완료</option><option>작업완료</option></select></div>
+      <div class="grid2">
+        <div class="form-row"><label>상태</label><select id="wp-status"><option>계획중</option><option>결재대기</option><option>승인완료</option><option>작업완료</option></select></div>
+        <div class="form-row"><label>지원 구분 <span style="font-weight:400;color:#94a3b8">(주간보고서 집계 열)</span></label><select id="wp-support-type"><option>기술지원</option><option>납품</option><option>유선원격</option><option>이전</option><option>기타</option></select></div>
+      </div>
     </div>
 
     <div class="form-section">
@@ -811,6 +864,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=18"></script>
+<script src="/static/js/app.js?v=23"></script>
 </body>
 </html>

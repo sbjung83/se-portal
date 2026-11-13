@@ -178,6 +178,7 @@ class WorkPlan(Base):
     verification  = Column(Text, default="")
     rollback_plan = Column(Text, default="")
     status        = Column(String, default="계획중")
+    support_type  = Column(String, default="기술지원")   # 기술지원/납품/유선원격/이전/기타 (주간보고서 열 구분)
 
 # ── 장애처리 ─────────────────────────────────
 class Incident(Base):
