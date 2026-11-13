@@ -35,7 +35,7 @@ static/css/style.css 공통 스타일
 data/portal.db       SQLite DB (git 제외)
 data/portal-development.json  개발 체크리스트 (JSON 파일 저장소, git 추적)
 data/report_templates/weekly_report.xlsx  주간보고서 엑셀 양식 (사용자 제공, routers/reports.py가 채움)
-uploads/             사이트 점검 보고서 업로드 파일 (git 제외)
+uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `<eng_id>/<site_id>/`, 프로젝트 제출자료 `<eng_id>/projects/<project_id>/`
 ```
 
 ## 메뉴 구성 (서비스 지원)
@@ -69,6 +69,7 @@ uploads/             사이트 점검 보고서 업로드 파일 (git 제외)
   - Schedule.status: 예정/완료, sched_type: 월간/분기/특별
   - Issue.severity: 긴급/높음/보통/낮음, status: 오픈/처리중/완료
   - Project.status: 진행 대기/진행 중/보류/완료, ProjectTask.status: 대기/진행중/완료
+  - ProjectFile(프로젝트 제출자료).category: 완료보고서/검수확인서/구성도/회의록/기타 — `routers/projects.py`의 `/{proj_id}/files` (업로드 50MB 제한, 프로젝트 삭제 시 폴더도 삭제)
   - WorkPlan(기술지원).status: 계획중/결재대기/승인완료/작업완료, support_type: 기술지원/납품/유선원격/이전/기타
   - Incident(장애처리).severity: 긴급/높음/보통/낮음, status: 접수/처리중/완료
   - 개발 체크리스트 status: 예정/진행중/완료

@@ -222,6 +222,20 @@ class Project(Base):
     created_at  = Column(DateTime, default=datetime.utcnow)
     
     tasks       = relationship("ProjectTask", back_populates="project", cascade="all, delete")
+    files       = relationship("ProjectFile", back_populates="project", cascade="all, delete")
+
+# 프로젝트 제출자료(완료보고서 등) 첨부 파일. 실제 파일은 uploads/<eng_id>/projects/<project_id>/<stored_name>
+class ProjectFile(Base):
+    __tablename__ = "project_files"
+    id          = Column(String, primary_key=True)
+    project_id  = Column(String, ForeignKey("projects.id"), nullable=False)
+    category    = Column(String, default="기타")   # 완료보고서 / 검수확인서 / 구성도 / 회의록 / 기타
+    filename    = Column(String, nullable=False)   # 올린 파일의 원래 이름
+    stored_name = Column(String, nullable=False)   # 서버에 저장된 이름 (uuid + 확장자)
+    size        = Column(Integer, default=0)       # 바이트
+    note        = Column(String, default="")
+    uploaded_at = Column(String, default="")       # "YYYY-MM-DD HH:MM"
+    project     = relationship("Project", back_populates="files")
 
 class ProjectTask(Base):
     __tablename__ = "project_tasks"

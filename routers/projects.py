@@ -1,7 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from database import get_db, Project, ProjectTask
+from database import get_db, Project, ProjectTask, ProjectFile
+import os
+import shutil
 import uuid
+from datetime import datetime
 from pydantic import BaseModel
 from typing import Optional, List
 
@@ -23,6 +27,23 @@ TASK_STATUSES = ("대기", "진행중", "완료")
 def _check_status(value, allowed):
     if value is not None and value not in allowed:
         raise HTTPException(400, detail=f"상태 값이 올바르지 않습니다 ({' / '.join(allowed)})")
+
+# ── 제출자료(첨부 파일) ─────────────────────────
+UPLOAD_DIR = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "uploads"))
+FILE_CATEGORIES = ("완료보고서", "검수확인서", "구성도", "회의록", "기타")
+MAX_FILE_BYTES = 50 * 1024 * 1024   # nginx 업로드 한도(50MB)와 동일
+
+def _proj_dir(eng_id: str, proj_id: str) -> str:
+    """프로젝트 첨부 폴더. uploads 밖을 가리키면 거부한다."""
+    path = os.path.realpath(os.path.join(UPLOAD_DIR, eng_id, "projects", proj_id))
+    if not path.startswith(UPLOAD_DIR + os.sep):
+        raise HTTPException(400, detail="잘못된 경로입니다")
+    return path
+
+def _file_dict(f):
+    return {"id": f.id, "project_id": f.project_id, "category": f.category or "기타",
+            "filename": f.filename, "size": f.size or 0, "note": f.note or "",
+            "uploaded_at": f.uploaded_at or ""}
 
 def _sorted_tasks(p):
     return sorted(p.tasks, key=lambda x: (x.order_idx or 0, x.start_date or ""))
@@ -75,6 +96,7 @@ def list_projects(eng_id: str, db: Session = Depends(get_db)):
             "status": p.status,
             "description": p.description,
             "progress": progress,
+            "file_count": len(p.files),
             "tasks": [{"id": t.id, "name": t.name, "status": t.status, "start_date": t.start_date, "end_date": t.end_date, "order_idx": t.order_idx} for t in tasks]
         })
     return res
@@ -98,7 +120,7 @@ def create_project(eng_id: str, payload: ProjectCreate, db: Session = Depends(ge
     db.add(p)
     
     if payload.template and payload.start_date:
-        from datetime import datetime, timedelta
+        from datetime import timedelta
         try:
             start_dt = datetime.strptime(payload.start_date, "%Y-%m-%d")
             templates = {
@@ -167,8 +189,11 @@ def update_project(eng_id: str, proj_id: str, payload: ProjectUpdate, db: Sessio
 def delete_project(eng_id: str, proj_id: str, db: Session = Depends(get_db)):
     p = db.query(Project).filter(Project.id == proj_id, Project.engineer_id == eng_id).first()
     if not p: raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다")
+    pdir = _proj_dir(eng_id, proj_id)
     db.delete(p)
     db.commit()
+    if os.path.isdir(pdir):          # 첨부 파일 폴더도 함께 삭제
+        shutil.rmtree(pdir, ignore_errors=True)
     return {"message": "Deleted"}
 
 @router.post("/{proj_id}/tasks")
@@ -230,3 +255,85 @@ def delete_task(eng_id: str, proj_id: str, task_id: str, db: Session = Depends(g
     db.delete(t)
     db.commit()
     return {"message": "Deleted"}
+
+# ── 제출자료(첨부 파일) API ──────────────────────
+class FileUpdate(BaseModel):
+    category: Optional[str] = None
+    note: Optional[str] = None
+
+def _get_file(eng_id: str, proj_id: str, file_id: str, db: Session):
+    _get_valid_project(eng_id, proj_id, db)
+    f = db.query(ProjectFile).filter(ProjectFile.id == file_id, ProjectFile.project_id == proj_id).first()
+    if not f:
+        raise HTTPException(404, detail="첨부 파일을 찾을 수 없습니다")
+    return f
+
+@router.get("/{proj_id}/files")
+def list_files(eng_id: str, proj_id: str, db: Session = Depends(get_db)):
+    _get_valid_project(eng_id, proj_id, db)
+    files = db.query(ProjectFile).filter(ProjectFile.project_id == proj_id).order_by(ProjectFile.uploaded_at.desc()).all()
+    return [_file_dict(f) for f in files]
+
+@router.post("/{proj_id}/files")
+def upload_file(eng_id: str, proj_id: str, file: UploadFile = File(...),
+                category: str = Form("기타"), note: str = Form(""), db: Session = Depends(get_db)):
+    _get_valid_project(eng_id, proj_id, db)
+    if category not in FILE_CATEGORIES:
+        raise HTTPException(400, detail=f"구분 값이 올바르지 않습니다 ({' / '.join(FILE_CATEGORIES)})")
+    name = os.path.basename((file.filename or "").replace("\\", "/")).strip()
+    if not name:
+        raise HTTPException(400, detail="파일 이름이 없습니다")
+    pdir = _proj_dir(eng_id, proj_id)
+    os.makedirs(pdir, exist_ok=True)
+    stored = f"{uuid.uuid4()}{os.path.splitext(name)[1][:20]}"
+    path = os.path.join(pdir, stored)
+    size = 0
+    try:
+        with open(path, "wb") as out:
+            while True:
+                chunk = file.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > MAX_FILE_BYTES:
+                    raise HTTPException(413, detail="파일이 너무 큽니다 (최대 50MB)")
+                out.write(chunk)
+    except Exception:
+        if os.path.exists(path):
+            os.remove(path)
+        raise
+    if size == 0:
+        os.remove(path)
+        raise HTTPException(400, detail="빈 파일은 첨부할 수 없습니다")
+    f = ProjectFile(id=str(uuid.uuid4()), project_id=proj_id, category=category, filename=name,
+                    stored_name=stored, size=size, note=note.strip(),
+                    uploaded_at=datetime.now().strftime("%Y-%m-%d %H:%M"))
+    db.add(f); db.commit()
+    return _file_dict(f)
+
+@router.get("/{proj_id}/files/{file_id}/download")
+def download_file(eng_id: str, proj_id: str, file_id: str, db: Session = Depends(get_db)):
+    f = _get_file(eng_id, proj_id, file_id, db)
+    path = os.path.join(_proj_dir(eng_id, proj_id), f.stored_name)
+    if not os.path.isfile(path):
+        raise HTTPException(404, detail="파일이 서버에 없습니다")
+    return FileResponse(path, filename=f.filename)
+
+@router.patch("/{proj_id}/files/{file_id}")
+def update_file(eng_id: str, proj_id: str, file_id: str, data: FileUpdate, db: Session = Depends(get_db)):
+    f = _get_file(eng_id, proj_id, file_id, db)
+    if data.category is not None and data.category not in FILE_CATEGORIES:
+        raise HTTPException(400, detail=f"구분 값이 올바르지 않습니다 ({' / '.join(FILE_CATEGORIES)})")
+    for k, v in data.dict(exclude_none=True).items():
+        setattr(f, k, v)
+    db.commit()
+    return _file_dict(f)
+
+@router.delete("/{proj_id}/files/{file_id}")
+def delete_file(eng_id: str, proj_id: str, file_id: str, db: Session = Depends(get_db)):
+    f = _get_file(eng_id, proj_id, file_id, db)
+    path = os.path.join(_proj_dir(eng_id, proj_id), f.stored_name)
+    if os.path.isfile(path):
+        os.remove(path)
+    db.delete(f); db.commit()
+    return {"ok": True}

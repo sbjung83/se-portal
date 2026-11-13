@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=7">
+<link rel="stylesheet" href="/static/css/style.css?v=8">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -681,11 +681,29 @@
       <button class="btn btn-sm" onclick="closeModal('modal-project-detail')">✕</button>
     </div>
     <div id="proj-detail-info" class="pj-info"></div>
-    <div class="sec-head">
-      <span class="sec-label">태스크 목록</span>
-      <button class="btn btn-sm" onclick="openAddTask()">+ 태스크 추가</button>
+    <div class="tabs" id="pj-tabs">
+      <div class="tab active" data-pjtab="tasks" onclick="pjSwitchTab('tasks')">태스크 <span id="pj-task-cnt"></span></div>
+      <div class="tab" data-pjtab="files" onclick="pjSwitchTab('files')">제출자료 <span id="pj-file-cnt"></span></div>
     </div>
-    <div id="task-list"></div>
+    <div class="pj-pane" id="pj-pane-tasks">
+      <div class="sec-head">
+        <span class="sec-label">태스크 목록</span>
+        <button class="btn btn-sm" onclick="openAddTask()">+ 태스크 추가</button>
+      </div>
+      <div id="task-list"></div>
+    </div>
+    <div class="pj-pane" id="pj-pane-files" style="display:none">
+      <div class="pj-upbar" id="pj-upbar">
+        <select id="pj-file-cat" class="filter-select" title="첨부할 파일의 구분">
+          <option>완료보고서</option><option>검수확인서</option><option>구성도</option><option>회의록</option><option>기타</option>
+        </select>
+        <input type="text" id="pj-file-note" class="pj-search" placeholder="메모 (선택) 예: 고객 서명본">
+        <button class="btn btn-primary btn-sm" id="pj-file-btn" onclick="$('pj-file-input').click()">+ 파일 첨부</button>
+        <input type="file" id="pj-file-input" multiple style="display:none" onchange="uploadProjFiles(this.files);this.value=''">
+        <span class="pj-uphelp">여러 개 선택 가능 · 파일을 이 창에 끌어다 놓아도 됩니다 · 파일당 최대 50MB</span>
+      </div>
+      <div id="pj-file-list"></div>
+    </div>
   </div>
 </div>
 
@@ -867,6 +885,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=28"></script>
+<script src="/static/js/app.js?v=29"></script>
 </body>
 </html>

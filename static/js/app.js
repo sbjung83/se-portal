@@ -2302,7 +2302,7 @@ function drawProjects(){
     const desc = (p.description || '').split('\n').map(x => x.trim()).filter(Boolean)[0] || '';
     const canFinish = p.tasks.length && p.progress === 100 && p.status !== '완료';
     return `<tr onclick="openProjectDetail('${p.id}')">
-      <td><div class="pj-name">${esc(p.name)}</div>${desc ? `<div class="pj-desc" title="${esc(p.description)}">${esc(desc)}</div>` : ''}</td>
+      <td><div class="pj-name">${esc(p.name)}${p.file_count ? `<button class="pj-clip" title="제출자료 보기" onclick="event.stopPropagation();openProjectDetail('${p.id}','files')">첨부 ${p.file_count}</button>` : ''}</div>${desc ? `<div class="pj-desc" title="${esc(p.description)}">${esc(desc)}</div>` : ''}</td>
       <td>${esc(p.customer || '-')}</td>
       <td class="pj-period">${esc(p.start_date || '-')} ~ ${esc(p.end_date || '-')}</td>
       <td><div class="pj-badges">${_projBadges(p)}${canFinish ? `<button class="btn btn-sm pj-finish" title="태스크가 모두 완료되었습니다" onclick="event.stopPropagation();completeProject('${p.id}')">완료 처리</button>` : ''}</div></td>
@@ -2380,7 +2380,7 @@ async function saveProject() {
 
 async function deleteProject(id) {
   const p = _projs.find(x => x.id === id);
-  if(!confirm(`프로젝트${p ? ` "${p.name}"` : ''}를 삭제하시겠습니까?\n태스크${p ? ` ${p.tasks.length}개` : ''}도 모두 삭제됩니다.`)) return;
+  if(!confirm(`프로젝트${p ? ` "${p.name}"` : ''}를 삭제하시겠습니까?\n태스크${p ? ` ${p.tasks.length}개` : ''}${p && p.file_count ? `와 첨부 파일 ${p.file_count}개` : ''}도 모두 삭제됩니다.`)) return;
   try { await _apiSend('DELETE', `${_projBase()}/${id}`); } catch(e){ toast('삭제 실패: ' + e.message); return; }
   await _reloadProj(); toast('삭제됨');
 }
@@ -2391,20 +2391,112 @@ async function completeProject(id){
 }
 
 // ── PROJECT DETAIL (TASKS) ───────────────────
-async function openProjectDetail(id) {
+async function openProjectDetail(id, tab = 'tasks') {
   _currentProjectId = id;
   if(!_projs.some(x => x.id === id)){
     try { _projs = await _apiSend('GET', _projBase()); } catch(e){ toast('조회 실패: ' + e.message); return; }
   }
   if(!_projs.some(x => x.id === id)) return;
+  _projFiles = [];
+  $('pj-file-note').value = '';
+  $('pj-file-cat').value = '완료보고서';
   drawProjectDetail();
+  pjSwitchTab(tab);
   openModal('modal-project-detail');
+  loadProjFiles();
 }
+
+// ── 프로젝트 제출자료(첨부 파일) ─────────────────
+let _projFiles = [];
+const PROJ_FILE_CATS = ['완료보고서', '검수확인서', '구성도', '회의록', '기타'];
+const PROJ_FILE_MAX = 50 * 1024 * 1024;
+
+function pjSwitchTab(tab){
+  document.querySelectorAll('[data-pjtab]').forEach(t => t.classList.toggle('active', t.dataset.pjtab === tab));
+  $('pj-pane-tasks').style.display = tab === 'tasks' ? '' : 'none';
+  $('pj-pane-files').style.display = tab === 'files' ? '' : 'none';
+}
+function _fmtSize(n){
+  return n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+}
+async function loadProjFiles(){
+  const pid = _currentProjectId;
+  try {
+    const files = await _apiSend('GET', `${_projBase()}/${pid}/files`);
+    if(pid !== _currentProjectId) return;
+    _projFiles = files;
+  } catch(e){ $('pj-file-list').innerHTML = `<div class="empty">제출자료를 불러오지 못했습니다: ${esc(e.message)}</div>`; return; }
+  drawProjFiles();
+}
+function drawProjFiles(){
+  $('pj-file-cnt').textContent = _projFiles.length;
+  const base = `${_projBase()}/${_currentProjectId}/files`;
+  $('pj-file-list').innerHTML = `<div class="cl-panel" style="margin-bottom:0"><table class="cl-table">
+    <thead><tr><th style="width:132px">구분</th><th>파일</th><th style="width:90px">크기</th><th style="width:140px">등록</th><th class="c" style="width:150px">관리</th></tr></thead>
+    <tbody>${_projFiles.length ? _projFiles.map(f => `<tr>
+      <td><select class="filter-select pj-cat-sel" title="구분 변경" onchange="updateProjFile('${f.id}',this.value)">${PROJ_FILE_CATS.map(c => `<option ${c === f.category ? 'selected' : ''}>${c}</option>`).join('')}</select></td>
+      <td><a class="pj-file-name" href="${base}/${f.id}/download" download title="내려받기">${esc(f.filename)}</a>${f.note ? `<div class="pj-desc" title="${esc(f.note)}">${esc(f.note)}</div>` : ''}</td>
+      <td class="pj-period">${_fmtSize(f.size)}</td>
+      <td class="pj-period">${esc(f.uploaded_at)}</td>
+      <td class="c cl-act"><a class="btn btn-sm" href="${base}/${f.id}/download" download>내려받기</a><button class="icon-btn del" title="삭제" onclick="deleteProjFile('${f.id}')">${ICO_DEL}</button></td>
+    </tr>`).join('') : '<tr class="cl-msg"><td colspan="5">첨부된 제출자료가 없습니다. 위의 "+ 파일 첨부"를 누르거나 파일을 끌어다 놓으세요.</td></tr>'}</tbody></table></div>`;
+}
+async function uploadProjFiles(fileList){
+  const files = [...(fileList || [])];
+  if(!files.length || !_currentProjectId) return;
+  const pid = _currentProjectId, btn = $('pj-file-btn');
+  const category = $('pj-file-cat').value, note = $('pj-file-note').value.trim();
+  let ok = 0; const fails = [];
+  btn.disabled = true;
+  for(const [i, file] of files.entries()){
+    btn.textContent = `올리는 중... (${i + 1}/${files.length})`;
+    if(file.size > PROJ_FILE_MAX){ fails.push(`${file.name}: 50MB를 넘습니다`); continue; }
+    if(!file.size){ fails.push(`${file.name}: 빈 파일입니다`); continue; }
+    const fd = new FormData(); fd.append('file', file); fd.append('category', category); fd.append('note', note);
+    try {
+      const r = await fetch(`${_projBase()}/${pid}/files`, {method: 'POST', body: fd});
+      if(!r.ok){
+        let d = null; try { d = await r.json(); } catch(e) {}
+        throw new Error(d && typeof d.detail === 'string' ? d.detail : r.status === 413 ? '파일이 너무 큽니다 (최대 50MB)' : `서버 오류 (HTTP ${r.status})`);
+      }
+      ok++;
+    } catch(e){ fails.push(`${file.name}: ${e.message}`); }
+  }
+  btn.disabled = false; btn.textContent = '+ 파일 첨부';
+  if(ok) $('pj-file-note').value = '';
+  if(pid === _currentProjectId) await loadProjFiles();
+  await _reloadProj();
+  if(fails.length) alert(`첨부하지 못한 파일 ${fails.length}개\n\n` + fails.join('\n'));
+  if(ok) toast(`파일 ${ok}개 첨부됨`);
+}
+async function updateProjFile(fid, category){
+  try {
+    const res = await _apiSend('PATCH', `${_projBase()}/${_currentProjectId}/files/${fid}`, {category});
+    const f = _projFiles.find(x => x.id === fid); if(f) Object.assign(f, res);
+    toast('구분 변경됨');
+  } catch(e){ toast('변경 실패: ' + e.message); drawProjFiles(); }
+}
+async function deleteProjFile(fid){
+  const f = _projFiles.find(x => x.id === fid);
+  if(!confirm(`"${f ? f.filename : '파일'}"을(를) 삭제하시겠습니까?\n삭제하면 되돌릴 수 없습니다.`)) return;
+  try { await _apiSend('DELETE', `${_projBase()}/${_currentProjectId}/files/${fid}`); }
+  catch(e){ toast('삭제 실패: ' + e.message); return; }
+  await loadProjFiles(); await _reloadProj(); toast('삭제됨');
+}
+// 제출자료 탭에 파일을 끌어다 놓으면 첨부
+(() => {
+  const pane = $('pj-pane-files');
+  ['dragenter', 'dragover'].forEach(ev => pane.addEventListener(ev, e => { e.preventDefault(); pane.classList.add('drag'); }));
+  ['dragleave', 'drop'].forEach(ev => pane.addEventListener(ev, e => { e.preventDefault(); if(ev === 'drop' || !pane.contains(e.relatedTarget)) pane.classList.remove('drag'); }));
+  pane.addEventListener('drop', e => uploadProjFiles(e.dataTransfer.files));
+})();
 
 function drawProjectDetail(){
   const p = _projs.find(x => x.id === _currentProjectId);
   if(!p){ closeModal('modal-project-detail'); return; }
   $('detail-proj-name').textContent = p.name;
+  $('pj-task-cnt').textContent = p.tasks.length;
+  $('pj-file-cnt').textContent = p.file_count ?? 0;
   const canFinish = p.tasks.length && p.progress === 100 && p.status !== '완료';
   $('proj-detail-info').innerHTML = `
     <div class="pj-info-top">
