@@ -255,7 +255,7 @@ function renderDashIssues(){
   el.innerHTML = list.map(i => {
     const age = _issAge(i);
     return `
-    <div class="iss-row" onclick="showIssuePopup('${i.id}')">
+    <div class="iss-row iss-sev-${ISS_SEV_ORD[i.severity] ?? 3}" onclick="showIssuePopup('${i.id}')">
       <div style="flex:1;min-width:0">
         <div style="display:flex;gap:4px;margin-bottom:3px;flex-wrap:wrap;align-items:center">
           <span class="badge ${ISS_SEV_CLS[i.severity]||'b-gray'}">${esc(i.severity)}</span>
@@ -329,13 +329,13 @@ function renderDashMetrics(){
   const issues = _allIssues || [];
   const hot = issues.filter(i => i.severity === '긴급' || i.severity === '높음').length;
   $('dash-metrics').innerHTML = `
-    <div class="metric" style="cursor:pointer" title="점검 일정 메뉴로 이동" onclick="document.querySelector('.nav-item[data-page=\\'schedule-mgmt\\']').click()"><div class="metric-label">이번 달 점검</div><div class="metric-value">${ss.done}/${ss.total}</div>
+    <div class="metric m-blue" style="cursor:pointer" title="점검 일정 메뉴로 이동" onclick="document.querySelector('.nav-item[data-page=\\'schedule-mgmt\\']').click()"><div class="metric-label">이번 달 점검</div><div class="metric-value">${ss.done}/${ss.total}</div>
       <div class="prog-wrap"><div class="prog-bar" style="width:${ss.total?Math.round(ss.done/ss.total*100):0}%"></div></div></div>
-    <div class="metric" style="cursor:pointer" title="체크리스트 할 일 보기" onclick="switchDashCL('todo');$('dash-cl').scrollIntoView({behavior:'smooth',block:'center'})">
+    <div class="metric m-amber" style="cursor:pointer" title="체크리스트 할 일 보기" onclick="switchDashCL('todo');$('dash-cl').scrollIntoView({behavior:'smooth',block:'center'})">
       <div class="metric-label">체크리스트 남은 항목</div>
       <div class="metric-value" style="${todo.length?'color:#d97706':''}">${todo.length}건</div>
       <div style="font-size:11px;color:#64748b;margin-top:4px">월간 ${byCat('월간')} · 분기 ${byCat('분기')} · 일반 ${byCat('일반')}</div></div>
-    <div class="metric" style="cursor:pointer" title="사이트 이슈 보기" onclick="$('dash-issues').scrollIntoView({behavior:'smooth',block:'center'})">
+    <div class="metric m-red" style="cursor:pointer" title="사이트 이슈 보기" onclick="$('dash-issues').scrollIntoView({behavior:'smooth',block:'center'})">
       <div class="metric-label">미해결 이슈</div>
       <div class="metric-value" style="${hot?'color:#dc2626':''}">${issues.length}건</div>
       <div style="font-size:11px;color:#64748b;margin-top:4px">긴급·높음 ${hot}건</div></div>
@@ -408,7 +408,7 @@ function drawDashCL(){
     el.innerHTML = done.length
       ? CL_CATS.map(c => {
           const its = done.filter(i => i.category === c);
-          return its.length ? `<div class="dcl-group"><div class="dcl-group-head">${c}${its[0].period ? ` · ${esc(its[0].period)} 완료` : ''}</div>${its.map(row).join('')}</div>` : '';
+          return its.length ? `<div class="dcl-group"><div class="dcl-group-head">${c}${its[0].period ? ` - ${esc(its[0].period)} 완료` : ' - 완료'}</div>${its.map(row).join('')}</div>` : '';
         }).join('')
       : '<div class="empty">이번 주기에 완료한 항목이 없습니다</div>';
     return;
@@ -420,8 +420,8 @@ function drawDashCL(){
     const n = all.length - its.length;
     const p = all[0];
     const head = c === '일반'
-      ? `일반 <span class="dcl-meta">기한 없음</span>`
-      : `${c} · ${esc(p.period)} <span class="dcl-meta">${esc(p.due.slice(5).replace('-', '/'))} 마감 · ${n}/${all.length} 완료</span>`;
+      ? `일반 - 상시 <span class="dcl-meta">기한 없음</span>`
+      : `${c} - ${esc(p.period)} <span class="dcl-meta">${esc(p.due.slice(5).replace('-', '/'))} 마감 · ${n}/${all.length} 완료</span>`;
     return `<div class="dcl-group">
       <div class="dcl-group-head">${head}</div>
       ${its.length ? its.map(row).join('') : `<div class="dcl-alldone">✓ ${c === '일반' ? '모두 완료' : `${esc(p.period)} 항목 모두 완료`}</div>`}
@@ -1715,7 +1715,7 @@ function fmtDuration(min){
 }
 function _svcMetric(d){
   const a = d.monthly_support_count ?? 0, b = d.monthly_incident_count ?? 0;
-  return `<div class="metric" style="cursor:pointer" title="월별 기술지원 및 장애처리 이력으로 이동"
+  return `<div class="metric m-violet" style="cursor:pointer" title="월별 기술지원 및 장애처리 이력으로 이동"
       onclick="document.querySelector('.nav-item[data-page=\\'service-history\\']').click()">
     <div class="metric-label">이번 달 기술지원 · 장애</div>
     <div class="metric-value">${a + b}건</div>

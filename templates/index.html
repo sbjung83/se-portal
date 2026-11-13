@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=4">
+<link rel="stylesheet" href="/static/css/style.css?v=6">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -135,50 +135,57 @@
       <div class="dash-body">
         <!-- 왼쪽 6 : 이번 주 할 일, 사이트 체크리스트 -->
         <div class="dash-left">
-          <div class="card">
+          <div class="card dash-card dc-week">
             <div class="dash-card-title">
-              <span>🗓 <span id="dash-week-title">이번 주 할 일</span> <span id="dash-week-cnt" class="dcl-summary"></span></span>
+              <span><span id="dash-week-title">이번 주 할 일</span> <span id="dash-week-cnt" class="dcl-summary"></span></span>
               <span style="display:flex;align-items:center;gap:8px">
-                <span id="dash-week-range" style="font-size:12px;font-weight:600;color:#94a3b8"></span>
+                <span id="dash-week-range" class="dash-range"></span>
                 <span class="svh-tabs">
                   <button class="svh-tab active" data-wk="this" onclick="switchDashWeek('this')">이번 주</button>
                   <button class="svh-tab" data-wk="next" onclick="switchDashWeek('next')">다음 주</button>
                 </span>
               </span>
             </div>
-            <div id="dash-week" class="dash-scroll" style="max-height:420px"></div>
+            <div class="dash-card-body">
+              <div id="dash-week" class="dash-scroll" style="max-height:420px"></div>
+            </div>
           </div>
-          <div class="card">
+          <div class="card dash-card dc-cl">
             <div class="dash-card-title">
-              <span>✅ 사이트 체크리스트 <span id="dash-cl-summary" class="dcl-summary"></span></span>
+              <span>사이트 체크리스트 <span id="dash-cl-summary" class="dcl-summary"></span></span>
               <button class="btn btn-sm" onclick="openAddCLItem()">+ 추가</button>
             </div>
-            <div class="dcl-bar">
-              <div class="svh-tabs">
-                <button class="svh-tab active" data-dcl="todo" onclick="switchDashCL('todo')">할 일 <span id="dcl-todo-cnt"></span></button>
-                <button class="svh-tab" data-dcl="done" onclick="switchDashCL('done')">완료 <span id="dcl-done-cnt"></span></button>
+            <div class="dash-card-body">
+              <div class="dcl-bar">
+                <div class="svh-tabs">
+                  <button class="svh-tab active" data-dcl="todo" onclick="switchDashCL('todo')">할 일 <span id="dcl-todo-cnt"></span></button>
+                  <button class="svh-tab" data-dcl="done" onclick="switchDashCL('done')">완료 <span id="dcl-done-cnt"></span></button>
+                </div>
+                <select id="dcl-site" class="filter-select" onchange="drawDashCL()"><option value="">전체 사이트</option></select>
               </div>
-              <select id="dcl-site" class="filter-select" onchange="drawDashCL()"><option value="">전체 사이트</option></select>
+              <div id="dash-cl" class="dash-scroll dcl-list"></div>
             </div>
-            <div id="dash-cl" class="dash-scroll dcl-list"></div>
           </div>
-          <!-- 추후 콘텐츠 추가 예정 -->
         </div>
         <!-- 오른쪽 4 : 사이트 이슈, 워런티 -->
         <div class="dash-right">
-          <div class="card">
+          <div class="card dash-card dc-issue">
             <div class="dash-card-title">
-              <span>🔴 사이트 이슈 <span id="dash-issue-cnt" class="dcl-summary" style="color:#dc2626"></span></span>
+              <span>사이트 이슈 <span id="dash-issue-cnt" class="dcl-summary" style="color:#dc2626"></span></span>
               <button class="btn btn-sm" id="btn-add-issue">+ 추가</button>
             </div>
-            <div id="dash-issues" class="dash-scroll" style="max-height:300px"></div>
+            <div class="dash-card-body">
+              <div id="dash-issues" class="dash-scroll" style="max-height:300px"></div>
+            </div>
           </div>
 
-          <div class="card">
+          <div class="card dash-card dc-warr">
             <div class="dash-card-title">
-              <span>⚠️ 워런티 만료 <span id="dash-warranty-cnt" class="dcl-summary"></span></span>
+              <span>워런티 만료 <span id="dash-warranty-cnt" class="dcl-summary"></span></span>
             </div>
-            <div id="dash-warranty" class="dash-scroll" style="max-height:300px"></div>
+            <div class="dash-card-body">
+              <div id="dash-warranty" class="dash-scroll" style="max-height:300px"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -870,6 +877,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=25"></script>
+<script src="/static/js/app.js?v=26"></script>
 </body>
 </html>
