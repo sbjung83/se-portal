@@ -385,3 +385,51 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .wr-remark{font-size:12px;color:#64748b}
 .wr-text{width:100%;min-height:150px;padding:10px 12px;border:1px solid #d4d4d0;border-radius:8px;font-size:13px;font-family:inherit;line-height:1.6;resize:vertical;box-sizing:border-box}
 .wr-text:focus{outline:none;border-color:#378ADD}
+
+/* 사이트 체크리스트 페이지 */
+.cl-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px}
+.cl-sum{background:#fff;border:1px solid #d5dbe5;border-radius:10px;padding:14px 18px;cursor:pointer;transition:border-color .15s}
+.cl-sum:hover{border-color:#94a3b8}
+.cl-sum.active{border-color:#378ADD;box-shadow:0 0 0 2px rgba(55,138,221,.18)}
+.cl-sum-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.cl-sum-name{font-size:13px;font-weight:700;color:#1e293b}
+.cl-sum-due{font-size:12px;color:#64748b;white-space:nowrap}
+.cl-sum.warn .cl-sum-due{color:#d97706;font-weight:600}
+.cl-sum-val{font-size:24px;font-weight:800;color:#0f172a;margin-top:6px;line-height:1.2}
+.cl-sum-val small{font-size:12.5px;font-weight:500;color:#64748b}
+.cl-sum .prog-wrap{background:#e2e8f0}
+.cl-sum.ok .prog-bar{background:#22c55e}
+.cl-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:#fff;border:1px solid #d5dbe5;border-radius:10px}
+.cl-toolbar .filter-select{max-width:260px}
+.cl-only{display:flex;align-items:center;gap:6px;font-size:13px;color:#475569;cursor:pointer;white-space:nowrap}
+.cl-only input{accent-color:#378ADD;cursor:pointer}
+.cl-panel{background:#fff;border:1px solid #d5dbe5;border-radius:10px;overflow:hidden;margin-bottom:14px}
+.cl-table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+.cl-table th{text-align:left;font-size:12px;font-weight:600;color:#64748b;padding:9px 12px;background:#f1f5f9;border-bottom:1px solid #d5dbe5}
+.cl-table td{padding:9px 12px;border-bottom:1px solid #e5e9f0;vertical-align:middle}
+.cl-table td+td,.cl-table th+th{border-left:1px solid #edf0f5}
+.cl-table tbody tr:last-child td{border-bottom:none}
+.cl-table .c{text-align:center}
+.cl-table input[type=checkbox]{width:16px;height:16px;cursor:pointer;accent-color:#378ADD;vertical-align:middle}
+.cl-table tr.cl-grp td{background:#f8fafc;border-top:1px solid #d5dbe5;border-bottom:1px solid #d5dbe5;padding:8px 12px}
+.cl-table tbody tr.cl-grp:first-child td{border-top:none}
+.cl-site-head{display:flex;align-items:center;gap:12px}
+.cl-site-name{font-size:14px;font-weight:700;color:#0f172a}
+.cl-site-prog{font-size:12px;font-weight:600;color:#d97706;white-space:nowrap;flex:1}
+.cl-site-prog.ok{color:#16a34a}
+.cl-text{line-height:1.5;word-break:break-word}
+.cl-table tr.done .cl-text{text-decoration:line-through;color:#a3acb9}
+.cl-due-cell{white-space:nowrap}
+.cl-st{font-size:12px;color:#475569}
+.cl-st.ok{color:#16a34a;font-weight:600}
+.cl-st.mute{color:#94a3b8}
+.cl-due-cell .dcl-due{margin-left:6px}
+.cl-act .icon-btn+.icon-btn{margin-left:6px}
+.cl-msg td{text-align:center;color:#94a3b8;padding:18px 12px}
+.cl-nosite{padding:12px 14px}
+.cl-nosite-title{font-size:12.5px;font-weight:700;color:#334155;margin-bottom:10px}
+.cl-nosite-title span{font-weight:400;color:#94a3b8;margin-left:8px}
+.cl-nosite-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
+.cl-chip{border:1px solid #d5dbe5;background:#f8fafc;color:#475569;border-radius:8px;padding:7px 10px;font-size:12.5px;font-family:inherit;cursor:pointer;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cl-chip:hover{border-color:#378ADD;color:#378ADD;background:#fff}
+@media (max-width:760px){.cl-summary{grid-template-columns:1fr}.cl-toolbar .btn-primary{margin-left:0}.cl-table{table-layout:auto}}

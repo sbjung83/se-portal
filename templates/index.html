@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=3">
+<link rel="stylesheet" href="/static/css/style.css?v=4">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -187,11 +187,17 @@
     <!-- SITE CHECKLIST -->
     <div class="page" id="page-checklist">
       <div class="page-title">사이트 체크리스트</div>
-      <div class="search-bar">
-        <select id="cl-site-sel" style="flex:1;padding:7px 10px;border:1px solid #d4d4d0;border-radius:7px;font-size:13px;font-family:inherit" onchange="renderChecklist()">
-          <option value="">— 사이트 선택 —</option>
-        </select>
-        <button class="btn btn-primary" onclick="openAddCLItem()">+ 항목 추가</button>
+      <div id="cl-summary" class="cl-summary"></div>
+      <div class="cl-toolbar">
+        <div class="svh-tabs">
+          <button class="svh-tab active" data-clcat="" onclick="clSetCat('')">전체</button>
+          <button class="svh-tab" data-clcat="월간" onclick="clSetCat('월간')">월간</button>
+          <button class="svh-tab" data-clcat="분기" onclick="clSetCat('분기')">분기</button>
+          <button class="svh-tab" data-clcat="일반" onclick="clSetCat('일반')">일반</button>
+        </div>
+        <select id="cl-site-sel" class="filter-select" onchange="drawChecklist()"><option value="">전체 사이트</option></select>
+        <label class="cl-only"><input type="checkbox" id="cl-todo-only" onchange="drawChecklist()"> 남은 것만 보기</label>
+        <button class="btn btn-primary" style="margin-left:auto" onclick="openAddCLItem()">+ 항목 추가</button>
       </div>
       <div id="cl-content"></div>
     </div>
@@ -864,6 +870,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=23"></script>
+<script src="/static/js/app.js?v=25"></script>
 </body>
 </html>

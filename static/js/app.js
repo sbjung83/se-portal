@@ -568,41 +568,100 @@ async function deleteIssue(id){
 }
 
 // ── SITE CHECKLIST ────────────────────────
+let _clData = [], _clCat = '';
+const CL_BADGE = {'월간':'b-blue', '분기':'b-purple', '일반':'b-gray'};
+
 async function renderChecklistPage(){
-  const sites=await api.get(`/api/engineers/${ENG_ID}/sites`);
-  const sel=$('cl-site-sel');
-  const prev=sel.value;
-  sel.innerHTML='<option value="">— 사이트 선택 —</option>'+sites.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
-  if(prev) sel.value=prev;
-  renderChecklist();
+  try {
+    _clData = (await api.get(`/api/engineers/${ENG_ID}/site-checklist`))
+      .sort((x, y) => x.site_name.localeCompare(y.site_name, 'ko'));
+  } catch(e) {
+    console.error('체크리스트 조회 실패:', e);
+    $('cl-content').innerHTML = '<div class="empty">체크리스트를 불러오지 못했습니다</div>';
+    return;
+  }
+  const sel = $('cl-site-sel'), prev = sel.value;
+  sel.innerHTML = '<option value="">전체 사이트</option>' + _clData.map(s =>
+    `<option value="${s.site_id}">${esc(s.site_name)}${s.items.length ? ` (${s.items.filter(i => !i.done).length}/${s.items.length})` : ''}</option>`).join('');
+  if([...sel.options].some(o => o.value === prev)) sel.value = prev;
+  drawChecklist();
+}
+const renderChecklist = renderChecklistPage;
+
+function clSetCat(cat){
+  _clCat = cat;
+  document.querySelectorAll('[data-clcat]').forEach(b => b.classList.toggle('active', b.dataset.clcat === cat));
+  drawChecklist();
 }
 
-async function renderChecklist(){
-  const siteId=$('cl-site-sel').value;
-  const el=$('cl-content');
-  if(!siteId){el.innerHTML='<div class="empty">사이트를 선택해주세요</div>';return}
-  const items=await api.get(`/api/engineers/${ENG_ID}/site-checklist/${siteId}`);
-  const cats=['월간','분기','일반'];
-  const sample = c => ({'월간':`${new Date().getMonth()+1}월`, '분기':`${Math.ceil((new Date().getMonth()+1)/3)}분기`}[c] || '');
+function drawChecklist(){
+  const el = $('cl-content');
+  const siteId = $('cl-site-sel').value, todoOnly = $('cl-todo-only').checked;
+  const groups = _clData.filter(s => !siteId || s.site_id === siteId);
+  const all = groups.flatMap(s => s.items);
+
+  // 주기별 요약 카드 (누르면 해당 주기만 보기)
+  const now = new Date();
+  const sample = {'월간':`${now.getMonth()+1}월`, '분기':`${Math.ceil((now.getMonth()+1)/3)}분기`, '일반':'상시'};
   const note = {'월간':'매월 1일 자동 초기화', '분기':'분기 첫날 자동 초기화', '일반':'한 번 완료하면 유지'};
-  el.innerHTML=cats.map(cat=>{
-    const its=items.filter(i=>i.category===cat);
-    const done=its.filter(i=>i.done).length;
-    const per = its[0]?.period || sample(cat);
-    return `<div class="card">
-      <div class="card-title"><span>${cat} 점검${per?` · ${esc(per)}`:''} <span style="font-weight:400;font-size:11px;color:#94a3b8;text-transform:none;letter-spacing:0">${note[cat]}</span></span><span style="font-weight:400;text-transform:none;letter-spacing:0">${done}/${its.length}</span></div>
-      ${its.length?`<div class="prog-wrap" style="margin-bottom:10px"><div class="prog-bar" style="width:${its.length?Math.round(done/its.length*100):0}%"></div></div>`:''}
-      ${its.map(i=>`
-        <div style="display:flex;align-items:center;gap:8px;padding:7px 2px;border-bottom:1px solid #f0f0ee">
-          <input type="checkbox" ${i.done?'checked':''} onchange="toggleCL('${i.id}',this.checked)" style="width:15px;height:15px;cursor:pointer;accent-color:#378ADD">
-          <span style="flex:1;${i.done?'text-decoration:line-through;color:#bbb':''}">${esc(i.text)}</span>
-          ${!i.done ? _clDue(i) : ''}
-          <button class="icon-btn edit" title="수정" onclick="openEditCL(${JSON.stringify(i).replace(/"/g,'&quot;')})">${ICO_EDIT}</button>
-          <button class="icon-btn del"  title="삭제" onclick="deleteCL('${i.id}')">${ICO_DEL}</button>
-        </div>`).join('')}
-      ${!its.length?'<div class="empty" style="padding:12px">항목 없음</div>':''}
+  $('cl-summary').innerHTML = CL_CATS.map(c => {
+    const its = all.filter(i => i.category === c), done = its.filter(i => i.done).length;
+    const p = its[0];
+    const left = its.length - done;
+    const due = p && p.due ? `${p.due.slice(5).replace('-', '/')} 마감${left ? ` - ${p.days_left <= 0 ? '오늘' : 'D-' + p.days_left}` : ''}` : (c === '일반' ? '기한 없음' : note[c]);
+    const state = !its.length ? '' : left ? (p.days_left !== null && p.days_left <= 7 ? 'warn' : '') : 'ok';
+    return `<div class="cl-sum ${state} ${_clCat === c ? 'active' : ''}" onclick="clSetCat(_clCat==='${c}'?'':'${c}')" title="${note[c]}">
+      <div class="cl-sum-top"><span class="cl-sum-name">${c} - ${esc(p?.period || sample[c])}</span><span class="cl-sum-due">${due}</span></div>
+      <div class="cl-sum-val">${its.length ? `${done}<small> / ${its.length} 완료</small>` : '<small>항목 없음</small>'}</div>
+      <div class="prog-wrap"><div class="prog-bar" style="width:${its.length ? Math.round(done / its.length * 100) : 0}%"></div></div>
     </div>`;
   }).join('');
+
+  const order = i => CL_CATS.indexOf(i.category) + (i.done ? 10 : 0);
+  const status = i => i.done
+    ? `<span class="cl-st ok">✓ ${i.period ? esc(i.period) + ' ' : ''}완료</span>`
+    : i.due ? `<span class="cl-st">${i.due.slice(5).replace('-', '/')} 마감</span> ${_clDue(i)}`
+    : `<span class="cl-st mute">기한 없음</span>`;
+  const row = i => `
+    <tr class="${i.done ? 'done' : ''}">
+      <td class="c"><input type="checkbox" ${i.done ? 'checked' : ''} onchange="toggleCL('${i.id}',this.checked)"></td>
+      <td><span class="badge ${CL_BADGE[i.category] || 'b-gray'}">${esc(i.category)}</span></td>
+      <td class="cl-text">${esc(i.text)}</td>
+      <td class="cl-due-cell">${status(i)}</td>
+      <td class="c cl-act"><button class="icon-btn edit" title="수정" onclick="openEditCL('${i.id}')">${ICO_EDIT}</button><button class="icon-btn del" title="삭제" onclick="deleteCL('${i.id}')">${ICO_DEL}</button></td>
+    </tr>`;
+  const msgRow = html => `<tr class="cl-msg"><td colspan="5">${html}</td></tr>`;
+
+  const body = groups.map(s => {
+    const inCat = s.items.filter(i => !_clCat || i.category === _clCat);
+    if(!inCat.length && !siteId) return '';
+    const done = inCat.filter(i => i.done).length;
+    const show = inCat.filter(i => !todoOnly || !i.done).sort((x, y) => order(x) - order(y));
+    if(!show.length && !siteId) return '';
+    const prog = !inCat.length ? '' : done === inCat.length
+      ? `<span class="cl-site-prog ok">✓ 모두 완료 (${done}/${inCat.length})</span>`
+      : `<span class="cl-site-prog">${inCat.length - done}건 남음 (${done}/${inCat.length})</span>`;
+    return `<tr class="cl-grp"><td colspan="5"><div class="cl-site-head">
+        <span class="cl-site-name">${esc(s.site_name)}</span>${prog}
+        <button class="btn btn-sm" onclick="openAddCLItem('${s.site_id}')">+ 추가</button>
+      </div></td></tr>
+      ${show.length ? show.map(row).join('')
+        : msgRow(!inCat.length ? (_clCat ? `${_clCat} 항목이 없습니다` : '등록된 항목이 없습니다') : '✓ 남은 항목이 없습니다')}`;
+  }).join('');
+
+  const table = `<div class="cl-panel"><table class="cl-table">
+    <thead><tr><th class="c" style="width:52px">완료</th><th style="width:64px">주기</th><th>항목</th><th style="width:170px">마감</th><th class="c" style="width:86px">관리</th></tr></thead>
+    <tbody>${body || msgRow(!all.length
+      ? '등록된 체크리스트가 없습니다. 매월·분기마다 반복하는 일을 등록해 두면 주기가 바뀔 때 자동으로 다시 할 일이 됩니다.'
+      : todoOnly ? '✓ 남은 항목이 없습니다' : '조건에 맞는 항목이 없습니다')}</tbody></table></div>`;
+
+  // 체크리스트가 하나도 없는 사이트는 아래 상자에 모아서 표시
+  const emptySites = siteId ? [] : groups.filter(s => !s.items.length);
+  const emptyBox = emptySites.length ? `<div class="cl-panel cl-nosite">
+    <div class="cl-nosite-title">체크리스트가 없는 사이트 - ${emptySites.length}곳 <span>이름을 누르면 항목을 추가합니다</span></div>
+    <div class="cl-nosite-list">${emptySites.map(s => `<button class="cl-chip" onclick="openAddCLItem('${s.site_id}')">+ ${esc(s.site_name)}</button>`).join('')}</div></div>` : '';
+
+  el.innerHTML = table + emptyBox;
 }
 
 async function _fillCLSiteSel(selected=''){
@@ -614,17 +673,21 @@ async function _fillCLSiteSel(selected=''){
     $('cl-item-site').innerHTML = '<option value="">사이트 로딩 실패</option>';
   }
 }
-async function openAddCLItem(){
+async function openAddCLItem(siteId){
   $('cl-modal-title').textContent='체크리스트 항목 추가';
   $('cl-item-id').value=''; $('cl-text').value='';
-  $('cl-cat').value='월간';
+  const onPage = $('page-checklist').classList.contains('active');
+  $('cl-cat').value = (onPage && _clCat) || '월간';
   // 체크리스트 화면에서는 선택된 사이트, 대시보드에서는 사이트 필터 값을 기본으로
-  const pre = $('page-checklist').classList.contains('active') ? $('cl-site-sel').value : $('dcl-site').value;
+  const pre = (typeof siteId === 'string' && siteId) || (onPage ? $('cl-site-sel').value : $('dcl-site').value);
   await _fillCLSiteSel(pre);
   $('cl-item-site').disabled = false;
   openModal('modal-cl-item');
+  setTimeout(() => $('cl-text').focus(), 50);
 }
 async function openEditCL(item){
+  if(typeof item === 'string') item = _clData.flatMap(s => s.items).find(i => i.id === item);
+  if(!item) return;
   $('cl-modal-title').textContent='항목 수정';
   $('cl-item-id').value=item.id; $('cl-text').value=item.text; $('cl-cat').value=item.category;
   await _fillCLSiteSel(item.site_id);
@@ -654,8 +717,13 @@ async function saveCLItem(){
   _refreshCL(); toast(id?'항목 수정됨':'항목 추가됨');
 }
 async function toggleCL(id,checked){
-  await api.patch(`/api/engineers/${ENG_ID}/site-checklist/${id}`,{done:checked});
-  renderChecklist();
+  try {
+    const res = await _apiSend('PATCH', `/api/engineers/${ENG_ID}/site-checklist/${id}`, {done:checked});
+    const item = _clData.flatMap(s => s.items).find(i => i.id === id);
+    if(item) Object.assign(item, res);
+    toast(checked ? '완료 처리됨' : '완료 취소됨');
+  } catch(e) { toast('변경 실패: ' + e.message); }
+  renderChecklistPage();
 }
 async function deleteCL(id){
   if(!confirm('항목을 삭제하시겠습니까?'))return;
