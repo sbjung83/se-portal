@@ -146,6 +146,7 @@ class SiteChecklist(Base):
     category    = Column(String, default="일반")   # 일반 / 월간 / 분기
     text        = Column(String, nullable=False)
     done        = Column(Boolean, default=False)
+    done_period = Column(String, default="")      # 완료한 주기: 월간 "YYYY-MM", 분기 "YYYY-Qn" (주기가 바뀌면 미완료로 간주)
     site        = relationship("Site", back_populates="checklists")
 
 # ── 작업 이력 ─────────────────────────────────

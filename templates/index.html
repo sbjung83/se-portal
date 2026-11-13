@@ -130,47 +130,52 @@
       <div class="page-title" id="dash-title">대시보드</div>
       <div class="grid4" id="dash-metrics"></div>
       <div class="dash-body">
-        <!-- 왼쪽 6 -->
+        <!-- 왼쪽 6 : 이번 주 할 일, 사이트 체크리스트 -->
         <div class="dash-left">
           <div class="card">
-            <div class="dash-card-title">🔴 사이트 이슈 <button class="btn btn-sm" id="btn-add-issue">+ 추가</button></div>
-            <div id="dash-issues" class="fixed-list"></div>
-            <div id="dash-issues-page" class="pagination"></div>
+            <div class="dash-card-title">
+              <span>🗓 <span id="dash-week-title">이번 주 할 일</span> <span id="dash-week-cnt" class="dcl-summary"></span></span>
+              <span style="display:flex;align-items:center;gap:8px">
+                <span id="dash-week-range" style="font-size:12px;font-weight:600;color:#94a3b8"></span>
+                <span class="svh-tabs">
+                  <button class="svh-tab active" data-wk="this" onclick="switchDashWeek('this')">이번 주</button>
+                  <button class="svh-tab" data-wk="next" onclick="switchDashWeek('next')">다음 주</button>
+                </span>
+              </span>
+            </div>
+            <div id="dash-week" class="dash-scroll" style="max-height:420px"></div>
           </div>
           <div class="card">
-            <div class="dash-card-title">✅ 사이트 체크리스트</div>
-            <div id="dash-cl" class="fixed-list"></div>
-            <div id="dash-cl-page" class="pagination"></div>
+            <div class="dash-card-title">
+              <span>✅ 사이트 체크리스트 <span id="dash-cl-summary" class="dcl-summary"></span></span>
+              <button class="btn btn-sm" onclick="openAddCLItem()">+ 추가</button>
+            </div>
+            <div class="dcl-bar">
+              <div class="svh-tabs">
+                <button class="svh-tab active" data-dcl="todo" onclick="switchDashCL('todo')">할 일 <span id="dcl-todo-cnt"></span></button>
+                <button class="svh-tab" data-dcl="done" onclick="switchDashCL('done')">완료 <span id="dcl-done-cnt"></span></button>
+              </div>
+              <select id="dcl-site" class="filter-select" onchange="drawDashCL()"><option value="">전체 사이트</option></select>
+            </div>
+            <div id="dash-cl" class="dash-scroll dcl-list"></div>
           </div>
           <!-- 추후 콘텐츠 추가 예정 -->
         </div>
-        <!-- 오른쪽 4 -->
+        <!-- 오른쪽 4 : 사이트 이슈, 워런티 -->
         <div class="dash-right">
           <div class="card">
             <div class="dash-card-title">
-              <span>📅 점검 일정 <span style="color:#d4d4d0;margin:0 6px">|</span><span id="sched-summary" style="font-size:12px;font-weight:600;color:#378ADD">0/0 완료</span></span>
-              <button class="btn btn-sm" id="btn-add-sched">+ 등록</button>
+              <span>🔴 사이트 이슈 <span id="dash-issue-cnt" class="dcl-summary" style="color:#dc2626"></span></span>
+              <button class="btn btn-sm" id="btn-add-issue">+ 추가</button>
             </div>
-            <div style="display:flex;gap:6px;margin-bottom:12px;align-items:center">
-              <button class="ds-tab active" data-dstab="month" onclick="switchDashSchedTab('month')">
-                🗓 이번 달 <span id="ds-month-cnt" style="font-size:10px;opacity:.8"></span>
-              </button>
-              <button class="ds-tab" data-dstab="quarter" onclick="switchDashSchedTab('quarter')" id="ds-quarter-btn">
-                📊 <span id="ds-quarter-label">2분기</span> <span id="ds-quarter-cnt" style="font-size:10px;opacity:.8"></span>
-              </button>
-              <div style="flex:1"></div>
-              <div style="display:flex;align-items:center;gap:6px">
-                <div style="width:80px;background:#f0f0ee;border-radius:4px;height:6px;overflow:hidden">
-                  <div id="ds-prog-bar" style="height:100%;border-radius:4px;background:#378ADD;transition:width .3s;width:0%"></div>
-                </div>
-              </div>
-            </div>
-            <div id="dash-schedules"></div>
+            <div id="dash-issues" class="dash-scroll" style="max-height:300px"></div>
           </div>
 
           <div class="card">
-            <div class="dash-card-title">⚠️ 워런티 만료 임박</div>
-            <div id="dash-warranty"></div>
+            <div class="dash-card-title">
+              <span>⚠️ 워런티 만료 <span id="dash-warranty-cnt" class="dcl-summary"></span></span>
+            </div>
+            <div id="dash-warranty" class="dash-scroll" style="max-height:300px"></div>
           </div>
         </div>
       </div>
@@ -756,8 +761,9 @@
   <div class="modal">
     <div class="modal-head"><div class="modal-title" id="cl-modal-title">체크리스트 항목 추가</div><button class="btn btn-sm" onclick="closeModal('modal-cl-item')">✕</button></div>
     <input type="hidden" id="cl-item-id">
-    <div class="form-row"><label>카테고리</label><select id="cl-cat"><option>일반</option><option>월간</option><option>분기</option></select></div>
-    <div class="form-row"><label>항목 내용 *</label><input type="text" id="cl-text"></div>
+    <div class="form-row"><label>사이트 *</label><select id="cl-item-site"></select></div>
+    <div class="form-row"><label>주기</label><select id="cl-cat"><option value="일반">일반 (한 번 완료하면 끝)</option><option value="월간">월간 (매월 1일 자동 초기화)</option><option value="분기">분기 (분기 첫날 자동 초기화)</option></select></div>
+    <div class="form-row"><label>항목 내용 *</label><input type="text" id="cl-text" placeholder="예: [매월 말] L4 점검표 취합"></div>
     <div class="form-actions">
       <button class="btn" onclick="closeModal('modal-cl-item')">취소</button>
       <button class="btn btn-primary" onclick="saveCLItem()">저장</button>
@@ -805,6 +811,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=14"></script>
+<script src="/static/js/app.js?v=18"></script>
 </body>
 </html>

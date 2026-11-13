@@ -69,6 +69,7 @@ uploads/             사이트 점검 보고서 업로드 파일 (git 제외)
   - WorkPlan(기술지원).status: 계획중/결재대기/승인완료/작업완료
   - Incident(장애처리).severity: 긴급/높음/보통/낮음, status: 접수/처리중/완료
   - 개발 체크리스트 status: 예정/진행중/완료
+  - SiteChecklist.category: 일반/월간/분기 — 월간·분기는 `done_period`("YYYY-MM"/"YYYY-Qn")가 현재 주기와 같을 때만 완료로 응답(주기 바뀌면 자동 초기화, `routers/site_checklist.py` `period_info`)
 - **사용자 메시지/에러 detail은 한국어.**
 - **모델 추가/변경:** 모델은 모두 `database.py`에. `init_db()`는 `create_all`만 하므로
   **새 테이블은 자동 생성되지만 기존 테이블의 컬럼 추가/변경은 반영되지 않는다** → 수동 `ALTER TABLE` 필요.

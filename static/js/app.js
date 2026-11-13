@@ -3,7 +3,7 @@ let ENG_ID='', ENG_NAME='';
 let currentSiteId=null, revealedPw={};
 
 // 페이지네이션 상태
-const pgState = { issues:1, cl:1 };
+
 const PAGE_SIZE = 5;
 
 // 캐시
@@ -70,9 +70,6 @@ function initApp(){
   $('sidebar-eng-name').textContent=ENG_NAME;
   const av=$('sidebar-avatar'); if(av) av.textContent=ENG_NAME.charAt(0);
   $('dash-title').textContent=`대시보드 — ${ENG_NAME}`;
-  // 항상 이번달(월간) 탭으로 초기화 후 대시보드 렌더
-  _dashSchedTab = 'month';
-  document.querySelectorAll('.ds-tab').forEach(t=>t.classList.toggle('active', t.dataset.dstab==='month'));
   renderDashboard();
 }
 
@@ -111,121 +108,338 @@ document.querySelectorAll('.tab[data-dtab]').forEach(t=>{
 
 // ── DASHBOARD ─────────────────────────────
 async function renderDashboard(){
-  const d=await api.get(`/api/engineers/${ENG_ID}/dashboard`);
-  _allIssues = d.issues_all || d.issues;  // 전체 이슈 캐시
+  // 요약 / 체크리스트를 동시에 불러온다
+  const [d] = await Promise.all([
+    api.get(`/api/engineers/${ENG_ID}/dashboard`),
+    loadDashCL(),
+  ]);
+  _dashData = d;
+  _allIssues = d.issues_all || d.issues || [];
+  $('dash-title').innerHTML = `대시보드 — ${esc(ENG_NAME)}
+    <span class="dash-sub">사이트 ${d.site_count} · 장비 ${d.device_count}</span>`;
 
-  $('dash-metrics').innerHTML=`
-    <div class="metric"><div class="metric-label">내 사이트 수</div><div class="metric-value">${d.site_count}</div></div>
-    <div class="metric"><div class="metric-label">전체 장비 수</div><div class="metric-value">${d.device_count}</div></div>
-    <div class="metric"><div class="metric-label">이번 달 점검</div><div class="metric-value">${d.schedule_summary.done}/${d.schedule_summary.total}</div>
-      <div class="prog-wrap"><div class="prog-bar" style="width:${d.schedule_summary.total?Math.round(d.schedule_summary.done/d.schedule_summary.total*100):0}%"></div></div></div>
-    ${_svcMetric(d)}`;
-
-  // 이슈 렌더 (페이지네이션)
-  renderIssuesPage(1);
-
-  // 대시보드 체크리스트 (전체 사이트 합산)
-  const clData = await api.get(`/api/engineers/${ENG_ID}/site-checklist`);
-  _allCLItems = clData.flatMap(s=>s.items.map(i=>({...i, site_name:s.site_name})));
-  renderCLPage(1);
-
-  // 점검 일정 - 항상 이번달(월간) 탭으로 강제 초기화 후 로드
-  _dashSchedTab = 'month';
-  document.querySelectorAll('.ds-tab').forEach(t=>t.classList.toggle('active', t.dataset.dstab==='month'));
-  const curQ = _currentQuarter();
-  const qLabelEl = $('ds-quarter-label');
-  if(qLabelEl) qLabelEl.textContent = `${curQ}분기 (${(curQ-1)*3+1}~${curQ*3}월)`;
-  await loadDashScheds();
-
-  // 워런티
-  $('dash-warranty').innerHTML=d.expiring_warranties.length?d.expiring_warranties.map(w=>{
-    const dd=w.warranty_days, cls=dd<=0?'expired':'';
-    const label=dd<=0?'만료됨':'D-'+dd;
-    const bc=dd<=0?'b-red':dd<=30?'b-red':'b-amber';
-    return `<div class="w-alert ${cls}"><div style="flex:1"><div style="font-weight:500">${w.name}</div><div style="font-size:11px;opacity:.8">${w.site_name} · ${w.warranty}</div></div><span class="badge ${bc}">${label}</span></div>`;
-  }).join(''):'<div class="empty" style="padding:14px">만료 임박 장비 없음</div>';
-
-  // 점검 현황 - 제목 옆 인라인
-  const mp=d.schedule_summary;
-  const summaryEl=$('sched-summary');
-  if(summaryEl) summaryEl.textContent=`${mp.done}/${mp.total} 완료`;
+  (d.week?.schedules || []).forEach(x => { _schedById[x.id] = x; });
+  renderDashMetrics();
+  renderDashWeek();
+  renderDashIssues();
+  renderDashWarranty();
+}
+function _refreshDash(){
+  if($('page-dashboard').classList.contains('active')) renderDashboard();
 }
 
-// ── 이슈 페이지네이션 렌더 ─────────────────
-function renderIssuesPage(page){
-  pgState.issues=page;
-  const sevCls={긴급:'b-red',높음:'b-amber',보통:'b-blue',낮음:'b-gray'};
-  const stCls={오픈:'b-red',처리중:'b-amber',완료:'b-green'};
-  const total=_allIssues.length;
-  const paged=_allIssues.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE);
-  const el=$('dash-issues');
-  if(!total){el.innerHTML='<div class="empty">오픈된 이슈 없음</div>';}
-  else{
-    el.innerHTML=paged.map(i=>`
-      <div style="display:flex;align-items:center;gap:6px;padding:7px 2px;border-bottom:1px solid #f0f0ee;cursor:pointer" onclick="showIssuePopup(${JSON.stringify(i).replace(/"/g,'&quot;')})">
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;gap:4px;margin-bottom:3px;flex-wrap:wrap;align-items:center">
-            <span class="badge ${sevCls[i.severity]||'b-gray'}">${i.severity}</span>
-            <span class="badge ${stCls[i.status]||'b-gray'}">${i.status}</span>
-            <span class="badge b-gray" style="font-size:10px;font-weight:600">${i.site_name}</span>
-          </div>
-          <div style="font-weight:500;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${i.title}</div>
-        </div>
-        <div style="display:flex;gap:2px;flex-shrink:0">
-          <button class="icon-btn edit" title="수정" onclick="event.stopPropagation();openEditIssue(${JSON.stringify(i).replace(/"/g,'&quot;')})">${ICO_EDIT}</button>
-          <button class="icon-btn del"  title="삭제" onclick="event.stopPropagation();deleteIssue('${i.id}')">${ICO_DEL}</button>
-        </div>
-      </div>`).join('');
+// ── 공통: 날짜 ─────────────────────────────
+const _WD = ['일','월','화','수','목','금','토'];
+function _daysBetween(a, b){   // "YYYY-MM-DD" 두 날짜의 차이(b - a, 일)
+  const [y1,m1,d1] = a.split('-').map(Number), [y2,m2,d2] = b.split('-').map(Number);
+  return Math.round((Date.UTC(y2,m2-1,d2) - Date.UTC(y1,m1-1,d1)) / 86400000);
+}
+function _dayLabel(day, today){
+  const n = _daysBetween(today, day);
+  const [y,m,dd] = day.split('-').map(Number);
+  const wd = _WD[new Date(y, m-1, dd).getDay()];
+  const md = `${m}/${dd} (${wd})`;
+  return n === 0 ? `오늘 · ${md}` : n === 1 ? `내일 · ${md}` : md;
+}
+
+// ── 이번 주 할 일 ─────────────────────────
+const WK_KIND = {
+  sched: {label:'점검',     cls:'wk-sched'},
+  plan:  {label:'기술지원', cls:'wk-plan'},
+  inc:   {label:'장애',     cls:'wk-inc'},
+  cl:    {label:'체크',     cls:'wk-cl'},
+};
+let _dashWeekTab = 'this';
+function switchDashWeek(tab){
+  _dashWeekTab = tab;
+  document.querySelectorAll('[data-wk]').forEach(b => b.classList.toggle('active', b.dataset.wk === tab));
+  renderDashWeek();
+}
+function renderDashWeek(){
+  const w = _dashData?.week;
+  const el = $('dash-week');
+  if(!w){ el.innerHTML = ''; return; }
+  const isNext = _dashWeekTab === 'next';
+  const today = w.today;
+  const thisEnd = w.this_end || w.end;
+  const [ey, em, ed] = thisEnd.split('-').map(Number);
+  // 이번 주: 오늘 ~ 일요일 (+ 지연·진행 중 장애) / 다음 주: 다음 주 월 ~ 일
+  const start = isNext ? _ymd(new Date(ey, em-1, ed+1)) : today;
+  const end   = isNext ? _ymd(new Date(ey, em-1, ed+7)) : thisEnd;
+  $('dash-week-title').textContent = isNext ? '다음 주 할 일' : '이번 주 할 일';
+  $('dash-week-range').textContent = `${start.slice(5).replace('-','/')} ~ ${end.slice(5).replace('-','/')}`;
+
+  const items = [];
+  w.schedules.forEach(x => items.push({kind:'sched', day:x.sched_date.slice(0,10), title:x.title, site:x.site_name,
+    extra: x.sched_type !== '월간' ? `<span class="badge b-gray">${esc(x.sched_type)}</span>` : '',
+    check:`<input type="checkbox" class="wk-check" title="점검 완료 처리" onclick="event.stopPropagation()" onchange="weekDoneSched('${x.id}',this)">`,
+    open:`openEditSched('${x.id}')`}));
+  w.workplans.forEach(x => items.push({kind:'plan', day:x.work_date.slice(0,10), time:x.work_date.slice(11,16), title:x.title, site:x.site,
+    extra:`<span class="badge ${WP_ST_CLS[x.status]||'b-gray'}">${esc(x.status)}</span>${_wpImpactBadge(x.impact)}`,
+    open:`openEditWorkPlan('${x.id}')`}));
+  _allCLItems.filter(i => !i.done && i.due && i.due <= end).forEach(i => items.push({kind:'cl', day:i.due, title:i.text, site:i.site_name,
+    extra:`<span class="badge b-gray">${esc(i.category)} 마감</span>`,
+    check:`<input type="checkbox" class="wk-check" title="완료 처리" onclick="event.stopPropagation()" onchange="dashToggleCL('${i.id}',this.checked)">`,
+    open:''}));
+  const incs = isNext ? [] : w.incidents;
+
+  const row = it => `
+    <div class="wk-row ${it.open?'clickable':''}" ${it.open?`onclick="${it.open}"`:''}>
+      ${it.check || ''}
+      <span class="wk-kind ${WK_KIND[it.kind].cls}">${WK_KIND[it.kind].label}</span>
+      ${it.time ? `<span class="wk-time">${esc(it.time)}</span>` : ''}
+      <span class="wk-title" title="${esc(it.title)}">${esc(it.title)}</span>
+      ${it.extra || ''}
+      <span class="wk-site" title="${esc(it.site||'')}">${esc(it.site||'-')}</span>
+    </div>`;
+
+  const groups = [];
+  if(incs.length) groups.push({cls:'hot', head:`진행 중 장애 ${incs.length}건`, rows: incs.map(i => row({kind:'inc', title:i.title, site:i.site,
+    time: i.occurred_at ? i.occurred_at.slice(5,10).replace('-','/') : '',
+    extra:`<span class="badge ${INC_SEV_CLS[i.severity]||'b-gray'}">${esc(i.severity)}</span><span class="badge ${INC_ST_CLS[i.status]||'b-gray'}">${esc(i.status)}</span>`,
+    open:`openEditIncident('${i.id}')`}))});
+  const late = isNext ? [] : items.filter(i => i.day < today).sort((a,b) => a.day.localeCompare(b.day));
+  if(late.length) groups.push({cls:'late', head:`지연 ${late.length}건 <span class="wk-meta">날짜가 지났지만 미완료</span>`,
+    rows: late.map(it => row({...it, time: it.day.slice(5).replace('-','/') + (it.time ? ' ' + it.time : '')}))});
+  const [sy, sm, sd] = start.split('-').map(Number);
+  let shown = 0;
+  for(let n = 0; ; n++){
+    const day = _ymd(new Date(sy, sm-1, sd+n));
+    if(day > end) break;
+    const its = items.filter(i => i.day === day).sort((a,b) => (a.time||'').localeCompare(b.time||''));
+    shown += its.length;
+    if(its.length) groups.push({cls: day === today ? 'today' : '', head: _dayLabel(day, today), rows: its.map(row)});
   }
-  renderPagination('dash-issues-page', total, page, 'renderIssuesPage');
+
+  const cnt = incs.length + late.length + shown;
+  $('dash-week-cnt').textContent = cnt ? `${cnt}건` : '';
+  el.innerHTML = groups.length
+    ? groups.map(g => `<div class="wk-group ${g.cls}"><div class="wk-head">${g.head}</div>${g.rows.join('')}</div>`).join('')
+    : `<div class="empty">${isNext ? '다음 주' : '이번 주'}에 예정된 일이 없습니다</div>`;
+}
+
+async function weekDoneSched(id, el){
+  try {
+    const r = await fetch(`/api/engineers/${ENG_ID}/schedules/${id}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status:'완료' }) });
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    toast('점검 완료 처리됨');
+  } catch(e) {
+    console.error('점검 완료 처리 실패:', e);
+    toast('완료 처리 실패: 서버 오류가 발생했습니다.');
+    if(el) el.checked = false;
+    return;
+  }
+  _schedHistory = [];
+  _refreshDash();
+  if($('page-schedule-mgmt').classList.contains('active')) renderSchedMgmt();
+}
+
+// ── 사이트 이슈 (심각도 → 오래된 순) ─────────────
+const ISS_SEV_CLS = {긴급:'b-red',높음:'b-amber',보통:'b-blue',낮음:'b-gray'};
+const ISS_ST_CLS  = {오픈:'b-red',처리중:'b-amber',완료:'b-green'};
+const ISS_SEV_ORD = {긴급:0,높음:1,보통:2,낮음:3};
+function _issAge(i){
+  const c = (i.created_at || '').slice(0,10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(c) ? _daysBetween(c, _ymd(new Date())) : null;
+}
+function renderDashIssues(){
+  const el = $('dash-issues');
+  const list = [...(_allIssues || [])].sort((a,b) =>
+    (ISS_SEV_ORD[a.severity] ?? 9) - (ISS_SEV_ORD[b.severity] ?? 9) || (a.created_at||'').localeCompare(b.created_at||''));
+  $('dash-issue-cnt').textContent = list.length ? `${list.length}건` : '';
+  if(!list.length){ el.innerHTML = '<div class="empty">미해결 이슈 없음</div>'; return; }
+  el.innerHTML = list.map(i => {
+    const age = _issAge(i);
+    return `
+    <div class="iss-row" onclick="showIssuePopup('${i.id}')">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;gap:4px;margin-bottom:3px;flex-wrap:wrap;align-items:center">
+          <span class="badge ${ISS_SEV_CLS[i.severity]||'b-gray'}">${esc(i.severity)}</span>
+          <span class="badge ${ISS_ST_CLS[i.status]||'b-gray'}">${esc(i.status)}</span>
+          <span class="badge b-gray" style="font-size:10px;font-weight:600">${esc(i.site_name)}</span>
+          ${age !== null ? `<span class="iss-age ${age>=30?'old':''}" title="등록일 ${esc(i.created_at)}">D+${age}</span>` : ''}
+        </div>
+        <div class="iss-title">${esc(i.title)}</div>
+      </div>
+      <div style="display:flex;gap:2px;flex-shrink:0">
+        <button class="icon-btn edit" title="수정" onclick="event.stopPropagation();openEditIssue('${i.id}')">${ICO_EDIT}</button>
+        <button class="icon-btn del"  title="삭제" onclick="event.stopPropagation();deleteIssue('${i.id}')">${ICO_DEL}</button>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function showIssuePopup(i){
-  const sevCls={긴급:'b-red',높음:'b-amber',보통:'b-blue',낮음:'b-gray'};
-  const stCls={오픈:'b-red',처리중:'b-amber',완료:'b-green'};
+  if(typeof i === 'string') i = (_allIssues || []).find(x => x.id === i);
+  if(!i) return;
+  const age = _issAge(i);
   $('issue-popup-content').innerHTML=`
     <div class="modal-head">
-      <div class="issue-popup-title">${i.title}</div>
+      <div class="issue-popup-title">${esc(i.title)}</div>
       <button class="icon-btn" style="width:24px;height:24px;flex-shrink:0" onclick="closeModal('modal-issue-popup')">${ICO_CLOSE}</button>
     </div>
     <div class="issue-popup-meta">
-      <span class="badge ${sevCls[i.severity]||'b-gray'}">${i.severity}</span>
-      <span class="badge ${stCls[i.status]||'b-gray'}">${i.status}</span>
-      <span style="font-size:12px;color:#888">${i.site_name}</span>
-      <span style="font-size:11px;color:#bbb;margin-left:auto">${i.created_at||''}</span>
+      <span class="badge ${ISS_SEV_CLS[i.severity]||'b-gray'}">${esc(i.severity)}</span>
+      <span class="badge ${ISS_ST_CLS[i.status]||'b-gray'}">${esc(i.status)}</span>
+      <span style="font-size:12px;color:#888">${esc(i.site_name)}</span>
+      <span style="font-size:11px;color:#bbb;margin-left:auto">${esc(i.created_at||'')}${age!==null?` (D+${age})`:''}</span>
     </div>
-    <div class="issue-popup-body">${i.body||'(내용 없음)'}</div>
+    <div class="issue-popup-body">${i.body ? esc(i.body) : '(내용 없음)'}</div>
     <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:14px;padding-top:12px;border-top:1px solid #f0f0ee">
-      <button class="icon-btn edit" title="수정" style="width:32px;height:32px" onclick="closeModal('modal-issue-popup');openEditIssue(${JSON.stringify(i).replace(/"/g,'&quot;')})">${ICO_EDIT}</button>
+      <button class="icon-btn edit" title="수정" style="width:32px;height:32px" onclick="closeModal('modal-issue-popup');openEditIssue('${i.id}')">${ICO_EDIT}</button>
       <button class="btn" onclick="closeModal('modal-issue-popup')">닫기</button>
     </div>`;
   openModal('modal-issue-popup');
 }
 
-// ── 대시보드 체크리스트 페이지네이션 ─────────
-function renderCLPage(page){
-  pgState.cl=page;
-  const total=_allCLItems.length;
-  const paged=_allCLItems.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE);
-  const el=$('dash-cl');
-  if(!total){el.innerHTML='<div class="empty">체크리스트 항목 없음</div>';}
-  else{
-    el.innerHTML=paged.map(i=>`
-      <div style="display:flex;align-items:center;gap:8px;padding:6px 2px;border-bottom:1px solid #f0f0ee">
-        <input type="checkbox" ${i.done?'checked':''} onchange="dashToggleCL('${i.id}',this.checked)" style="width:14px;height:14px;cursor:pointer;accent-color:#378ADD;flex-shrink:0">
-        <span style="flex:1;font-size:13px;${i.done?'text-decoration:line-through;color:#bbb':''}">${i.text}</span>
-        <span class="badge b-gray" style="font-size:10px;font-weight:600">${i.site_name}</span>
-        <span class="badge b-gray" style="font-size:10px">${i.category}</span>
-      </div>`).join('');
+// ── 워런티 ────────────────────────────────
+function renderDashWarranty(){
+  const all = _dashData?.expiring_warranties || [];
+  const soon = all.filter(w => w.warranty_days > 0).sort((a,b) => a.warranty_days - b.warranty_days);
+  const expired = all.filter(w => w.warranty_days <= 0).sort((a,b) => b.warranty_days - a.warranty_days);
+  $('dash-warranty-cnt').innerHTML = all.length
+    ? `<span style="color:#d97706">90일 이내 ${soon.length}</span><span class="sep">·</span><span style="color:#dc2626">만료 ${expired.length}</span>` : '';
+  const row = w => {
+    const dd = w.warranty_days;
+    const bc = dd <= 30 ? 'b-red' : 'b-amber';
+    return `<div class="w-alert ${dd<=0?'expired':''}" style="cursor:pointer" title="사이트 장비 보기" onclick="openSiteDetail('${w.site_id}')">
+      <div style="flex:1;min-width:0"><div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(w.name)}</div>
+      <div style="font-size:11px;opacity:.8">${esc(w.site_name)} · ${esc(w.warranty)}</div></div>
+      <span class="badge ${dd<=0?'b-red':bc}">${dd<=0 ? `만료 ${-dd}일` : 'D-'+dd}</span></div>`;
+  };
+  const el = $('dash-warranty');
+  if(!all.length){ el.innerHTML = '<div class="empty" style="padding:14px">만료 임박 장비 없음</div>'; return; }
+  el.innerHTML = (soon.length ? soon.map(row).join('') : '<div class="empty" style="padding:8px">90일 이내 만료 예정 장비 없음</div>')
+    + (expired.length ? `<details class="dash-fold"><summary>이미 만료된 장비 ${expired.length}대</summary>${expired.map(row).join('')}</details>` : '');
+}
+
+// ── 대시보드 상단 메트릭 ──────────────────────
+let _dashData = null;
+
+function renderDashMetrics(){
+  const d = _dashData;
+  if(!d) return;
+  const ss = d.schedule_summary;
+  const todo = _allCLItems.filter(i => !i.done);
+  const byCat = c => todo.filter(i => i.category === c).length;
+  const issues = _allIssues || [];
+  const hot = issues.filter(i => i.severity === '긴급' || i.severity === '높음').length;
+  $('dash-metrics').innerHTML = `
+    <div class="metric" style="cursor:pointer" title="점검 일정 메뉴로 이동" onclick="document.querySelector('.nav-item[data-page=\\'schedule-mgmt\\']').click()"><div class="metric-label">이번 달 점검</div><div class="metric-value">${ss.done}/${ss.total}</div>
+      <div class="prog-wrap"><div class="prog-bar" style="width:${ss.total?Math.round(ss.done/ss.total*100):0}%"></div></div></div>
+    <div class="metric" style="cursor:pointer" title="체크리스트 할 일 보기" onclick="switchDashCL('todo');$('dash-cl').scrollIntoView({behavior:'smooth',block:'center'})">
+      <div class="metric-label">체크리스트 남은 항목</div>
+      <div class="metric-value" style="${todo.length?'color:#d97706':''}">${todo.length}건</div>
+      <div style="font-size:11px;color:#64748b;margin-top:4px">월간 ${byCat('월간')} · 분기 ${byCat('분기')} · 일반 ${byCat('일반')}</div></div>
+    <div class="metric" style="cursor:pointer" title="사이트 이슈 보기" onclick="$('dash-issues').scrollIntoView({behavior:'smooth',block:'center'})">
+      <div class="metric-label">미해결 이슈</div>
+      <div class="metric-value" style="${hot?'color:#dc2626':''}">${issues.length}건</div>
+      <div style="font-size:11px;color:#64748b;margin-top:4px">긴급·높음 ${hot}건</div></div>
+    ${_svcMetric(d)}`;
+}
+
+// ── 대시보드 체크리스트 (현재 주기 기준) ─────────
+let _dashCLTab = 'todo';
+const CL_CATS = ['월간', '분기', '일반'];
+
+async function loadDashCL(){
+  try {
+    const clData = await api.get(`/api/engineers/${ENG_ID}/site-checklist`);
+    _allCLItems = clData.flatMap(s => s.items.map(i => ({...i, site_name: s.site_name})));
+    const sel = $('dcl-site'), prev = sel.value;
+    sel.innerHTML = '<option value="">전체 사이트</option>' + clData.filter(s => s.items.length)
+      .map(s => `<option value="${s.site_id}">${esc(s.site_name)} (${s.items.filter(i => !i.done).length})</option>`).join('');
+    if([...sel.options].some(o => o.value === prev)) sel.value = prev;
+  } catch(e) {
+    console.error('체크리스트 조회 실패:', e);
+    _allCLItems = [];
   }
-  renderPagination('dash-cl-page', total, page, 'renderCLPage');
+  drawDashCL();
+  renderDashMetrics();
+  renderDashWeek();
+}
+
+function switchDashCL(tab){
+  _dashCLTab = tab;
+  document.querySelectorAll('[data-dcl]').forEach(b => b.classList.toggle('active', b.dataset.dcl === tab));
+  drawDashCL();
+}
+
+function _clDue(i){
+  if(i.days_left === null || i.days_left === undefined) return '';
+  const d = i.days_left;
+  const cls = d <= 3 ? 'dcl-due hot' : d <= 7 ? 'dcl-due warn' : 'dcl-due';
+  return `<span class="${cls}">${d <= 0 ? '오늘 마감' : `D-${d}`}</span>`;
+}
+
+function drawDashCL(){
+  const el = $('dash-cl');
+  const site = $('dcl-site').value;
+  const items = _allCLItems.filter(i => !site || i.site_id === site);
+  const todo = items.filter(i => !i.done), done = items.filter(i => i.done);
+  $('dcl-todo-cnt').textContent = todo.length;
+  $('dcl-done-cnt').textContent = done.length;
+
+  // 제목 옆 주기별 진행률 (예: 11월 0/3 · 4분기 2/2)
+  $('dash-cl-summary').innerHTML = CL_CATS.filter(c => c !== '일반').map(c => {
+    const all = items.filter(i => i.category === c);
+    if(!all.length) return '';
+    const n = all.filter(i => i.done).length;
+    return `<span class="${n === all.length ? 'ok' : ''}">${esc(all[0].period)} ${n}/${all.length}</span>`;
+  }).filter(Boolean).join('<span class="sep">·</span>');
+
+  if(!items.length){
+    el.innerHTML = `<div class="empty">체크리스트 항목이 없습니다<br><span style="font-size:12px">+ 추가 버튼으로 매월/분기 반복 업무를 등록해 보세요</span></div>`;
+    return;
+  }
+  const row = i => `
+    <div class="dcl-row">
+      <input type="checkbox" ${i.done?'checked':''} onchange="dashToggleCL('${i.id}',this.checked)">
+      <span class="dcl-text ${i.done?'done':''}" title="${esc(i.text)}">${esc(i.text)}</span>
+      ${!i.done ? _clDue(i) : ''}
+      <span class="badge b-gray dcl-site" title="${esc(i.site_name)}">${esc(i.site_name)}</span>
+    </div>`;
+
+  if(_dashCLTab === 'done'){
+    el.innerHTML = done.length
+      ? CL_CATS.map(c => {
+          const its = done.filter(i => i.category === c);
+          return its.length ? `<div class="dcl-group"><div class="dcl-group-head">${c}${its[0].period ? ` · ${esc(its[0].period)} 완료` : ''}</div>${its.map(row).join('')}</div>` : '';
+        }).join('')
+      : '<div class="empty">이번 주기에 완료한 항목이 없습니다</div>';
+    return;
+  }
+  el.innerHTML = CL_CATS.map(c => {
+    const all = items.filter(i => i.category === c);
+    if(!all.length) return '';
+    const its = todo.filter(i => i.category === c);
+    const n = all.length - its.length;
+    const p = all[0];
+    const head = c === '일반'
+      ? `일반 <span class="dcl-meta">기한 없음</span>`
+      : `${c} · ${esc(p.period)} <span class="dcl-meta">${esc(p.due.slice(5).replace('-', '/'))} 마감 · ${n}/${all.length} 완료</span>`;
+    return `<div class="dcl-group">
+      <div class="dcl-group-head">${head}</div>
+      ${its.length ? its.map(row).join('') : `<div class="dcl-alldone">✓ ${c === '일반' ? '모두 완료' : `${esc(p.period)} 항목 모두 완료`}</div>`}
+    </div>`;
+  }).join('');
 }
 
 async function dashToggleCL(id, checked){
-  await api.patch(`/api/engineers/${ENG_ID}/site-checklist/${id}`,{done:checked});
-  const item=_allCLItems.find(i=>i.id===id);
-  if(item) item.done=checked;
-  renderCLPage(pgState.cl);
+  try {
+    const r = await fetch(`/api/engineers/${ENG_ID}/site-checklist/${id}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ done: checked }) });
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    const res = await r.json();
+    const item = _allCLItems.find(i => i.id === id);
+    if(item) Object.assign(item, res);
+    toast(checked ? '완료 처리됨' : '완료 취소됨');
+  } catch(e) {
+    console.error('체크리스트 변경 실패:', e);
+    toast('변경 실패: 서버 오류가 발생했습니다.');
+  }
+  drawDashCL(); renderDashMetrics(); renderDashWeek();
 }
 
 // ── 점검 일정 CRUD ────────────────────────
@@ -240,26 +454,17 @@ $('btn-sm-add') && $('btn-sm-add').addEventListener('click', async()=>{
   $('sched-id').value='';
   ['sched-title','sched-memo','sched-worker','sched-reviewer'].forEach(id=>$(id).value='');
   mopSet('sched-mop', '');
-  $('sched-date').value=new Date().toISOString().slice(0,10);
+  $('sched-date').value=_ymd(new Date());
   $('sched-type').value='월간'; $('sched-status').value='예정';
   $('btn-sched-excel').style.display='none';
   await fillSiteSel('sched-site');
   openModal('modal-add-sched');
 });
 
-$('btn-add-sched').addEventListener('click', async()=>{
-  $('sched-modal-title').textContent='점검 일정 등록';
-  $('sched-id').value='';
-  ['sched-title','sched-memo','sched-worker','sched-reviewer'].forEach(id=>$(id).value='');
-  mopSet('sched-mop', '');
-  $('sched-date').value=new Date().toISOString().slice(0,10);
-  $('sched-type').value='월간'; $('sched-status').value='예정';
-  $('btn-sched-excel').style.display='none';
-  await fillSiteSel('sched-site');
-  openModal('modal-add-sched');
-});
-
+const _schedById = {};
 async function openEditSched(s){
+  if(typeof s === 'string') s = _schedById[s];
+  if(!s){ toast('일정을 찾을 수 없습니다'); return; }
   $('sched-modal-title').textContent='점검 일정 수정';
   $('sched-id').value=s.id;
   await fillSiteSel('sched-site', s.site_id);   // ← site_id 미리 선택
@@ -314,32 +519,9 @@ async function saveSched(){
   }
 
   closeModal('modal-add-sched');
-  // 즉시 갱신 - 등록된 일정 타입에 맞는 탭으로 자동 전환
-  const savedType = $('sched-type').value;
-  const targetTab = savedType === '분기' ? 'quarter' : 'month';
-  if(_dashSchedTab !== targetTab){
-    _dashSchedTab = targetTab;
-    document.querySelectorAll('.ds-tab').forEach(t=>t.classList.toggle('active', t.dataset.dstab===targetTab));
-  }
-  await loadDashScheds();
-  // 대시보드 상단 메트릭도 갱신
-  const d2 = await api.get(`/api/engineers/${ENG_ID}/dashboard`);
-  $('dash-metrics').innerHTML=`
-    <div class="metric"><div class="metric-label">내 사이트 수</div><div class="metric-value">${d2.site_count}</div></div>
-    <div class="metric"><div class="metric-label">전체 장비 수</div><div class="metric-value">${d2.device_count}</div></div>
-    <div class="metric"><div class="metric-label">이번 달 점검</div><div class="metric-value">${d2.schedule_summary.done}/${d2.schedule_summary.total}</div>
-      <div class="prog-wrap"><div class="prog-bar" style="width:${d2.schedule_summary.total?Math.round(d2.schedule_summary.done/d2.schedule_summary.total*100):0}%"></div></div></div>
-    ${_svcMetric(d2)}`;
+  _refreshDash();
   if($('page-schedule-mgmt').classList.contains('active')) renderSchedMgmt();
   toast(id?'일정 수정됨':'일정 등록됨');
-}
-
-async function deleteSched(id){
-  if(!confirm('점검 일정을 삭제하시겠습니까?'))return;
-  await api.del(`/api/engineers/${ENG_ID}/schedules/${id}`);
-  await loadDashScheds();
-  if($('page-schedule-mgmt').classList.contains('active')) renderSchedMgmt();
-  toast('삭제됨');
 }
 
 // ── 이슈 CRUD ─────────────────────────────
@@ -353,6 +535,8 @@ $('btn-add-issue').addEventListener('click', async()=>{
 });
 
 async function openEditIssue(iss){
+  if(typeof iss === 'string') iss = (_allIssues || []).find(x => x.id === iss);
+  if(!iss){ toast('이슈를 찾을 수 없습니다'); return; }
   $('issue-modal-title').textContent='이슈 수정';
   $('issue-id').value=iss.id;
   await fillSiteSel('issue-site', iss.site_id);   // ← site_id 미리 선택
@@ -371,13 +555,13 @@ async function saveIssue(){
   if(id) await api.patch(`/api/engineers/${ENG_ID}/issues/${id}`,payload);
   else   await api.post(`/api/engineers/${ENG_ID}/issues`,payload);
   closeModal('modal-add-issue');
-  renderDashboard(); toast(id?'이슈 수정됨':'이슈 등록됨');
+  _refreshDash(); toast(id?'이슈 수정됨':'이슈 등록됨');
 }
 
 async function deleteIssue(id){
   if(!confirm('이슈를 삭제하시겠습니까?'))return;
   await api.del(`/api/engineers/${ENG_ID}/issues/${id}`);
-  renderDashboard(); toast('삭제됨');
+  _refreshDash(); toast('삭제됨');
 }
 
 // ── SITE CHECKLIST ────────────────────────
@@ -395,18 +579,21 @@ async function renderChecklist(){
   const el=$('cl-content');
   if(!siteId){el.innerHTML='<div class="empty">사이트를 선택해주세요</div>';return}
   const items=await api.get(`/api/engineers/${ENG_ID}/site-checklist/${siteId}`);
-  const cats=['일반','월간','분기'];
+  const cats=['월간','분기','일반'];
+  const sample = c => ({'월간':`${new Date().getMonth()+1}월`, '분기':`${Math.ceil((new Date().getMonth()+1)/3)}분기`}[c] || '');
+  const note = {'월간':'매월 1일 자동 초기화', '분기':'분기 첫날 자동 초기화', '일반':'한 번 완료하면 유지'};
   el.innerHTML=cats.map(cat=>{
     const its=items.filter(i=>i.category===cat);
     const done=its.filter(i=>i.done).length;
+    const per = its[0]?.period || sample(cat);
     return `<div class="card">
-      <div class="card-title"><span>${cat} 점검</span><span style="font-weight:400;text-transform:none;letter-spacing:0">${done}/${its.length}</span></div>
+      <div class="card-title"><span>${cat} 점검${per?` · ${esc(per)}`:''} <span style="font-weight:400;font-size:11px;color:#94a3b8;text-transform:none;letter-spacing:0">${note[cat]}</span></span><span style="font-weight:400;text-transform:none;letter-spacing:0">${done}/${its.length}</span></div>
       ${its.length?`<div class="prog-wrap" style="margin-bottom:10px"><div class="prog-bar" style="width:${its.length?Math.round(done/its.length*100):0}%"></div></div>`:''}
       ${its.map(i=>`
         <div style="display:flex;align-items:center;gap:8px;padding:7px 2px;border-bottom:1px solid #f0f0ee">
           <input type="checkbox" ${i.done?'checked':''} onchange="toggleCL('${i.id}',this.checked)" style="width:15px;height:15px;cursor:pointer;accent-color:#378ADD">
-          <span style="flex:1;${i.done?'text-decoration:line-through;color:#bbb':''}">${i.text}</span>
-          <span class="badge b-gray" style="font-size:10px">${i.category}</span>
+          <span style="flex:1;${i.done?'text-decoration:line-through;color:#bbb':''}">${esc(i.text)}</span>
+          ${!i.done ? _clDue(i) : ''}
           <button class="icon-btn edit" title="수정" onclick="openEditCL(${JSON.stringify(i).replace(/"/g,'&quot;')})">${ICO_EDIT}</button>
           <button class="icon-btn del"  title="삭제" onclick="deleteCL('${i.id}')">${ICO_DEL}</button>
         </div>`).join('')}
@@ -415,25 +602,53 @@ async function renderChecklist(){
   }).join('');
 }
 
-function openAddCLItem(){
+async function _fillCLSiteSel(selected=''){
+  try {
+    const sites = await api.get(`/api/engineers/${ENG_ID}/sites`);
+    $('cl-item-site').innerHTML = '<option value="">— 사이트 선택 —</option>' +
+      sites.map(s => `<option value="${s.id}" ${s.id===selected?'selected':''}>${esc(s.name)}</option>`).join('');
+  } catch(e) {
+    $('cl-item-site').innerHTML = '<option value="">사이트 로딩 실패</option>';
+  }
+}
+async function openAddCLItem(){
   $('cl-modal-title').textContent='체크리스트 항목 추가';
-  $('cl-item-id').value=''; $('cl-text').value=''; $('cl-cat').value='일반';
+  $('cl-item-id').value=''; $('cl-text').value='';
+  $('cl-cat').value='월간';
+  // 체크리스트 화면에서는 선택된 사이트, 대시보드에서는 사이트 필터 값을 기본으로
+  const pre = $('page-checklist').classList.contains('active') ? $('cl-site-sel').value : $('dcl-site').value;
+  await _fillCLSiteSel(pre);
+  $('cl-item-site').disabled = false;
   openModal('modal-cl-item');
 }
-function openEditCL(item){
+async function openEditCL(item){
   $('cl-modal-title').textContent='항목 수정';
   $('cl-item-id').value=item.id; $('cl-text').value=item.text; $('cl-cat').value=item.category;
+  await _fillCLSiteSel(item.site_id);
+  $('cl-item-site').disabled = true;   // 사이트 이동은 지원하지 않음
   openModal('modal-cl-item');
 }
+function _refreshCL(){
+  if($('page-checklist').classList.contains('active')) renderChecklist();
+  if($('page-dashboard').classList.contains('active')) loadDashCL();
+}
 async function saveCLItem(){
-  const text=$('cl-text').value.trim(), siteId=$('cl-site-sel').value;
+  const text=$('cl-text').value.trim(), siteId=$('cl-item-site').value;
+  if(!siteId){toast('사이트를 선택해주세요');return}
   if(!text){toast('내용을 입력해주세요');return}
-  if(!siteId){toast('사이트를 먼저 선택해주세요');return}
   const id=$('cl-item-id').value;
-  if(id) await api.patch(`/api/engineers/${ENG_ID}/site-checklist/${id}`,{text,category:$('cl-cat').value});
-  else   await api.post(`/api/engineers/${ENG_ID}/site-checklist`,{site_id:siteId,text,category:$('cl-cat').value});
+  const url = id ? `/api/engineers/${ENG_ID}/site-checklist/${id}` : `/api/engineers/${ENG_ID}/site-checklist`;
+  const body = id ? {text, category:$('cl-cat').value} : {site_id:siteId, text, category:$('cl-cat').value};
+  try {
+    const r = await fetch(url, {method: id ? 'PATCH' : 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+  } catch(e) {
+    console.error('체크리스트 저장 실패:', e);
+    toast('저장 실패: 서버 오류가 발생했습니다.');
+    return;
+  }
   closeModal('modal-cl-item');
-  renderChecklist(); toast(id?'항목 수정됨':'항목 추가됨');
+  _refreshCL(); toast(id?'항목 수정됨':'항목 추가됨');
 }
 async function toggleCL(id,checked){
   await api.patch(`/api/engineers/${ENG_ID}/site-checklist/${id}`,{done:checked});
@@ -442,7 +657,7 @@ async function toggleCL(id,checked){
 async function deleteCL(id){
   if(!confirm('항목을 삭제하시겠습니까?'))return;
   await api.del(`/api/engineers/${ENG_ID}/site-checklist/${id}`);
-  renderChecklist(); toast('삭제됨');
+  _refreshCL(); toast('삭제됨');
 }
 
 // ── SITES ─────────────────────────────────
@@ -848,7 +1063,9 @@ const WP_ACTIVE = ['계획중', '결재대기', '승인완료'];
 function _ymd(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function _wpDates(){
   const now = new Date();
-  return { today: _ymd(now), weekEnd: _ymd(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7)) };
+  // 이번 주 = 오늘 ~ 이번 주 일요일 (weekEnd 는 다음 주 월요일, 미포함)
+  const toMon = (8 - now.getDay()) % 7 || 7;
+  return { today: _ymd(now), weekEnd: _ymd(new Date(now.getFullYear(), now.getMonth(), now.getDate() + toMon)) };
 }
 const _wpDay = p => (p.work_date || '').slice(0, 10);
 const _wpIsOverdue = (p, today) => p.status !== '작업완료' && !!_wpDay(p) && _wpDay(p) < today;
@@ -909,7 +1126,7 @@ function _renderWpSummary(){
   $('wp-summary').innerHTML =
     card('active', '진행 중', active, `계획중 ${cnt('계획중')} · 결재대기 ${cnt('결재대기')} · 승인완료 ${cnt('승인완료')}`) +
     card('결재대기', '결재대기', cnt('결재대기'), '결재 진행이 필요한 건', cnt('결재대기') ? '#d97706' : '') +
-    card('week', '이번 주 예정', week, '오늘부터 7일 이내 (미완료)', '') +
+    card('week', '이번 주 예정', week, '오늘 ~ 이번 주 일요일 (미완료)', '') +
     card('overdue', '일정 경과', overdue, '작업일이 지났지만 미완료', overdue ? '#dc2626' : '');
 }
 
@@ -1029,7 +1246,14 @@ async function openAddWorkPlan() {
 }
 
 async function openEditWorkPlan(p) {
-  if(typeof p === 'string') p = _allWorkPlans.find(x => x.id === p);
+  if(typeof p === 'string'){
+    const id = p;
+    p = _allWorkPlans.find(x => x.id === id);
+    if(!p){
+      try { _allWorkPlans = (await api.get(`/api/engineers/${ENG_ID}/workplans`)).filter(isSupportPlan); } catch(e){}
+      p = _allWorkPlans.find(x => x.id === id);
+    }
+  }
   if(!p) { toast('기술지원 데이터를 찾을 수 없습니다'); return; }
   $('wp-modal-title').textContent = '기술지원 수정';
   $('wp-id').value = p.id;
@@ -1141,6 +1365,7 @@ function _svcMetric(d){
 }
 function _refreshSvcHistory(){
   if($('page-service-history').classList.contains('active')) renderServiceHistory();
+  _refreshDash();
 }
 
 // ── 장애처리 ─────────────────────────────────
@@ -1423,92 +1648,6 @@ function svhGoMonth(y, m){
   renderServiceHistory();
 }
 
-// ── 대시보드 점검일정 탭 ──────────────────
-let _dashSchedTab = 'month';
-
-function _currentQuarter(){
-  return Math.ceil((new Date().getMonth()+1)/3);
-}
-
-async function switchDashSchedTab(tab){
-  _dashSchedTab = tab;
-  document.querySelectorAll('.ds-tab').forEach(t=>t.classList.toggle('active', t.dataset.dstab===tab));
-  await loadDashScheds();
-}
-
-async function loadDashScheds(){
-  const now  = new Date();
-  const q    = _currentQuarter();
-  const year = now.getFullYear();
-  const ym   = now.toISOString().slice(0,7);
-
-  // 탭 레이블 업데이트
-  const qLabel = `${q}분기 (${(q-1)*3+1}~${q*3}월)`;
-  const qBtn = $('ds-quarter-label');
-  if(qBtn) qBtn.textContent = qLabel;
-  
-  await loadSchedWorkPlans();
-
-  // 유형 필터: 이번달탭=월간유형, 분기탭=분기유형
-  const typeFilter = _dashSchedTab === 'month' ? '월간' : '분기';
-
-  // API: 이번달탭→이번달전체, 분기탭→현재분기전체 (유형필터는 프론트)
-  let all;
-  if(_dashSchedTab === 'month'){
-    all = await api.get(`/api/engineers/${ENG_ID}/schedules?month=${ym}`);
-  } else {
-    all = await api.get(`/api/engineers/${ENG_ID}/schedules?quarter=${q}&year=${year}`);
-  }
-  // 유형 필터 적용
-  const scheds = all.filter(s => s.sched_type === typeFilter);
-  const done   = scheds.filter(s=>s.status==='완료').length;
-  const total  = scheds.length;
-  const pct    = total ? Math.round(done/total*100) : 0;
-
-  // 카운트 뱃지
-  const mCnt = $('ds-month-cnt');
-  const qCnt = $('ds-quarter-cnt');
-  if(_dashSchedTab==='month' && mCnt) mCnt.textContent = total ? `${total}건` : '';
-  if(_dashSchedTab==='quarter' && qCnt) qCnt.textContent = total ? `${total}건` : '';
-
-  // 요약 & 프로그레스
-  const summaryEl = $('sched-summary');
-  if(summaryEl) summaryEl.textContent = `${done}/${total} 완료`;
-  const bar = $('ds-prog-bar');
-  if(bar){ bar.style.width=pct+'%'; bar.style.background = pct===100?'#16a34a':'#378ADD'; }
-
-  // 목록 렌더
-  const stCls = {예정:'b-planned',완료:'b-done'};
-  $('dash-schedules').innerHTML = scheds.length ? scheds.map(s=>`
-    <div class="sched-item" id="dsi-${s.id}">
-      <div class="sched-date-label">
-        <div style="font-size:10px;opacity:.7">${s.sched_date.slice(5,7)}월</div>
-        <div style="font-size:15px;line-height:1">${s.sched_date.slice(8)}</div>
-      </div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:13px;font-weight:700;color:${s.status==='완료'?'#aaa':'#1a1a1a'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px;${s.status==='완료'?'text-decoration:line-through':''}">${s.site_name}</div>
-        <div style="font-size:11px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.title}</div>
-      </div>
-      <button class="ds-check-btn ${s.status==='완료'?'checked':''}" onclick="toggleSchedStatus('${s.id}','${s.status}')" title="${s.status==='완료'?'완료 취소':'완료 처리'}">
-        ${s.status==='완료'
-          ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14"><polyline points="20 6 9 17 4 12"/></svg>'
-          : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="opacity:.3"><polyline points="20 6 9 17 4 12"/></svg>'}
-      </button>
-      <div style="display:flex;gap:2px;flex-shrink:0">
-        ${_schedWorkPlans.some(p => p.id === s.id) ? `<button class="btn btn-sm" style="padding:2px 4px;font-size:10px;color:#16a34a;border-color:#16a34a;margin-right:4px;" title="계획서 엑셀 다운로드" onclick="downloadWorkPlanExcel('${s.id}')">Excel</button>` : ''}
-        <button class="icon-btn edit" title="수정" onclick="openEditSched(${JSON.stringify(s).replace(/"/g,'&quot;')})">${ICO_EDIT}</button>
-        <button class="icon-btn del"  title="삭제" onclick="deleteSched('${s.id}')">${ICO_DEL}</button>
-      </div>
-    </div>`).join('') : `<div class="empty">${typeFilter} 유형 일정 없음</div>`;
-}
-
-async function toggleSchedStatus(id, currentStatus){
-  const newStatus = currentStatus==='완료' ? '예정' : '완료';
-  await api.patch(`/api/engineers/${ENG_ID}/schedules/${id}`, {status: newStatus});
-  await loadDashScheds();
-  if($('page-schedule-mgmt').classList.contains('active')) renderSchedMgmt();
-}
-
 // ── 점검 일정 관리 페이지 ──────────────────
 let _smTab  = 'monthly';
 let _smYear = new Date().getFullYear();
@@ -1526,6 +1665,7 @@ function switchSchedMgmtTab(tab){
 }
 
 function _smRow(s){
+  _schedById[s.id] = s;
   const typCls={월간:'b-monthly',분기:'b-quarterly',특별:'b-special'};
   const stCls={예정:'b-planned',완료:'b-done'};
   const done = s.status==='완료';
@@ -1541,7 +1681,7 @@ function _smRow(s){
     </button>
     <div style="display:flex;gap:2px;flex-shrink:0">
       ${_schedWorkPlans.some(p => p.id === s.id) ? `<button class="btn btn-sm" style="padding:2px 4px;font-size:10px;color:#16a34a;border-color:#16a34a;margin-right:4px;" title="계획서 엑셀 다운로드" onclick="downloadWorkPlanExcel('${s.id}')">Excel</button>` : ''}
-      <button class="icon-btn edit" title="수정" onclick="openEditSched(${JSON.stringify(s).replace(/"/g,'&quot;')})">${ICO_EDIT}</button>
+      <button class="icon-btn edit" title="수정" onclick="openEditSched('${s.id}')">${ICO_EDIT}</button>
       <button class="icon-btn del"  title="삭제" onclick="deleteSchedAndRefresh('${s.id}')">${ICO_DEL}</button>
     </div>
   </div>`;
@@ -1649,7 +1789,7 @@ async function toggleSchedStatusMgmt(id, currentStatus){
   await api.patch(`/api/engineers/${ENG_ID}/schedules/${id}`,{status:newStatus});
   _schedHistory = [];
   renderSchedMgmt();
-  if($('page-dashboard').classList.contains('active')) loadDashScheds();
+  _refreshDash();
 }
 
 async function deleteSchedAndRefresh(id){

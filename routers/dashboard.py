@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from database import get_db, Site, Device, Schedule, Issue, WorkPlan, Incident
-from datetime import datetime
+from datetime import datetime, timedelta
 from routers.technotes import support_only
 
 router = APIRouter(prefix="/api/engineers/{eng_id}/dashboard", tags=["dashboard"])
@@ -31,17 +31,35 @@ def get_dashboard(eng_id: str, db: Session = Depends(get_db)):
         Issue.status != "완료"
     ).order_by(Issue.created_at.desc()).all()
 
+    site_by_id = {s.id: s for s in sites}
     expiring = []
     for d in all_devices:
         days = _warranty_days(d.warranty)
         if days is not None and days <= 90:
-            site = next((s for s in sites if any(dev.id == d.id for dev in s.devices)), None)
+            site = site_by_id.get(d.site_id)
             expiring.append({
                 "id": d.id, "name": d.name,
                 "warranty": d.warranty, "warranty_days": days,
-                "site_name": site.name if site else ""
+                "site_id": d.site_id, "site_name": site.name if site else ""
             })
     expiring.sort(key=lambda x: x["warranty_days"])
+
+    # ── 이번 주 / 다음 주 할 일 (주는 월~일, 지난 미완료 포함) ──
+    now      = datetime.now()
+    today    = now.strftime("%Y-%m-%d")
+    this_end = (now + timedelta(days=6 - now.weekday())).strftime("%Y-%m-%d")       # 이번 주 일요일
+    week_end = (now + timedelta(days=13 - now.weekday())).strftime("%Y-%m-%d")      # 다음 주 일요일
+    week_scheds = db.query(Schedule).filter(
+        Schedule.engineer_id == eng_id, Schedule.status != "완료",
+        Schedule.sched_date != "", Schedule.sched_date <= week_end
+    ).order_by(Schedule.sched_date).all()
+    week_plans = support_only(db.query(WorkPlan).filter(
+        WorkPlan.engineer_id == eng_id, WorkPlan.status != "작업완료",
+        WorkPlan.work_date != "", WorkPlan.work_date <= week_end + "T99"
+    )).order_by(WorkPlan.work_date).all()
+    open_incidents = db.query(Incident).filter(
+        Incident.engineer_id == eng_id, Incident.status != "완료"
+    ).order_by(Incident.occurred_at).all()
 
     sched_done  = sum(1 for s in schedules_this_month if s.status == "완료")
     sched_total = len(schedules_this_month)
@@ -55,7 +73,15 @@ def get_dashboard(eng_id: str, db: Session = Depends(get_db)):
         "schedules":  [_sch(s, sites) for s in schedules_this_month],
         "issues":     [_iss(i, sites) for i in open_issues],   # 전체
         "issues_all": [_iss(i, sites) for i in open_issues],   # 명시적 전체 키
-        "expiring_warranties": expiring[:5]
+        "expiring_warranties": expiring,
+        "week": {
+            "today": today, "this_end": this_end, "end": week_end,
+            "schedules": [_sch(s, sites) for s in week_scheds],
+            "workplans": [{"id": p.id, "title": p.title, "work_date": p.work_date, "site": p.site,
+                           "status": p.status, "impact": p.impact or ""} for p in week_plans],
+            "incidents": [{"id": i.id, "title": i.title, "occurred_at": i.occurred_at, "site": i.site,
+                           "severity": i.severity, "status": i.status} for i in open_incidents],
+        },
     }
 
 def _sch(s, sites):

@@ -145,6 +145,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 
 /* ── 이슈/체크 고정 높이 ── */
 .fixed-list{min-height:220px}
+.dash-scroll{overflow-y:auto}
 
 /* ── 점검일정 ── */
 .sched-item{display:flex;align-items:center;gap:6px;padding:9px 0;border-bottom:1px solid #f0f0ee;font-size:13px}
@@ -241,3 +242,76 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .svh-zero{color:#cbd5e1}
 .svh-slash{color:#94a3b8;white-space:pre}
 .nav-item{word-break:keep-all;line-height:1.35}
+
+/* 대시보드 */
+.dash-sub{font-size:13px;font-weight:500;color:#94a3b8;margin-left:10px}
+.dcl-summary{font-size:12px;font-weight:600;color:#d97706;margin-left:8px}
+.dcl-summary .ok{color:#16a34a}
+.dcl-summary .sep{color:#d4d4d0;margin:0 6px}
+.dcl-bar{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px}
+.dcl-bar .filter-select{max-width:220px;padding:5px 8px;font-size:12px}
+.dcl-list{max-height:360px;overflow-y:auto}
+.dcl-group{margin-bottom:10px}
+.dcl-group-head{font-size:12px;font-weight:700;color:#334155;padding:4px 2px;border-bottom:1px solid #e8e8e4}
+.dcl-meta{font-weight:500;color:#94a3b8;margin-left:6px}
+.dcl-row{display:flex;align-items:center;gap:8px;padding:7px 2px;border-bottom:1px solid #f0f0ee}
+.dcl-row input{width:14px;height:14px;cursor:pointer;accent-color:#378ADD;flex-shrink:0}
+.dcl-text{flex:1;min-width:0;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dcl-text.done{text-decoration:line-through;color:#bbb}
+.dcl-site{font-size:10px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;flex-shrink:0}
+.dcl-due{font-size:11px;font-weight:600;color:#64748b;flex-shrink:0}
+.dcl-due.warn{color:#d97706}
+.dcl-due.hot{color:#dc2626}
+.dcl-alldone{font-size:12px;color:#16a34a;padding:8px 2px}
+
+/* 대시보드 – 이번 주 할 일 */
+.wk-group{margin-bottom:10px}
+.wk-head{font-size:12px;font-weight:700;color:#334155;padding:4px 2px;border-bottom:1px solid #e8e8e4}
+.wk-group.today .wk-head{color:#2563eb}
+.wk-group.late .wk-head{color:#d97706}
+.wk-group.hot .wk-head{color:#dc2626}
+.wk-meta{font-weight:500;color:#94a3b8;margin-left:6px}
+.wk-row{display:flex;align-items:center;gap:6px;padding:7px 2px;border-bottom:1px solid #f0f0ee;font-size:13px}
+.wk-row.clickable{cursor:pointer}
+.wk-row.clickable:hover{background:#f8fafc}
+.wk-check{width:14px;height:14px;cursor:pointer;accent-color:#378ADD;flex-shrink:0;margin:0}
+.wk-kind{font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;flex-shrink:0}
+.wk-sched{background:#ecfdf5;color:#047857}
+.wk-plan{background:#eff6ff;color:#1d4ed8}
+.wk-inc{background:#fef2f2;color:#b91c1c}
+.wk-cl{background:#f1f5f9;color:#475569}
+.wk-time{font-size:11px;color:#64748b;flex-shrink:0;font-variant-numeric:tabular-nums}
+.wk-title{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+.wk-site{font-size:11px;color:#64748b;max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0}
+.wk-row .badge{flex-shrink:0;font-size:10px}
+
+/* 대시보드 – 점검 일정 / 이슈 / 워런티 */
+.sched-site{font-size:13px;font-weight:700;color:#1a1a1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px;display:flex;align-items:center;gap:4px}
+.sched-site.done{color:#aaa;text-decoration:line-through}
+.sched-title{font-size:11px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sched-date-label.late{background:#fef2f2;color:#dc2626}
+.sched-date-label.today{background:#eff6ff;color:#2563eb}
+.sched-late{font-size:10px;font-weight:700;color:#dc2626}
+.sched-today{font-size:10px;font-weight:700;color:#2563eb}
+.dash-fold{margin-top:6px}
+.dash-fold>summary{cursor:pointer;font-size:12px;color:#64748b;padding:6px 2px;list-style:none;user-select:none}
+.dash-fold>summary::before{content:'▸ ';}
+.dash-fold[open]>summary::before{content:'▾ ';}
+.iss-row{display:flex;align-items:center;gap:6px;padding:7px 2px;border-bottom:1px solid #f0f0ee;cursor:pointer}
+.iss-row:hover{background:#f8fafc}
+.iss-title{font-weight:500;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.iss-age{font-size:10px;font-weight:700;color:#64748b}
+.iss-age.old{color:#dc2626}
+#dash-warranty-cnt .sep{color:#d4d4d0;margin:0 6px}
+
+/* 반응형 */
+@media (max-width:1100px){
+  .grid4{grid-template-columns:repeat(2,1fr)}
+  .dash-body{grid-template-columns:1fr}
+}
+@media (max-width:640px){
+  .grid4{grid-template-columns:1fr}
+  .main{padding:20px 16px}
+  .search-bar{flex-wrap:wrap}
+  .wk-site{display:none}
+}
