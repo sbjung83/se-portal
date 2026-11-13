@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from database import get_db, Schedule, Site
+from database import get_db, Schedule, Site, WorkPlan
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
@@ -97,6 +97,8 @@ def update_schedule(eng_id: str, sch_id: str, data: ScheduleUpdate, db: Session 
 def delete_schedule(eng_id: str, sch_id: str, db: Session = Depends(get_db)):
     sch = db.query(Schedule).filter(Schedule.id == sch_id, Schedule.engineer_id == eng_id).first()
     if not sch: raise HTTPException(404)
+    # 점검일정 모달에서 만든 작업자/결재자/MOP 보관 레코드(WorkPlan.id == Schedule.id)도 함께 삭제
+    db.query(WorkPlan).filter(WorkPlan.id == sch.id, WorkPlan.engineer_id == eng_id).delete()
     db.delete(sch); db.commit()
     return {"ok": True}
 

@@ -95,6 +95,30 @@ class WorkPlanIn(BaseModel):
     verification: Optional[str] = ""
     rollback_plan: Optional[str] = ""
 
+class WorkPlanUpdate(BaseModel):
+    title: Optional[str] = None
+    work_date: Optional[str] = None
+    site: Optional[str] = None
+    worker: Optional[str] = None
+    reviewer: Optional[str] = None
+    status: Optional[str] = None
+    purpose: Optional[str] = None
+    impact: Optional[str] = None
+    prerequisites: Optional[str] = None
+    mop_content: Optional[str] = None
+    verification: Optional[str] = None
+    rollback_plan: Optional[str] = None
+
+WP_STATUSES = ("계획중", "결재대기", "승인완료", "작업완료")
+
+# 기술지원 화면에서 등록한 건은 id가 "wp-" 로 시작한다.
+# 그 외(id = Schedule.id)는 점검일정 모달에서 작업자/결재자/MOP 보관용으로 만든 레코드 → 기술지원 실적에서 제외.
+SUPPORT_ID_PREFIX = "wp-"
+
+def support_only(query):
+    """기술지원(점검일정 연동분 제외)만 남기는 필터"""
+    return query.filter(WorkPlan.id.startswith(SUPPORT_ID_PREFIX))
+
 def _wp_dict(p):
     return {
         "id": p.id,
@@ -113,8 +137,14 @@ def _wp_dict(p):
     }
 
 @router.get("/api/engineers/{eng_id}/workplans")
-def get_work_plans(eng_id: str, db: Session = Depends(get_db)):
-    plans = db.query(WorkPlan).filter(WorkPlan.engineer_id == eng_id).order_by(WorkPlan.work_date.desc()).all()
+def get_work_plans(eng_id: str, scope: str = "support", db: Session = Depends(get_db)):
+    """scope: support(기본, 기술지원만) / schedule(점검일정 연동분만) / all"""
+    q = db.query(WorkPlan).filter(WorkPlan.engineer_id == eng_id)
+    if scope == "support":
+        q = support_only(q)
+    elif scope == "schedule":
+        q = q.filter(~WorkPlan.id.startswith(SUPPORT_ID_PREFIX))
+    plans = q.order_by(WorkPlan.work_date.desc()).all()
     return [_wp_dict(p) for p in plans]
 
 @router.post("/api/engineers/{eng_id}/workplans")
@@ -151,10 +181,14 @@ def create_work_plan(eng_id: str, plan: WorkPlanIn, db: Session = Depends(get_db
     return _wp_dict(new_plan)
 
 @router.patch("/api/engineers/{eng_id}/workplans/{plan_id}")
-def update_work_plan(eng_id: str, plan_id: str, plan_update: WorkPlanIn, db: Session = Depends(get_db)):
+def update_work_plan(eng_id: str, plan_id: str, plan_update: WorkPlanUpdate, db: Session = Depends(get_db)):
     plan = db.query(WorkPlan).filter(WorkPlan.id == plan_id, WorkPlan.engineer_id == eng_id).first()
     if not plan:
         raise HTTPException(status_code=404, detail="작업 계획을 찾을 수 없습니다")
+    if plan_update.status is not None and plan_update.status not in WP_STATUSES:
+        raise HTTPException(status_code=400, detail="올바르지 않은 상태 값입니다")
+    if plan_update.title is not None and not plan_update.title.strip():
+        raise HTTPException(status_code=400, detail="제목을 입력해주세요")
     
     for k, v in plan_update.dict(exclude_none=True).items():
         setattr(plan, k, v)

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from database import get_db, Site, Device, Schedule, Issue, WorkPlan, Incident
 from datetime import datetime
+from routers.technotes import support_only
 
 router = APIRouter(prefix="/api/engineers/{eng_id}/dashboard", tags=["dashboard"])
 
@@ -12,10 +13,10 @@ def get_dashboard(eng_id: str, db: Session = Depends(get_db)):
     site_ids    = [s.id for s in sites]
     all_devices = db.query(Device).filter(Device.site_id.in_(site_ids)).all() if site_ids else []
     # 이번 달 서비스 지원 실적 (기술지원 = 작업계획, 장애처리 = Incident)
-    monthly_support = db.query(WorkPlan).filter(
+    monthly_support = support_only(db.query(WorkPlan).filter(
         WorkPlan.engineer_id == eng_id,
         WorkPlan.work_date.startswith(today_ym)
-    ).count()
+    )).count()
     monthly_incidents = db.query(Incident).filter(
         Incident.engineer_id == eng_id,
         Incident.occurred_at.startswith(today_ym)

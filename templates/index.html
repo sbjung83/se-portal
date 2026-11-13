@@ -250,11 +250,29 @@
     <!-- 기술지원 (작업 계획) -->
     <div class="page" id="page-work-plan">
       <div class="page-title">기술지원</div>
+      <div class="grid4" id="wp-summary" style="margin-bottom:14px"></div>
       <div class="search-bar">
-        <input type="text" id="wp-search" placeholder="기술지원명, 사이트 검색...">
+        <input type="text" id="wp-search" placeholder="기술지원명, 사이트, 작업자 검색...">
+        <select id="wp-view" class="filter-select" title="보기">
+          <option value="active">진행 중 (미완료)</option>
+          <option value="week">이번 주 예정</option>
+          <option value="overdue">일정 경과</option>
+          <option value="계획중">계획중</option>
+          <option value="결재대기">결재대기</option>
+          <option value="승인완료">승인완료</option>
+          <option value="작업완료">작업완료</option>
+          <option value="">전체</option>
+        </select>
+        <div class="svh-month">
+          <button class="btn btn-sm" onclick="wpMoveMonth(-1)" title="이전 달">◀</button>
+          <input type="month" id="wp-month" title="작업 월">
+          <button class="btn btn-sm" onclick="wpMoveMonth(1)" title="다음 달">▶</button>
+          <button class="btn btn-sm" onclick="wpMoveMonth(0)">이번 달</button>
+          <button class="btn btn-sm" id="wp-all-period" onclick="wpToggleAllPeriod()" title="월 구분 없이 전체 기간 보기">전체 기간</button>
+        </div>
         <button class="btn btn-primary" onclick="openAddWorkPlan()">+ 기술지원 등록</button>
       </div>
-      <div class="card"><div id="wp-list"></div></div>
+      <div class="card"><div id="wp-list"></div><div id="wp-page" class="pagination"></div></div>
     </div>
 
     <!-- 장애처리 -->
@@ -288,13 +306,10 @@
       </div>
       <div class="grid4" id="svh-summary" style="margin-bottom:14px"></div>
       <div class="card" style="margin-bottom:14px">
-        <div class="svh-stat-head">
-          <div class="card-title" style="margin:0" id="svh-stat-title">사이트별 연간 통계</div>
-          <div class="svh-legend"><span class="svh-n sup">기술지원</span><span class="svh-n inc">장애처리</span></div>
-        </div>
-        <div id="svh-site-stats"></div>
+        <div class="card-title" id="svh-list-title">월간 기술지원 / 장애처리 이력</div>
+        <div id="svh-list"></div>
       </div>
-      <div class="card"><div id="svh-list"></div></div>
+      <div id="svh-site-stats"></div>
     </div>
 
     <!-- TECH NOTES -->
@@ -790,6 +805,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=6"></script>
+<script src="/static/js/app.js?v=14"></script>
 </body>
 </html>

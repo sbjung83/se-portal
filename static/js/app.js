@@ -27,8 +27,8 @@ function closeModal(id){$(id).classList.remove('open')}
 document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open')}));
 
 // ── 페이지네이션 헬퍼 ──────────────────────
-function renderPagination(containerId, total, currentPage, onPageFn){
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+function renderPagination(containerId, total, currentPage, onPageFn, pageSize=PAGE_SIZE){
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const el = $(containerId);
   if(totalPages <= 1){el.innerHTML='';return}
   let html = `<button class="pg-btn" ${currentPage===1?'disabled':''} onclick="${onPageFn}(${currentPage-1})">‹</button>`;
@@ -273,8 +273,8 @@ async function openEditSched(s){
   mopSet('sched-mop', '');
   $('btn-sched-excel').style.display='none';
   
-  if(!_allWorkPlans.length) { try { _allWorkPlans = await api.get(`/api/engineers/${ENG_ID}/workplans`); } catch(e){} }
-  const wp = _allWorkPlans.find(p => p.id === s.id);
+  await loadSchedWorkPlans();
+  const wp = _schedWorkPlans.find(p => p.id === s.id);
   if(wp) {
     $('sched-worker').value = wp.worker || '';
     $('sched-reviewer').value = wp.reviewer || '';
@@ -310,7 +310,7 @@ async function saveSched(){
       status: $('sched-status').value === '완료' ? '작업완료' : '계획중'
     };
     await api.post(`/api/engineers/${ENG_ID}/workplans`, wpPayload);
-    try { _allWorkPlans = await api.get(`/api/engineers/${ENG_ID}/workplans`); } catch(e){}
+    await loadSchedWorkPlans(true);
   }
 
   closeModal('modal-add-sched');
@@ -827,47 +827,187 @@ function mopGet(id){
 }
 
 // ── WORK PLANS ──────────────────────────────
+// _allWorkPlans  : 기술지원 (scope=support, id "wp-*")
+// _schedWorkPlans: 점검일정 모달의 작업자/결재자/MOP 보관 레코드 (scope=schedule, id = 일정 id) — 기술지원 실적 제외
 let _allWorkPlans = [];
-async function renderWorkPlans(filter='') {
-  const el = $('wp-list');
-  let plans = [];
+let _schedWorkPlans = [], _schedWpLoaded = false;
+const isSupportPlan = p => String(p.id || '').startsWith('wp-');
+async function loadSchedWorkPlans(force = false){
+  if(_schedWpLoaded && !force) return;
   try {
-    plans = await api.get(`/api/engineers/${ENG_ID}/workplans`);
-    _allWorkPlans = plans;
+    _schedWorkPlans = (await api.get(`/api/engineers/${ENG_ID}/workplans?scope=schedule`)).filter(p => !isSupportPlan(p));
+    _schedWpLoaded = true;
+  } catch(e){}
+}
+let _wpPage = 1;
+const WP_PAGE_SIZE = 10;
+const WP_ST_CLS = {'계획중':'b-gray', '결재대기':'b-amber', '승인완료':'b-blue', '작업완료':'b-green'};
+const WP_STATUSES = ['계획중', '결재대기', '승인완료', '작업완료'];
+const WP_ACTIVE = ['계획중', '결재대기', '승인완료'];
+
+function _ymd(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function _wpDates(){
+  const now = new Date();
+  return { today: _ymd(now), weekEnd: _ymd(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7)) };
+}
+const _wpDay = p => (p.work_date || '').slice(0, 10);
+const _wpIsOverdue = (p, today) => p.status !== '작업완료' && !!_wpDay(p) && _wpDay(p) < today;
+const _wpIsThisWeek = (p, today, weekEnd) => p.status !== '작업완료' && _wpDay(p) >= today && _wpDay(p) < weekEnd;
+
+function _wpImpactBadge(impact){
+  const v = (impact || '').trim();
+  if(!v || v === '없음') return '';
+  const lv = v.split(' ')[0];
+  const cls = {'낮음':'b-gray', '중간':'b-amber', '높음':'b-red'}[lv] || 'b-gray';
+  return `<span class="badge ${cls}" title="${esc(v)}">영향도 ${esc(lv)}</span>`;
+}
+
+let _wpAllPeriod = false;
+function _wpSyncMonthUI(){
+  $('wp-all-period').classList.toggle('btn-primary', _wpAllPeriod);
+  $('wp-month').style.opacity = _wpAllPeriod ? '.45' : '';
+}
+function wpMoveMonth(delta){
+  if(delta === 0 || !$('wp-month').value){ $('wp-month').value = _ym(new Date()); }
+  else {
+    const [y, m] = $('wp-month').value.split('-').map(Number);
+    $('wp-month').value = _ym(new Date(y, m - 1 + delta, 1));
+  }
+  _wpAllPeriod = false; _wpSyncMonthUI(); drawWorkPlans(1);
+}
+function wpToggleAllPeriod(on = !_wpAllPeriod){
+  _wpAllPeriod = on; _wpSyncMonthUI(); drawWorkPlans(1);
+}
+
+async function renderWorkPlans() {
+  const el = $('wp-list');
+  if(!$('wp-month').value){ $('wp-month').value = _ym(new Date()); _wpSyncMonthUI(); }
+  try {
+    _allWorkPlans = (await api.get(`/api/engineers/${ENG_ID}/workplans`)).filter(isSupportPlan);
   } catch (e) {
     console.error("Failed to load work plans:", e);
     el.innerHTML = '<div class="empty" style="color:#dc2626; line-height:1.6;">기술지원 목록을 불러오는 중 오류가 발생했습니다.<br>백엔드 서버가 재시작되었는지 확인해주세요.</div>';
+    $('wp-summary').innerHTML = ''; $('wp-page').innerHTML = '';
     return;
   }
+  _renderWpSummary();
+  drawWorkPlans(_wpPage);
+}
 
-  const q = filter.toLowerCase().trim();
-  const filtered = plans.filter(p => (p.title||'').toLowerCase().includes(q) || (p.site||'').toLowerCase().includes(q));
-  if(!filtered.length) { el.innerHTML = '<div class="empty">등록된 기술지원이 없습니다</div>'; return; }
-  
-  const stCls = {'계획중':'b-gray', '결재대기':'b-amber', '승인완료':'b-blue', '작업완료':'b-green'};
-  el.innerHTML = filtered.map(p => `
-    <div style="display:flex; gap:12px; padding:12px 6px; border-bottom:1px solid #f0f0ee;">
-      <div style="flex:1;">
-        <div style="margin-bottom:4px">
-          <span class="badge ${stCls[p.status]||'b-gray'}">${p.status}</span>
-          <span style="font-size:12px;color:#888;margin-left:6px">${p.work_date?p.work_date.replace('T', ' '):'-'}</span>
+function _renderWpSummary(){
+  const { today, weekEnd } = _wpDates();
+  const plans = _allWorkPlans;
+  const cnt = st => plans.filter(p => p.status === st).length;
+  const active = plans.filter(p => WP_ACTIVE.includes(p.status)).length;
+  const week = plans.filter(p => _wpIsThisWeek(p, today, weekEnd)).length;
+  const overdue = plans.filter(p => _wpIsOverdue(p, today)).length;
+  const card = (view, label, value, sub, color) => `
+    <div class="metric" style="cursor:pointer" title="목록 필터: ${label}" onclick="wpSetView('${view}')">
+      <div class="metric-label">${label}</div>
+      <div class="metric-value" style="${color ? `color:${color}` : ''}">${value}건</div>
+      ${sub ? `<div style="font-size:11px;color:#64748b;margin-top:4px">${sub}</div>` : ''}</div>`;
+  $('wp-summary').innerHTML =
+    card('active', '진행 중', active, `계획중 ${cnt('계획중')} · 결재대기 ${cnt('결재대기')} · 승인완료 ${cnt('승인완료')}`) +
+    card('결재대기', '결재대기', cnt('결재대기'), '결재 진행이 필요한 건', cnt('결재대기') ? '#d97706' : '') +
+    card('week', '이번 주 예정', week, '오늘부터 7일 이내 (미완료)', '') +
+    card('overdue', '일정 경과', overdue, '작업일이 지났지만 미완료', overdue ? '#dc2626' : '');
+}
+
+function wpSetView(view){
+  $('wp-view').value = view;
+  if(view === 'week' || view === 'overdue') wpToggleAllPeriod(true);   // 월과 무관한 조건
+  else drawWorkPlans(1);
+}
+
+function drawWorkPlans(page = 1) {
+  const el = $('wp-list');
+  const { today, weekEnd } = _wpDates();
+  const q = $('wp-search').value.toLowerCase().trim();
+  const view = $('wp-view').value;
+  const ym = _wpAllPeriod ? '' : $('wp-month').value;
+
+  let list = _allWorkPlans.filter(p => {
+    if(q && ![p.title, p.site, p.worker, p.reviewer].some(v => (v || '').toLowerCase().includes(q))) return false;
+    if(ym && !(p.work_date || '').startsWith(ym)) return false;
+    if(view === 'active') return WP_ACTIVE.includes(p.status);
+    if(view === 'week') return _wpIsThisWeek(p, today, weekEnd);
+    if(view === 'overdue') return _wpIsOverdue(p, today);
+    if(view) return p.status === view;
+    return true;
+  });
+
+  // 진행할 건은 가까운 일정 순(날짜 없음은 맨 뒤), 완료/전체는 최신 순
+  const asc = view && view !== '작업완료';
+  list.sort((a, b) => {
+    const da = a.work_date || '', db = b.work_date || '';
+    if(asc){ if(!da) return 1; if(!db) return -1; return da.localeCompare(db); }
+    return db.localeCompare(da);
+  });
+
+  const totalPages = Math.max(1, Math.ceil(list.length / WP_PAGE_SIZE));
+  _wpPage = Math.min(Math.max(1, page), totalPages);
+  renderPagination('wp-page', list.length, _wpPage, 'drawWorkPlans', WP_PAGE_SIZE);
+
+  if(!list.length) {
+    el.innerHTML = `<div class="empty">${_allWorkPlans.length ? '조건에 맞는 기술지원이 없습니다' : '등록된 기술지원이 없습니다'}</div>`;
+    return;
+  }
+  const rows = list.slice((_wpPage - 1) * WP_PAGE_SIZE, _wpPage * WP_PAGE_SIZE);
+  el.innerHTML = rows.map(p => {
+    const overdue = _wpIsOverdue(p, today);
+    return `
+    <div class="svc-row wp-row" onclick="openEditWorkPlan('${p.id}')">
+      <div style="flex:1;min-width:0">
+        <div style="margin-bottom:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <select class="wp-st-sel badge ${WP_ST_CLS[p.status]||'b-gray'}" title="상태 변경"
+            onclick="event.stopPropagation()" onchange="changeWorkPlanStatus('${p.id}', this.value)">
+            ${WP_STATUSES.map(st => `<option ${st===p.status?'selected':''}>${st}</option>`).join('')}
+          </select>
+          ${_wpImpactBadge(p.impact)}
+          ${overdue ? '<span class="badge b-red">일정 경과</span>' : ''}
+          <span style="font-size:12px;color:${overdue ? '#dc2626' : '#888'}">${esc(fmtDT(p.work_date))}</span>
         </div>
-        <div style="font-weight:700; font-size:14px; margin-bottom:4px">${p.title}</div>
-        <div style="font-size:12px; color:#666;">사이트: <span style="font-weight:600">${p.site||'-'}</span> | 작업자: ${p.worker||'-'} | 결재/공유: ${p.reviewer||'-'}</div>
+        <div style="font-weight:700;font-size:14px;margin-bottom:4px">${esc(p.title)}</div>
+        <div style="font-size:12px;color:#666">사이트: <b>${esc(p.site||'-')}</b> | 작업자: ${esc(p.worker||'-')} | 결재/공유: ${esc(p.reviewer||'-')}</div>
+        ${p.purpose ? `<div class="svc-sub">목적: ${esc(p.purpose)}</div>` : ''}
       </div>
-      <div style="display:flex; gap:4px; align-items:flex-start;">
-        <button class="btn btn-sm btn-primary" onclick="downloadWorkPlanExcel('${p.id}')">Excel 다운로드</button>
-        <button class="icon-btn edit" title="수정" onclick="openEditWorkPlan(${JSON.stringify(p).replace(/"/g,'&quot;')})">${ICO_EDIT}</button>
+      <div style="display:flex;gap:4px;align-items:flex-start" onclick="event.stopPropagation()">
+        <button class="btn btn-sm" title="작업계획서 엑셀 다운로드" onclick="downloadWorkPlanExcel('${p.id}')">Excel</button>
+        <button class="icon-btn edit" title="수정" onclick="openEditWorkPlan('${p.id}')">${ICO_EDIT}</button>
         <button class="icon-btn del" title="삭제" onclick="deleteWorkPlan('${p.id}')">${ICO_DEL}</button>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
-if($('wp-search')) $('wp-search').addEventListener('input', e => renderWorkPlans(e.target.value));
+async function changeWorkPlanStatus(id, status){
+  const p = _allWorkPlans.find(x => x.id === id);
+  if(!p) return;
+  const prev = p.status;
+  try {
+    const r = await fetch(`/api/engineers/${ENG_ID}/workplans/${id}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status }) });
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    p.status = status;
+    toast(`상태 변경: ${prev} → ${status}`);
+  } catch(e) {
+    console.error('기술지원 상태 변경 실패:', e);
+    toast('상태 변경 실패: 서버 오류가 발생했습니다.');
+  }
+  _renderWpSummary();
+  drawWorkPlans(_wpPage);   // 필터에서 빠지는 경우 목록에서 사라짐
+  _refreshSvcHistory();
+}
+$('wp-search').addEventListener('input', () => { clearTimeout(window._wpT); window._wpT = setTimeout(() => drawWorkPlans(1), 200); });
+$('wp-view').addEventListener('change', () => drawWorkPlans(1));
+$('wp-month').addEventListener('change', () => {
+  if(!$('wp-month').value) $('wp-month').value = _ym(new Date());
+  _wpAllPeriod = false; _wpSyncMonthUI(); drawWorkPlans(1);
+});
 
 async function fillWpSiteSel(selectedSite=''){
-  const sites = await api.get(`/api/engineers/${ENG_ID}/sites`);
-  $('wp-site').innerHTML = '<option value="">-</option>' + sites.map(s => `<option ${s.name===selectedSite?'selected':''}>${s.name}</option>`).join('');
+  const names = (await api.get(`/api/engineers/${ENG_ID}/sites`)).map(s => s.name);
+  if(selectedSite && !names.includes(selectedSite)) names.unshift(selectedSite);   // 삭제·변경된 사이트명도 보존
+  $('wp-site').innerHTML = '<option value="">-</option>' + names.map(n => `<option ${n===selectedSite?'selected':''}>${esc(n)}</option>`).join('');
 }
 
 async function openAddWorkPlan() {
@@ -889,6 +1029,8 @@ async function openAddWorkPlan() {
 }
 
 async function openEditWorkPlan(p) {
+  if(typeof p === 'string') p = _allWorkPlans.find(x => x.id === p);
+  if(!p) { toast('기술지원 데이터를 찾을 수 없습니다'); return; }
   $('wp-modal-title').textContent = '기술지원 수정';
   $('wp-id').value = p.id;
   $('wp-title').value = p.title;
@@ -914,6 +1056,7 @@ async function openEditWorkPlan(p) {
 async function saveWorkPlan() {
   const title = $('wp-title').value.trim();
   if(!title) { toast('제목을 입력해주세요'); return; }
+  if(!$('wp-date').value) { toast('작업 일시를 입력해주세요'); return; }
   const payload = { 
     title, 
     work_date: $('wp-date').value, 
@@ -949,11 +1092,6 @@ async function deleteWorkPlan(id) {
 }
 
 function downloadWorkPlanExcel(id) {
-  const p = _allWorkPlans.find(x => x.id === id);
-  if(!p) {
-    toast('데이터를 찾을 수 없습니다.');
-    return;
-  }
   // 백엔드 다운로드 엔드포인트로 리디렉션
   window.location.href = `/api/engineers/${ENG_ID}/workplans/${id}/download`;
 }
@@ -1164,20 +1302,23 @@ async function renderServiceHistory(){
   if(!$('svh-month').value) $('svh-month').value = _ym(new Date());
   const ym = $('svh-month').value;
   const el = $('svh-list');
-  let plans, incs;
+  let plans, incs, sites, scheds;
   try {
-    [plans, incs] = await Promise.all([
+    [plans, incs, sites, scheds] = await Promise.all([
       api.get(`/api/engineers/${ENG_ID}/workplans`),
       api.get(`/api/engineers/${ENG_ID}/incidents`),
+      api.get(`/api/engineers/${ENG_ID}/sites`).catch(() => []),
+      api.get(`/api/engineers/${ENG_ID}/schedules/all?year=${ym.slice(0, 4)}`).catch(() => []),
     ]);
   } catch(e) {
     console.error('월별 이력 조회 실패:', e);
     el.innerHTML = '<div class="empty" style="color:#dc2626">이력을 불러오지 못했습니다.</div>';
     return;
   }
+  plans = plans.filter(isSupportPlan);
   _allWorkPlans = plans;
   _allIncidents = incs;
-  renderSvhSiteStats(plans, incs, ym);
+  renderSvhSiteStats(plans, incs, Array.isArray(scheds) ? scheds : [], ym, (sites || []).map(x => (x.name || '').trim()).filter(Boolean));
   incs = incs.filter(i => (i.occurred_at || '').startsWith(ym));
   const sup = plans.filter(p => (p.work_date || '').startsWith(ym));
 
@@ -1192,11 +1333,14 @@ async function renderServiceHistory(){
     <div class="metric"><div class="metric-label">미완료 장애</div><div class="metric-value" style="${openInc?'color:#dc2626':''}">${openInc}건</div></div>
     <div class="metric"><div class="metric-label">누적 장애 시간</div><div class="metric-value" style="font-size:20px">${downMin ? fmtDuration(downMin) : '-'}</div></div>`;
 
+  const [ty, tm] = ym.split('-');
+  $('svh-list-title').textContent = `${ty}년 ${Number(tm)}월 ${{all:'기술지원 / 장애처리', support:'기술지원', incident:'장애처리'}[_svhTab]} 이력`;
+
   const rows = [];
   if(_svhTab !== 'incident') sup.forEach(p => rows.push({
     kind:'support', date:p.work_date, site:p.site, title:p.title, worker:p.worker,
     status:p.status, stCls:{'계획중':'b-gray','결재대기':'b-amber','승인완료':'b-blue','작업완료':'b-green'}[p.status]||'b-gray',
-    extra:'', open:`openEditWorkPlan(_allWorkPlans.find(x=>x.id==='${p.id}'))`,
+    extra:'', open:`openEditWorkPlan('${p.id}')`,
   }));
   if(_svhTab !== 'support') incs.forEach(i => rows.push({
     kind:'incident', date:i.occurred_at, site:i.site, title:i.title, worker:i.worker,
@@ -1219,49 +1363,59 @@ async function renderServiceHistory(){
     </tr>`).join('')}</tbody></table></div>`;
 }
 
-// 사이트별 월별/연간 기술지원·장애처리 횟수 (선택 월의 연도 기준)
-function renderSvhSiteStats(plans, incs, ym){
+// 사이트별 월별/연간 점검·기술지원·장애처리 투입 횟수 (선택 월의 연도 기준, "점검 / 기술지원 / 장애처리" 형식)
+// 점검 = 완료된 점검일정(Schedule) 건수, 기술지원 = WorkPlan(wp-*), 장애처리 = Incident
+function renderSvhSiteStats(plans, incs, scheds, ym, siteNames){
   const year = ym.slice(0, 4);
   const selM = Number(ym.slice(5, 7));
-  const showSup = _svhTab !== 'incident', showInc = _svhTab !== 'support';
-  const stats = {};   // site -> { sup:[13], inc:[13] }  (index 0 = 연간 합계)
-  const total = { sup: Array(13).fill(0), inc: Array(13).fill(0) };
-  const add = (site, date, kind) => {
-    if(!(date || '').startsWith(year)) return;
-    const m = Number(date.slice(5, 7));
-    if(!(m >= 1 && m <= 12)) return;
-    const key = (site || '').trim() || '(미지정)';
-    const s = stats[key] || (stats[key] = { sup: Array(13).fill(0), inc: Array(13).fill(0) });
-    s[kind][m]++; s[kind][0]++; total[kind][m]++; total[kind][0]++;
-  };
-  if(showSup) plans.forEach(p => add(p.site, p.work_date, 'sup'));
-  if(showInc) incs.forEach(i => add(i.site, i.occurred_at, 'inc'));
-
-  $('svh-stat-title').textContent = `${year}년 사이트별 월별·연간 통계`;
-  const sites = Object.keys(stats).sort((a, b) =>
-    (stats[b].sup[0] + stats[b].inc[0]) - (stats[a].sup[0] + stats[a].inc[0]) || a.localeCompare(b, 'ko'));
-  const el = $('svh-site-stats');
-  if(!sites.length){ el.innerHTML = `<div class="empty">${year}년 이력이 없습니다</div>`; return; }
-
-  const cell = (s, m) => {
-    const parts = [];
-    if(showSup) parts.push(s.sup[m] ? `<span class="svh-n sup">${s.sup[m]}</span>` : '<span class="svh-n zero">·</span>');
-    if(showInc) parts.push(s.inc[m] ? `<span class="svh-n inc">${s.inc[m]}</span>` : '<span class="svh-n zero">·</span>');
-    return parts.join('');
-  };
   const months = Array.from({ length: 12 }, (_, i) => i + 1);
-  const mCls = m => m === selM ? ' class="svh-sel"' : '';
-  el.innerHTML = `<div class="svh-table-wrap"><table class="svh-table svh-stat">
-    <thead><tr><th class="svh-site">사이트</th>${months.map(m =>
-      `<th${mCls(m)} title="${m}월 이력 보기" onclick="svhGoMonth(${year},${m})">${m}월</th>`).join('')}<th class="svh-year">연간</th></tr></thead>
-    <tbody>${sites.map(site => `<tr>
-      <td class="svh-site">${esc(site)}</td>
-      ${months.map(m => `<td${mCls(m)}>${cell(stats[site], m)}</td>`).join('')}
-      <td class="svh-year">${cell(stats[site], 0)}</td></tr>`).join('')}</tbody>
-    <tfoot><tr><td class="svh-site">합계</td>
-      ${months.map(m => `<td${mCls(m)}>${cell(total, m)}</td>`).join('')}
-      <td class="svh-year">${cell(total, 0)}</td></tr></tfoot>
-  </table></div>`;
+  const showChk = _svhTab === 'all', showSup = _svhTab !== 'incident', showInc = _svhTab !== 'support';
+  const blank = () => ({ chk: Array(13).fill(0), sup: Array(13).fill(0), inc: Array(13).fill(0) });
+
+  // { site: { chk:[연간,1월..12월], sup:[...], inc:[...] } }
+  const by = {};
+  const tot = blank();
+  const add = (list, dateKey, kind, siteKey = 'site') => list.forEach(x => {
+    const d = x[dateKey] || '';
+    if(d.slice(0, 4) !== year) return;
+    const m = Number(d.slice(5, 7));
+    if(!(m >= 1 && m <= 12)) return;
+    const site = (x[siteKey] || '').trim() || '(미지정)';
+    const r = by[site] || (by[site] = blank());
+    r[kind][m]++; r[kind][0]++; tot[kind][m]++; tot[kind][0]++;
+  });
+  add(plans, 'work_date', 'sup');
+  add(incs, 'occurred_at', 'inc');
+  add(scheds.filter(x => x.status === '완료'), 'sched_date', 'chk', 'site_name');   // 점검은 완료 건만
+
+  // 등록된 사이트 순서 + 등록되지 않은(직접 입력) 사이트
+  const sites = [...siteNames];
+  Object.keys(by).sort((a, b) => a.localeCompare(b, 'ko')).forEach(n => { if(!sites.includes(n)) sites.push(n); });
+
+  const n = (v, cls) => v ? `<b class="svh-cnt ${cls}">${v}</b>` : '<span class="svh-zero">0</span>';
+  const cell = (r, i) => [showChk ? n(r.chk[i], 'chk') : null, showSup ? n(r.sup[i], 'sup') : null, showInc ? n(r.inc[i], 'inc') : null]
+    .filter(Boolean).join('<span class="svh-slash"> / </span>');
+  const sel = m => m === selM ? ' svh-sel' : '';
+  const legend = [showChk ? '<b class="svh-cnt chk">점검</b>' : null, showSup ? '<b class="svh-cnt sup">기술지원</b>' : null, showInc ? '<b class="svh-cnt inc">장애처리</b>' : null]
+    .filter(Boolean).join('<span class="svh-slash"> / </span>');
+  const empty = blank();
+
+  $('svh-site-stats').innerHTML = `<div class="card">
+    <div class="svh-stat-head">
+      <div class="card-title" style="margin:0">${year}년 사이트 월별/연간 투입 횟수</div>
+      <div style="font-size:12px;color:#64748b">표시: ${legend} &nbsp;|&nbsp; ${year}년 합계 ${cell(tot, 0)}</div>
+    </div>
+    <div class="svh-table-wrap"><table class="svh-table svh-stat">
+      <thead><tr><th class="svh-site">사이트</th>${months.map(m =>
+        `<th class="svh-m${sel(m)}" title="${m}월 이력 보기" onclick="svhGoMonth(${year},${m})">${m}월</th>`).join('')}<th class="svh-year">연간</th></tr></thead>
+      <tbody>${sites.map(site => { const r = by[site] || empty; return `<tr>
+        <td class="svh-site" title="${esc(site)}">${esc(site)}</td>
+        ${months.map(m => `<td class="${sel(m)}">${cell(r, m)}</td>`).join('')}
+        <td class="svh-year">${cell(r, 0)}</td></tr>`; }).join('')}</tbody>
+      <tfoot><tr><td class="svh-site">합계</td>
+        ${months.map(m => `<td class="${sel(m)}">${cell(tot, m)}</td>`).join('')}
+        <td class="svh-year">${cell(tot, 0)}</td></tr></tfoot>
+    </table></div></div>`;
 }
 
 function svhGoMonth(y, m){
@@ -1293,7 +1447,7 @@ async function loadDashScheds(){
   const qBtn = $('ds-quarter-label');
   if(qBtn) qBtn.textContent = qLabel;
   
-  if(!_allWorkPlans.length) { try { _allWorkPlans = await api.get(`/api/engineers/${ENG_ID}/workplans`); } catch(e){} }
+  await loadSchedWorkPlans();
 
   // 유형 필터: 이번달탭=월간유형, 분기탭=분기유형
   const typeFilter = _dashSchedTab === 'month' ? '월간' : '분기';
@@ -1341,7 +1495,7 @@ async function loadDashScheds(){
           : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="opacity:.3"><polyline points="20 6 9 17 4 12"/></svg>'}
       </button>
       <div style="display:flex;gap:2px;flex-shrink:0">
-        ${_allWorkPlans.some(p => p.id === s.id) ? `<button class="btn btn-sm" style="padding:2px 4px;font-size:10px;color:#16a34a;border-color:#16a34a;margin-right:4px;" title="계획서 엑셀 다운로드" onclick="downloadWorkPlanExcel('${s.id}')">Excel</button>` : ''}
+        ${_schedWorkPlans.some(p => p.id === s.id) ? `<button class="btn btn-sm" style="padding:2px 4px;font-size:10px;color:#16a34a;border-color:#16a34a;margin-right:4px;" title="계획서 엑셀 다운로드" onclick="downloadWorkPlanExcel('${s.id}')">Excel</button>` : ''}
         <button class="icon-btn edit" title="수정" onclick="openEditSched(${JSON.stringify(s).replace(/"/g,'&quot;')})">${ICO_EDIT}</button>
         <button class="icon-btn del"  title="삭제" onclick="deleteSched('${s.id}')">${ICO_DEL}</button>
       </div>
@@ -1386,7 +1540,7 @@ function _smRow(s){
         : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="opacity:.3"><polyline points="20 6 9 17 4 12"/></svg>'}
     </button>
     <div style="display:flex;gap:2px;flex-shrink:0">
-      ${_allWorkPlans.some(p => p.id === s.id) ? `<button class="btn btn-sm" style="padding:2px 4px;font-size:10px;color:#16a34a;border-color:#16a34a;margin-right:4px;" title="계획서 엑셀 다운로드" onclick="downloadWorkPlanExcel('${s.id}')">Excel</button>` : ''}
+      ${_schedWorkPlans.some(p => p.id === s.id) ? `<button class="btn btn-sm" style="padding:2px 4px;font-size:10px;color:#16a34a;border-color:#16a34a;margin-right:4px;" title="계획서 엑셀 다운로드" onclick="downloadWorkPlanExcel('${s.id}')">Excel</button>` : ''}
       <button class="icon-btn edit" title="수정" onclick="openEditSched(${JSON.stringify(s).replace(/"/g,'&quot;')})">${ICO_EDIT}</button>
       <button class="icon-btn del"  title="삭제" onclick="deleteSchedAndRefresh('${s.id}')">${ICO_DEL}</button>
     </div>
@@ -1406,7 +1560,7 @@ function _smProgressBar(done, total, color){
 async function renderSchedMgmt(){
   $('sm-year-label').textContent = _smYear;
   const all = await api.get(`/api/engineers/${ENG_ID}/schedules/all?year=${_smYear}`);
-  if(!_allWorkPlans.length) { try { _allWorkPlans = await api.get(`/api/engineers/${ENG_ID}/workplans`); } catch(e){} }
+  await loadSchedWorkPlans();
   const el  = $('sm-content');
 
   // 연간 요약 통계 — 현재 탭 기준으로 표시
@@ -1914,6 +2068,7 @@ function openViewTechNote(id) {
 async function saveTechNote() {
   const title = $('tn-title').value.trim();
   if(!title) { toast('제목을 입력해주세요'); return; }
+  if(!$('wp-date').value) { toast('작업 일시를 입력해주세요'); return; }
   const payload = { title, category: $('tn-category').value, tags: $('tn-tags').value, body: $('tn-body').value };
   const id = $('tn-id').value;
   
