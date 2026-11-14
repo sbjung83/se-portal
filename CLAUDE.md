@@ -28,7 +28,7 @@ journalctl -u se-portal -f
 app.py               FastAPI 진입점: 라우터 등록, /static 마운트, "/" → templates/index.html
 database.py          SQLAlchemy 엔진/세션(get_db), 전체 ORM 모델, init_db()
 routers/<도메인>.py   도메인별 APIRouter (auth, dashboard, sites, projects, logs,
-                     schedules, issues, site_checklist, technotes, development, incidents, reports)
+                     schedules, issues, site_checklist, technotes, development, incidents, reports, gcal)
 templates/index.html SPA 전체 마크업 (모든 page-* 섹션과 modal-* 오버레이)
 static/js/app.js     프론트 로직 전체 (바닐라 JS, 프레임워크 없음)
 static/css/style.css 공통 스타일
@@ -48,6 +48,10 @@ uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `
 - **월별 기술지원 및 장애처리 이력** (`page-service-history`) = 위 둘을 월 단위로 합쳐 보는 화면 (프론트에서 조합).
 - **주간보고서** (`page-weekly-report`) = `routers/reports.py`. 주(월~일) 단위로 점검(완료)·기술지원(작업완료)·장애(발생)를 사이트+일자 1행으로 묶어 양식에 채움.
   양식 열: F 정기점검 / G 장애지원 / H~L 은 WorkPlan.support_type(기술지원/납품/유선원격/이전/기타).
+- **구글 캘린더 연동** (`page-gcal`) = `routers/gcal.py`. 엔지니어별 iCal 비공개 주소(`calendar_links.url`, 암호화 저장)를 10분마다 읽어(`app.py`의 `_calendar_loop`)
+  제목 `[종류] 고객사 - 엔지니어` 중 본인 이름이 든 일정만 점검 일정(Schedule)/기술지원(WorkPlan)으로 등록. `calendar_events`가 구글 일정↔포털 레코드 연결(중복 방지, 변경·삭제 반영, 완료 건은 보존).
+  `calendar_links.start_date`(기본: 연동한 날) 이후 ~ 오늘+180일만 다룸. 포털에 같은 날·같은 사이트 건이 이미 있으면 새로 만들지 않고 연결(`adopted`, 구글에서 지워도 포털 건은 유지).
+  종류·사이트를 못 정하면 '확인 대기'. 의존 패키지: `httpx`, `icalendar`, `recurring-ical-events`.
 - 기존 "작업 현황/이력"(WorkLog, `/logs`) 메뉴와 "월간 보고서" 메뉴는 폐지. `/logs` API와 `worklogs` 테이블은 남아 있음.
 
 ## 아키텍처 규칙

@@ -5,9 +5,9 @@ from fastapi.requests import Request
 from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 from database import init_db
-from routers import auth, sites, logs, dashboard, schedules, issues, site_checklist, projects, technotes, development, incidents, reports
+from routers import auth, sites, logs, dashboard, schedules, issues, site_checklist, projects, technotes, development, incidents, reports, gcal
 from routers.auth import require_login
-import os
+import os, asyncio
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -17,7 +17,19 @@ os.makedirs(os.path.join(BASE_DIR, "uploads"), exist_ok=True)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    task = asyncio.create_task(_calendar_loop())
     yield
+    task.cancel()
+
+async def _calendar_loop():
+    """구글 캘린더를 주기적으로 읽어 온다 (routers/gcal.py)."""
+    await asyncio.sleep(60)
+    while True:
+        try:
+            await asyncio.to_thread(gcal.sync_all)
+        except Exception:
+            pass
+        await asyncio.sleep(gcal.SYNC_MINUTES * 60)
 
 # API 문서(/docs, /redoc, /openapi.json)는 외부에 노출하지 않는다
 app = FastAPI(title="SE Portal", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
@@ -40,6 +52,7 @@ app.include_router(technotes.router, dependencies=_LOGIN)
 app.include_router(incidents.router, dependencies=_LOGIN)
 app.include_router(development.router, dependencies=_LOGIN)
 app.include_router(reports.router, dependencies=_LOGIN)
+app.include_router(gcal.router, dependencies=_LOGIN)
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):

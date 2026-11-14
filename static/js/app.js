@@ -152,6 +152,7 @@ document.querySelectorAll('.nav-item').forEach(el=>{
     if(page==='service-history') renderServiceHistory();
     if(page==='weekly-report')  renderWeeklyReport();
     if(page==='dev-checklist')  loadDevChecklist();
+    if(page==='gcal')           renderGcal();
   });
 });
 
@@ -3060,8 +3061,139 @@ async function deleteTechNote(id) {
   await renderTechNotes();
 }
 
+// ── GOOGLE CALENDAR ───────────────────────
+let _gcal = null, _gcalSites = [];
+const GC_SCHED = ['월간', '분기', '특별'], GC_SUPPORT = ['기술지원', '납품', '유선원격', '이전', '기타'];
+const _gcalUrl = () => `/api/engineers/${ENG_ID}/calendar`;
+
+async function renderGcal(){
+  try {
+    [_gcal, _gcalSites] = await Promise.all([api.get(_gcalUrl()), api.get(`/api/engineers/${ENG_ID}/sites`)]);
+  } catch (e) { $('gcal-content').innerHTML = '<div class="dv-panel"><div class="dv-empty">불러오지 못했습니다</div></div>'; return; }
+  drawGcal();
+}
+
+function drawGcal(){
+  const g = _gcal, evs = g.events || [];
+  const wait = evs.filter(e => e.state === '확인 대기').sort((a, b) => a.event_date.localeCompare(b.event_date));
+  const rest = evs.filter(e => e.state !== '확인 대기');
+  const failed = (g.last_result || '').startsWith('실패');
+  const typeOpts = sel => `<optgroup label="점검 일정">${GC_SCHED.map(t => `<option value="점검|${t}" ${sel === '점검|' + t ? 'selected' : ''}>점검 - ${t}</option>`).join('')}</optgroup>
+    <optgroup label="기술지원">${GC_SUPPORT.map(t => `<option value="기술지원|${t}" ${sel === '기술지원|' + t ? 'selected' : ''}>기술지원 - ${t}</option>`).join('')}</optgroup>`;
+  const siteOpts = `<option value="">사이트 선택</option>` + _gcalSites.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+  const stCls = { '등록': 'ok', '무시': 'off', '포털에서 삭제': 'off' };
+
+  $('gcal-content').innerHTML = `
+  <div class="dv-panel gc-gap">
+    <div class="dv-panel-head">
+      <span class="dv-panel-title">연동 설정</span>
+      <span class="gc-state ${g.linked ? (failed ? 'bad' : 'ok') : 'off'}">${g.linked ? (failed ? '가져오기 실패' : '연동 중') : '연동 안 됨'}</span>
+      ${g.linked ? `<span class="gc-last">마지막 확인 ${esc(g.last_sync || '-')} · ${esc(g.last_result || '')}</span>
+        <button class="btn btn-sm btn-primary gc-right" id="gc-sync-btn" onclick="gcalSync()">지금 가져오기</button>
+        <button class="btn btn-sm" onclick="gcalUnlink()">연동 해제</button>` : ''}
+    </div>
+    <div class="gc-body">
+      <div class="gc-url">
+        <input type="text" id="gc-url" placeholder="${g.linked ? '주소를 바꾸려면 새 주소를 붙여 넣으세요 (등록된 주소는 보안상 표시하지 않습니다)' : 'https://calendar.google.com/calendar/ical/…/basic.ics'}" autocomplete="off">
+        <button class="btn btn-primary" id="gc-save-btn" onclick="gcalSaveLink()">${g.linked ? '주소 변경' : '연동하기'}</button>
+      </div>
+      <div class="gc-start">
+        <label for="gc-start">가져오기 시작일</label>
+        <input type="date" id="gc-start" value="${esc(g.start_date || g.today)}">
+        ${g.linked ? `<button class="btn btn-sm" onclick="gcalSetStart()">시작일 변경</button>` : ''}
+        <span class="gc-last">이 날짜 이후의 일정만 가져옵니다 (그 전 일정은 캘린더에 있어도 건드리지 않음). 앞쪽은 오늘부터 180일 뒤까지.</span>
+      </div>
+      <table class="gc-guide">
+        <tr><th>주소 찾는 곳</th><td>구글 캘린더 → 왼쪽 캘린더 이름 옆 ⋮ → 설정 및 공유 → 맨 아래 <b>iCal 형식의 비공개 주소</b>를 복사</td></tr>
+        <tr><th>제목 규칙</th><td><code>[종류] 고객사이름 - 엔지니어이름</code> &nbsp;예: <code>[점검] A병원 - ${esc(g.engineer_name)}</code> · 여러 명이면 <code>${esc(g.engineer_name)}, 홍길동</code><br>엔지니어 이름에 <b>${esc(g.engineer_name)}</b> 이(가) 들어 있는 일정만 가져옵니다.</td></tr>
+        <tr><th>종류</th><td><code>[점검]</code> <code>[분기점검]</code> <code>[특별점검]</code> → 점검 일정 &nbsp;·&nbsp; <code>[기술지원]</code> <code>[납품]</code> <code>[원격]</code> <code>[이전]</code> <code>[기타]</code> → 기술지원</td></tr>
+        <tr><th>설명</th><td>캘린더 일정의 <b>설명</b> 칸 내용은 기술지원의 <b>작업 목적</b>에 들어갑니다 (점검 일정은 메모). 구글에서 설명을 고치면 반영하지만, 포털에서 직접 고친 내용은 덮어쓰지 않습니다.</td></tr>
+        <tr><th>이미 있는 일정</th><td>포털에 <b>같은 날짜 · 같은 사이트</b>로 이미 등록된 건이 있으면 새로 만들지 않고 그 건에 연결합니다. 이렇게 연결된 건은 구글에서 일정을 지워도 포털에서 지우지 않습니다.</td></tr>
+        <tr><th>반영 방식</th><td>${g.sync_minutes}분마다 자동으로 확인합니다. 구글에서 날짜를 바꾸거나 지우면 포털에도 반영하지만, 포털에서 <b>완료 처리한 건은 그대로</b> 둡니다.</td></tr>
+      </table>
+    </div>
+  </div>
+
+  ${g.linked ? `<div class="dv-panel gc-gap">
+    <div class="dv-panel-head"><span class="dv-panel-title">확인 대기</span><span class="dv-panel-sub ${wait.length ? 'warn' : ''}">${wait.length}건</span>
+      <span class="gc-last">종류나 사이트를 자동으로 정하지 못한 일정입니다. 직접 골라 등록하거나 무시하세요.</span></div>
+    ${wait.length ? `<table class="dv-tbl gc-tbl"><thead><tr><th style="width:104px">날짜</th><th>캘린더 제목</th><th style="width:170px">종류</th><th style="width:220px">사이트</th><th style="width:132px"></th></tr></thead><tbody>
+      ${wait.map(e => `<tr>
+        <td class="gc-date">${esc(e.event_date)}</td>
+        <td><div class="dv-task">${esc(e.summary)}</div><div class="dv-desc">${esc(e.reason)}</div></td>
+        <td><select class="filter-select gc-sel" id="gc-kind-${e.id}">${typeOpts(e.kind ? e.kind + '|' + (e.sub_type || (e.kind === '점검' ? '월간' : '기술지원')) : '점검|월간')}</select></td>
+        <td><select class="filter-select gc-sel" id="gc-site-${e.id}">${siteOpts}</select></td>
+        <td class="gc-act"><button class="btn btn-sm btn-primary" onclick="gcalRegister('${e.id}')">등록</button><button class="btn btn-sm" onclick="gcalEvent('${e.id}','ignore')">무시</button></td>
+      </tr>`).join('')}</tbody></table>` : '<div class="dv-empty">확인할 일정이 없습니다</div>'}
+  </div>
+
+  <div class="dv-panel">
+    <div class="dv-panel-head"><span class="dv-panel-title">가져온 일정</span><span class="dv-panel-sub">${rest.length}건</span></div>
+    ${rest.length ? `<table class="dv-tbl gc-tbl"><thead><tr><th style="width:104px">날짜</th><th>캘린더 제목</th><th style="width:150px">등록된 곳</th><th style="width:220px">사이트</th><th style="width:132px">상태</th></tr></thead><tbody>
+      ${rest.map(e => `<tr>
+        <td class="gc-date">${esc(e.event_date)}</td>
+        <td><div class="dv-task">${esc(e.summary)}</div></td>
+        <td>${e.state === '무시' ? '<span class="dev-muted">-</span>' : esc((e.kind === '점검' ? '점검 일정' : '기술지원') + ' - ' + (e.sub_type || ''))}</td>
+        <td>${esc(e.site_name || (e.state === '무시' ? '' : e.customer))}</td>
+        <td><span class="gc-state ${stCls[e.state] || 'off'}">${esc(e.state === '등록' && e.adopted ? '기존 일정 연결' : e.state)}</span>${e.state === '무시' ? ` <button class="btn btn-sm" onclick="gcalEvent('${e.id}','restore')">되돌리기</button>` : ''}</td>
+      </tr>`).join('')}</tbody></table>` : '<div class="dv-empty">아직 가져온 일정이 없습니다</div>'}
+  </div>` : ''}`;
+}
+
+async function gcalSaveLink(){
+  const url = $('gc-url').value.trim();
+  if(!url){ toast('캘린더 주소를 붙여 넣어주세요'); return; }
+  const btn = $('gc-save-btn'); btn.disabled = true; btn.textContent = '확인 중...';
+  try { await _apiSend('POST', _gcalUrl() + '/link', {url, start_date: $('gc-start').value || null}); toast('캘린더를 연동했습니다'); }
+  catch (e) { toast(e.message); }
+  await renderGcal();
+}
+async function gcalSync(){
+  const btn = $('gc-sync-btn'); btn.disabled = true; btn.textContent = '가져오는 중...';
+  try {
+    const n = await _apiSend('POST', _gcalUrl() + '/sync');
+    toast(_gcalMsg(n));
+  } catch (e) { toast(e.message); }
+  await renderGcal();
+}
+const _gcalMsg = n => `새로 등록 ${n.added}건 · 기존 연결 ${n.linked}건 · 확인 대기 ${n.waiting}건 · 변경 ${n.updated}건 · 삭제 ${n.removed}건`;
+async function gcalSetStart(){
+  const start_date = $('gc-start').value;
+  if(!start_date){ toast('시작일을 골라주세요'); return; }
+  if(start_date < _gcal.start_date && !confirm(`${start_date} 이후의 지난 일정도 가져옵니다. 계속하시겠습니까?`)){ $('gc-start').value = _gcal.start_date; return; }
+  try { toast(_gcalMsg(await _apiSend('POST', _gcalUrl() + '/start', {start_date}))); }
+  catch (e) { toast(e.message); }
+  await renderGcal();
+}
+async function gcalUnlink(){
+  if(!confirm('캘린더 연동을 해제하시겠습니까?\n이미 등록된 점검 일정과 기술지원은 그대로 남습니다.')) return;
+  try { await _apiSend('DELETE', _gcalUrl() + '/link'); toast('연동을 해제했습니다'); }
+  catch (e) { toast(e.message); }
+  await renderGcal();
+}
+async function gcalRegister(id){
+  const [kind, sub_type] = $('gc-kind-' + id).value.split('|');
+  const site_id = $('gc-site-' + id).value || null;
+  if(kind === '점검' && !site_id){ toast('점검 일정은 사이트를 골라주세요'); return; }
+  try { await _apiSend('POST', `${_gcalUrl()}/events/${id}/register`, {kind, sub_type, site_id}); toast('등록했습니다'); }
+  catch (e) { toast(e.message); }
+  await renderGcal();
+}
+async function gcalEvent(id, action){
+  try { await _apiSend('POST', `${_gcalUrl()}/events/${id}/${action}`); }
+  catch (e) { toast(e.message); }
+  await renderGcal();
+}
+
 // ── DEVELOPMENT CHECKLIST ─────────────────
 let _currentDevTab = 'all';
+let _devCat = null;          // 선택한 분야('' = 전체, null = 아직 안 고름)
+let _devOpen = new Set();    // 설명을 펼친 항목 id
+let _devOpenAll = false;
+const _devName = c => String(c || '').replace(/^[^0-9A-Za-z가-힣]+/, '');   // 분야 이름 앞의 그림 문자 제거
+function devSetCat(cat){ _devCat = cat; renderDevChecklist(); const m = document.querySelector('.main'); if(m) m.scrollTop = 0; }
+function devToggle(id){ _devOpen.has(id) ? _devOpen.delete(id) : _devOpen.add(id); renderDevChecklist(); }
+function devToggleAll(){ _devOpenAll = !_devOpenAll; _devOpen.clear(); renderDevChecklist(); }
 
 async function loadDevChecklist() {
   try {
@@ -3072,71 +3204,73 @@ async function loadDevChecklist() {
   }
 }
 
-function switchDevTab(tab) {
-  _currentDevTab = tab;
-  document.querySelectorAll('[data-devtab]').forEach(b => {
-    b.classList.toggle('active', b.getAttribute('data-devtab') === tab);
-  });
-  renderDevChecklist();
-}
+function switchDevTab(tab) { _currentDevTab = tab; renderDevChecklist(); }
 
-async function renderDevChecklist() {
+function renderDevChecklist() {
   const sections = _devChecklist.sections || [];
   const content = $('dev-checklist-content');
-  
-  let filtered = [];
+  const statusMap = { completed: '완료', 'in-progress': '진행중', planned: '예정' };
+  const byStatus = items => _currentDevTab === 'all' ? items : items.filter(i => i.status === statusMap[_currentDevTab]);
+  const cnt = (items, st) => items.filter(i => i.status === st).length;
+
+  if (_devCat === null || (_devCat !== '' && !sections.some(s => s.category === _devCat))) _devCat = sections.length ? sections[0].category : '';
+  const allItems = sections.flatMap(s => s.items || []);
+  const scope = _devCat ? ((sections.find(s => s.category === _devCat) || {}).items || []) : allItems;
+
+  // 맨 위 한 줄 요약: 전체 진행률
+  const tDone = cnt(allItems, '완료'), tPct = allItems.length ? Math.round(tDone / allItems.length * 100) : 0;
+  $('dev-summary').innerHTML = `<span class="dv-sum-text">전체 <b>${allItems.length}</b>개 중 <b>${tDone}</b>개 완료</span>
+    <span class="dv-sum-bar"><i style="width:${tPct}%"></i></span><span class="dv-sum-pct">${tPct}%</span>`;
+
+  // 왼쪽 분야 목록
+  const catRow = (key, label, items) => {
+    const done = cnt(items, '완료'), pct = items.length ? Math.round(done / items.length * 100) : 0;
+    return `<button type="button" class="dv-cat ${_devCat === key ? 'active' : ''} ${byStatus(items).length ? '' : 'none'} ${items.length && done === items.length ? 'full' : ''}" data-cat="${esc(key)}" onclick="devSetCat(this.dataset.cat)">
+      <span class="dv-cat-name">${esc(label)}</span>
+      <span class="dv-cat-bar"><i style="width:${pct}%"></i></span>
+      <span class="dv-cat-cnt">${done}/${items.length}</span>
+    </button>`;
+  };
+  $('dev-cats').innerHTML = `<div class="dv-cats-title">분야</div>` + catRow('', '전체', allItems) + sections.map(s => catRow(s.category, _devName(s.category), s.items || [])).join('');
+
+  // 오른쪽 표
+  const tabs = [['all', '전체', scope.length], ['completed', '완료', cnt(scope, '완료')], ['in-progress', '진행중', cnt(scope, '진행중')], ['planned', '예정', cnt(scope, '예정')]];
+  const stCls = { '완료': 'done', '진행중': 'doing', '예정': 'todo' };
+  const prCls = { '필수': 'must', '권장': 'rec', '선택': 'opt' };
+  const rowHtml = item => {
+    const open = _devOpenAll || _devOpen.has(item.id);
+    return `<tr class="dv-row ${open ? 'open' : ''}" data-id="${esc(item.id)}" onclick="devToggle(this.dataset.id)">
+      <td class="dv-c-st"><select class="dv-st ${stCls[item.status] || 'todo'}" data-id="${esc(item.id)}" onclick="event.stopPropagation()" onchange="changeDevItemStatus(this.dataset.id, this.value)">
+        ${['완료', '진행중', '예정'].map(v => `<option ${v === item.status ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
+      <td class="dv-c-task"><div class="dv-task">${esc(item.task)}</div>${item.desc ? `<div class="dv-desc">${esc(item.desc)}</div>` : ''}
+        ${open ? `<div class="dv-more">
+          ${item.why ? `<div><span>왜 필요한가</span>${esc(item.why)}</div>` : ''}
+          ${item.notes ? `<div class="memo"><span>개발 메모</span>${esc(item.notes)}</div>` : ''}
+          ${!item.why && !item.notes ? '<div class="memo">추가 설명이 없습니다</div>' : ''}</div>` : ''}</td>
+      <td class="dv-c-pr"><span class="dv-pr ${prCls[item.priority] || 'opt'}">${esc(item.priority || '-')}</span></td>
+      <td class="dv-c-arrow">${open ? '▴' : '▾'}</td>
+    </tr>`;
+  };
+  let body = '';
   sections.forEach(sec => {
-    let items = sec.items || [];
-    if (_currentDevTab !== 'all') {
-      const statusMap = { completed: '완료', 'in-progress': '진행중', planned: '예정' };
-      items = items.filter(i => i.status === statusMap[_currentDevTab]);
-    }
-    if (items.length > 0) {
-      filtered.push({ category: sec.category, items });
-    }
+    if (_devCat && sec.category !== _devCat) return;
+    const items = byStatus(sec.items || []);
+    if (!items.length) return;
+    if (!_devCat) body += `<tr class="dv-group"><td colspan="4">${esc(_devName(sec.category))}<span>${cnt(sec.items || [], '완료')}/${(sec.items || []).length} 완료</span></td></tr>`;
+    body += items.map(rowHtml).join('');
   });
-  
-  // 통계 업데이트
-  await updateDevStats();
-  
-  if (filtered.length === 0) {
-    content.innerHTML = '<div style="text-align:center;padding:40px;color:#888">항목이 없습니다</div>';
-    return;
-  }
-  
-  let html = '';
-  filtered.forEach(sec => {
-    html += `<div class="card" style="margin-bottom:16px">
-      <div style="font-size:13px;font-weight:700;color:#378ADD;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #e2e8f0">
-        ${sec.category}
-      </div>`;
-    
-    sec.items.forEach(item => {
-      const statusColor = item.status === '완료' ? '#22c55e' : 
-                         item.status === '진행중' ? '#f59e0b' : '#94a3b8';
-      const statusBg = item.status === '완료' ? '#dcfce7' : 
-                      item.status === '진행중' ? '#fef3c7' : '#f1f5f9';
-      
-      html += `<div style="padding:12px;background:#fafaf8;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:8px;display:flex;gap:10px;align-items:flex-start">
-        <div style="flex:1">
-          <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:4px">${item.task}</div>
-          <div style="font-size:12px;color:#666;margin-bottom:6px">${item.notes || '—'}</div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap">
-            <span style="padding:2px 8px;background:${statusBg};color:${statusColor};font-size:11px;font-weight:600;border-radius:3px">${item.status}</span>
-            <span style="padding:2px 8px;background:#f0f0ee;color:#666;font-size:11px;border-radius:3px">${item.priority}</span>
-          </div>
-        </div>
-        <div style="display:flex;gap:4px">
-          <button class="btn btn-sm" onclick="changeDevItemStatus('${item.id}', '완료')" style="padding:4px 8px;font-size:11px">✅</button>
-          <button class="btn btn-sm" onclick="changeDevItemStatus('${item.id}', '진행중')" style="padding:4px 8px;font-size:11px">🔄</button>
-          <button class="btn btn-sm" onclick="changeDevItemStatus('${item.id}', '예정')" style="padding:4px 8px;font-size:11px">📋</button>
-        </div>
-      </div>`;
-    });
-    html += '</div>';
-  });
-  
-  content.innerHTML = html;
+
+  content.innerHTML = `<div class="dv-panel">
+    <div class="dv-panel-head">
+      <span class="dv-panel-title">${esc(_devCat ? _devName(_devCat) : '전체 분야')}</span>
+      <span class="dv-panel-sub">${cnt(scope, '완료')}/${scope.length} 완료</span>
+      <div class="svh-tabs dv-tabs">${tabs.map(([k, l, n]) => `<button class="svh-tab ${_currentDevTab === k ? 'active' : ''}" onclick="switchDevTab('${k}')">${l} ${n}</button>`).join('')}</div>
+      <button class="btn btn-sm" onclick="devToggleAll()">${_devOpenAll ? '설명 접기' : '설명 모두 펼치기'}</button>
+    </div>
+    ${body ? `<table class="dv-tbl"><thead><tr><th class="dv-c-st">상태</th><th>항목</th><th class="dv-c-pr">중요도</th><th class="dv-c-arrow"></th></tr></thead><tbody>${body}</tbody></table>
+      <div class="dv-foot">항목을 누르면 필요한 이유와 개발 메모가 펼쳐집니다 · 상태는 왼쪽 칸에서 바로 바꿀 수 있습니다</div>`
+      : '<div class="dv-empty">해당 상태의 항목이 없습니다</div>'}
+  </div>`;
 }
 
 async function changeDevItemStatus(itemId, newStatus) {
@@ -3150,26 +3284,3 @@ async function changeDevItemStatus(itemId, newStatus) {
   }
 }
 
-async function updateDevStats() {
-  try {
-    const stats = await api.get('/api/dev/checklist/stats');
-    let totalItems = 0, completed = 0, inProgress = 0, planned = 0;
-    
-    stats.forEach(sec => {
-      totalItems += sec.total || 0;
-      completed += sec.completed || 0;
-      inProgress += sec.in_progress || 0;
-      planned += sec.planned || 0;
-    });
-    
-    const rate = totalItems > 0 ? Math.round((completed / totalItems) * 100) : 0;
-    
-    $('stat-total').textContent = totalItems;
-    $('stat-completed').textContent = completed;
-    $('stat-in-progress').textContent = inProgress;
-    $('stat-planned').textContent = planned;
-    $('dev-completion-rate').textContent = `진행률: ${rate}%`;
-  } catch (e) {
-    console.error('통계 업데이트 실패:', e);
-  }
-}

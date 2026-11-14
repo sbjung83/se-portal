@@ -217,6 +217,35 @@ class Incident(Base):
     prevention   = Column(Text, default="")          # 재발 방지 대책
     created_at   = Column(String, default="")
 
+class CalendarLink(Base):
+    """엔지니어별 구글 캘린더 주소 (routers/gcal.py)"""
+    __tablename__ = "calendar_links"
+    engineer_id = Column(String, ForeignKey("engineers.id"), primary_key=True)
+    url         = Column(Text, default="")          # iCal 비공개 주소 — secure_store 로 암호화 저장
+    last_sync   = Column(String, default="")        # 마지막으로 읽은 시각 "YYYY-MM-DD HH:MM"
+    last_result = Column(Text, default="")
+    start_date  = Column(String, default="")        # 이 날짜 이후 일정만 가져온다 "YYYY-MM-DD"
+
+class CalendarEvent(Base):
+    """캘린더에서 가져온 일정과 포털 레코드의 연결 (중복 등록 방지, 변경·삭제 반영)"""
+    __tablename__ = "calendar_events"
+    id          = Column(String, primary_key=True)
+    engineer_id = Column(String, ForeignKey("engineers.id"), nullable=False)
+    event_key   = Column(String, nullable=False)    # 구글 일정 번호(반복 일정은 번호|날짜)
+    summary     = Column(String, default="")        # 캘린더 제목 원문
+    description = Column(Text, default="")          # 캘린더 일정의 설명 → 기술지원 '작업 목적' / 점검 일정 메모
+    event_date  = Column(String, default="")        # "YYYY-MM-DD"
+    customer    = Column(String, default="")
+    workers     = Column(String, default="")
+    kind        = Column(String, default="")        # 점검 / 기술지원
+    sub_type    = Column(String, default="")        # 월간/분기/특별 또는 기술지원/납품/유선원격/이전/기타
+    state       = Column(String, default="확인 대기")  # 등록 / 확인 대기 / 무시 / 포털에서 삭제
+    reason      = Column(String, default="")
+    site_id     = Column(String, default="")
+    target_type = Column(String, default="")        # schedule / workplan
+    target_id   = Column(String, default="")
+    adopted     = Column(Boolean, default=False)    # 포털에 이미 있던 일정에 연결한 경우(구글에서 지워도 포털 건은 지우지 않음)
+
 class SessionToken(Base):
     __tablename__ = "sessions"
     id          = Column(String, primary_key=True)
@@ -290,6 +319,9 @@ def _ensure_column(table: str, column: str, ddl: str):
 def init_db():
     Base.metadata.create_all(bind=engine)
     _ensure_column("sessions", "expires_at", "DATETIME")
+    _ensure_column("calendar_links", "start_date", "VARCHAR DEFAULT ''")
+    _ensure_column("calendar_events", "adopted", "BOOLEAN DEFAULT 0")
+    _ensure_column("calendar_events", "description", "TEXT DEFAULT ''")
     _encrypt_access_passwords()
 
 def _encrypt_access_passwords():
