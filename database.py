@@ -2,7 +2,7 @@ from sqlalchemy import create_engine, Column, String, Boolean, Text, DateTime, F
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
-import os, hashlib
+import os, hashlib, hmac, secrets
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH  = os.path.join(BASE_DIR, "data", "portal.db")
@@ -19,8 +19,26 @@ def get_db():
     finally:
         db.close()
 
+# 비밀번호 저장: 솔트 + 반복 해시(PBKDF2-SHA256). 형식 "pbkdf2_sha256$반복수$솔트$해시"
+PW_ITERATIONS = 310000
+
 def hash_pw(pw: str) -> str:
-    return hashlib.sha256(pw.encode()).hexdigest()
+    salt = secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt.encode(), PW_ITERATIONS)
+    return f"pbkdf2_sha256${PW_ITERATIONS}${salt}${dk.hex()}"
+
+def verify_pw(pw: str, stored: str):
+    """(일치 여부, 새 방식으로 다시 저장해야 하는지) 반환. 예전 SHA-256 저장분도 확인한다."""
+    stored = stored or ""
+    if stored.startswith("pbkdf2_sha256$"):
+        try:
+            _, it, salt, hx = stored.split("$")
+            dk = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt.encode(), int(it))
+        except ValueError:
+            return False, False
+        return hmac.compare_digest(dk.hex(), hx), int(it) != PW_ITERATIONS
+    legacy = hashlib.sha256(pw.encode()).hexdigest()
+    return hmac.compare_digest(legacy, stored), True
 
 # ── 사용자 ────────────────────────────────────
 class User(Base):
@@ -205,6 +223,7 @@ class SessionToken(Base):
     user_id     = Column(String, ForeignKey("users.id"), nullable=False)
     engineer_id = Column(String, ForeignKey("engineers.id"), nullable=False)
     created_at  = Column(DateTime, default=datetime.utcnow)
+    expires_at  = Column(DateTime, nullable=True)   # 만료 시각(UTC). 비어 있으면 created_at 기준으로 계산
 
 # ── 프로젝트 관리 ───────────────────────────────
 from sqlalchemy import Integer
@@ -261,5 +280,28 @@ class TechNote(Base):
     body        = Column(Text, default="")
     created_at  = Column(String, default="")
 
+def _ensure_column(table: str, column: str, ddl: str):
+    """기존 테이블에 열이 없으면 추가 (create_all은 열 추가를 하지 않음)."""
+    with engine.begin() as conn:
+        cols = [r[1] for r in conn.exec_driver_sql(f"PRAGMA table_info({table})")]
+        if column not in cols:
+            conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
 def init_db():
     Base.metadata.create_all(bind=engine)
+    _ensure_column("sessions", "expires_at", "DATETIME")
+    _encrypt_access_passwords()
+
+def _encrypt_access_passwords():
+    """평문으로 남아 있는 사이트 접속 비밀번호를 암호화해 다시 저장 (이미 암호화된 행은 건너뜀)."""
+    import secure_store
+    db = SessionLocal()
+    try:
+        rows = [a for a in db.query(Access).filter(Access.password != "", Access.password.isnot(None)).all()
+                if not secure_store.is_encrypted(a.password)]
+        for a in rows:
+            a.password = secure_store.encrypt(a.password)
+        if rows:
+            db.commit()
+    finally:
+        db.close()

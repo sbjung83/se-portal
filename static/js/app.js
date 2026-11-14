@@ -14,6 +14,24 @@ const ICO_EDIT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 const ICO_DEL  = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>`;
 const ICO_CLOSE= `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
 
+// 로그인이 풀린 상태(401)로 응답이 오면 로그인 화면으로 돌려보낸다
+const _rawFetch = window.fetch.bind(window);
+window.fetch = async (...args) => {
+  const r = await _rawFetch(...args);
+  const u = String((args[0] && args[0].url) || args[0] || '');
+  if(r.status === 401 && !u.includes('/api/auth/')) _sessionExpired();
+  return r;
+};
+function _sessionExpired(){
+  if(!ENG_ID) return;
+  ENG_ID=''; ENG_NAME='';
+  document.querySelectorAll('.overlay.open').forEach(o => o.classList.remove('open'));
+  $('main-app').style.display='none'; $('auth-wrap').style.display='flex';
+  switchAuth('login');
+  $('login-err').style.color='';
+  $('login-err').textContent='로그인이 만료되었습니다. 다시 로그인해주세요';
+}
+
 const api = {
   get:   url     => fetch(url).then(r=>r.json()),
   post:  (url,d) => fetch(url,{method:'POST',  headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}).then(r=>r.json()),
@@ -48,27 +66,54 @@ function switchAuth(tab){
 }
 async function doLogin(){
   const username=$('login-user').value.trim(), password=$('login-pw').value;
+  $('login-err').style.color='';
   if(!username||!password){$('login-err').textContent='아이디와 비밀번호를 입력해주세요';return}
-  const r=await api.post('/api/auth/login',{username,password});
-  if(r.ok){ENG_ID=r.engineer_id;ENG_NAME=r.engineer_name;initApp()}
-  else $('login-err').textContent=r.detail||'로그인 실패';
+  let r;
+  try { r=await api.post('/api/auth/login',{username,password}); }
+  catch(e){ $('login-err').textContent='서버에 연결하지 못했습니다'; return }
+  if(r.ok){ENG_ID=r.engineer_id;ENG_NAME=r.engineer_name;$('login-pw').value='';$('login-err').textContent='';initApp()}
+  else $('login-err').textContent=(typeof r.detail==='string'&&r.detail)||'로그인 실패';
 }
 async function doRegister(){
   const username=$('reg-user').value.trim(),password=$('reg-pw').value,engineer_name=$('reg-eng').value.trim();
+  $('reg-err').style.color='';
   if(!username||!password||!engineer_name){$('reg-err').textContent='모든 항목을 입력해주세요';return}
+  if(password.length<8){$('reg-err').textContent='비밀번호는 8자 이상이어야 합니다';return}
   const r=await api.post('/api/auth/register',{username,password,engineer_name});
-  if(r.ok){$('reg-err').style.color='#15803d';$('reg-err').textContent=r.message||'가입 완료! 로그인해주세요';switchAuth('login')}
-  else $('reg-err').textContent=r.detail||'가입 실패';
+  if(r.ok){$('reg-pw').value='';$('login-err').style.color='#15803d';$('login-err').textContent=r.message||'가입 완료! 로그인해주세요';switchAuth('login')}
+  else $('reg-err').textContent=(typeof r.detail==='string'&&r.detail)||'가입 실패';
 }
 async function doLogout(){
-  await api.post('/api/auth/logout',{});
+  try { await api.post('/api/auth/logout',{}); } catch(e){}
   ENG_ID='';ENG_NAME='';
+  $('login-err').textContent='';
   $('auth-wrap').style.display='flex';$('main-app').style.display='none';
+}
+function toggleUserMenu(e){ if(e) e.stopPropagation(); $('sb-user').classList.toggle('open'); }
+function closeUserMenu(){ $('sb-user').classList.remove('open'); }
+document.addEventListener('click', e => { const u=$('sb-user'); if(u && !u.contains(e.target)) u.classList.remove('open'); });
+document.addEventListener('keydown', e => { if(e.key==='Escape') closeUserMenu(); });
+function openChangePw(){
+  ['cp-cur','cp-new','cp-new2'].forEach(i=>$(i).value='');
+  $('cp-err').textContent='';
+  openModal('modal-change-pw');
+  $('cp-cur').focus();
+}
+async function saveChangePw(){
+  const cur=$('cp-cur').value, nw=$('cp-new').value, nw2=$('cp-new2').value, err=$('cp-err');
+  if(!cur||!nw||!nw2){err.textContent='모든 항목을 입력해주세요';return}
+  if(nw.length<8){err.textContent='새 비밀번호는 8자 이상이어야 합니다';return}
+  if(nw!==nw2){err.textContent='새 비밀번호가 서로 다릅니다';return}
+  try { await _apiSend('POST','/api/auth/password',{current_password:cur,new_password:nw}); }
+  catch(e){ err.textContent=e.message; return }
+  closeModal('modal-change-pw');
+  toast('비밀번호를 변경했습니다');
 }
 function initApp(){
   $('auth-wrap').style.display='none';$('main-app').style.display='flex';
   $('sidebar-eng-name').textContent=ENG_NAME;
   const av=$('sidebar-avatar'); if(av) av.textContent=ENG_NAME.charAt(0);
+  closeUserMenu();
   $('dash-title').textContent=`대시보드 — ${ENG_NAME}`;
   renderDashboard();
 }

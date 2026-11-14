@@ -19,7 +19,7 @@ journalctl -u se-portal -f
 ```
 
 - 최초 설치: `cd /opt/se-portal && sudo bash install.sh` (python3.11, nginx, venv, SELinux 설정)
-- nginx(80) → uvicorn(127.0.0.1:8000) 리버스 프록시, 업로드 한도 50MB (`se-portal.nginx.conf`)
+- nginx(80→443 넘김, 443 HTTPS·자체 서명 인증서 `/etc/pki/nginx/se-portal.crt`) → uvicorn(127.0.0.1:8000, 외부 직접 접속 불가). 업로드 한도 50MB (`se-portal.nginx.conf`). `/docs`·`/openapi.json` 은 꺼져 있음.
 - 테스트 프레임워크 없음. `test_*.py` 는 로직 확인용 단발 스크립트.
 
 ## 디렉토리 구조
@@ -33,6 +33,8 @@ templates/index.html SPA 전체 마크업 (모든 page-* 섹션과 modal-* 오�
 static/js/app.js     프론트 로직 전체 (바닐라 JS, 프레임워크 없음)
 static/css/style.css 공통 스타일
 data/portal.db       SQLite DB (git 제외)
+data/secret.key      접속 비밀번호 암호화 키 (git 제외, 분실 시 복구 불가)
+secure_store.py      암호화 도구 (Fernet)
 data/portal-development.json  개발 체크리스트 (JSON 파일 저장소, git 추적)
 data/report_templates/weekly_report.xlsx  주간보고서 엑셀 양식 (사용자 제공, routers/reports.py가 채움)
 uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `<eng_id>/<site_id>/`, 프로젝트 제출자료 `<eng_id>/projects/<project_id>/`
@@ -78,8 +80,15 @@ uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `
 - **모델 추가/변경:** 모델은 모두 `database.py`에. `init_db()`는 `create_all`만 하므로
   **새 테이블은 자동 생성되지만 기존 테이블의 컬럼 추가/변경은 반영되지 않는다** → 수동 `ALTER TABLE` 필요.
   Site 하위 자식 모델은 `Site`에 `relationship(..., cascade="all, delete")` 추가.
-- **인증:** 로그인 시 `SessionToken`을 DB에 저장하고 `session_id` httponly 쿠키 발급. 비밀번호는 SHA-256 (`hash_pw`).
-  `get_current_user` 의존성은 현재 `/api/auth/me` 에만 적용됨 — 다른 API는 쿠키 검증 없이 `eng_id` 경로값만 신뢰한다.
+- **인증:** 로그인 시 `SessionToken`을 DB에 저장하고 `session_id` httponly 쿠키 발급(`routers/auth.py`).
+  - `/api/auth/*` 외 모든 라우터는 `app.py`에서 `dependencies=[Depends(require_login)]`로 등록 — 로그인 필수 + 주소의 `eng_id`가 로그인한 본인이어야 함(아니면 403). **새 라우터도 같은 방식으로 등록할 것.**
+  - 세션은 마지막 사용 후 30일(`SESSION_DAYS`)에 만료, 사용 중이면 하루 한 번 연장. 만료/미로그인 응답은 401 → 프론트가 로그인 화면으로 전환.
+  - 비밀번호는 PBKDF2-SHA256(`hash_pw`/`verify_pw`). 예전 SHA-256 저장분은 로그인 성공 시 자동 교체. 최소 8자.
+  - 로그인 5회 연속 실패 시 5분 잠금(메모리 보관, 재시작 시 초기화). 비밀번호 변경은 `POST /api/auth/password`(다른 세션 모두 종료).
+  - `init_db()`의 `_ensure_column`이 `sessions.expires_at` 열을 자동 추가한다.
+  - 쿠키는 HTTPS 요청이면 `Secure` 로 발급(nginx 의 `X-Forwarded-Proto`).
+- **사이트 접속 비밀번호(Access.password)는 암호화 저장** — `secure_store.encrypt/decrypt`(Fernet, `cryptography`), 저장값은 `enc:v1:` 로 시작.
+  키 파일은 `data/secret.key`(appuser 600, git 제외). **키를 잃으면 복구 불가 → DB 백업·이전 시 키 파일도 함께.** `init_db()`가 평문 저장분을 자동 암호화.
 - **엑셀 다운로드:** `openpyxl` + `StreamingResponse` (`routers/technotes.py` 작업계획 다운로드). 파일명은 `urllib.parse.quote`.
   `openpyxl`은 requirements.txt가 아닌 install.sh에서 설치됨.
 
@@ -98,6 +107,6 @@ uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `
 ## 주의 사항
 - `patch*.py`, `split_frontend.py`, `update_tasks.py`, `query_db*.py` 는 과거 일회성 수정 스크립트(절대경로 하드코딩) — 재실행 금지.
 - `*_bk` 파일은 백업본. 수정 대상 아님.
-- `data/portal.db`, `uploads/` 는 운영 데이터 — 삭제/덮어쓰기 금지.
+- `data/portal.db`, `data/secret.key`, `uploads/` 는 운영 데이터 — 삭제/덮어쓰기 금지.
 - 파일 소유자는 `appuser`. root로 생성한 파일은 서비스가 쓰지 못할 수 있으니 권한 확인.
 - 기본 브랜치: `main` (현재 작업 브랜치 `master`).

@@ -81,6 +81,7 @@ echo "[5/7] 권한 설정..."
 chown -R $APP_USER:$APP_USER $APP_DIR
 chmod -R 750 $APP_DIR
 chmod -R 770 $APP_DIR/data $APP_DIR/uploads
+[ -f $APP_DIR/data/secret.key ] && chmod 600 $APP_DIR/data/secret.key   # 접속 비밀번호 암호화 키
 echo "  소유자: $APP_USER"
 
 # ── 6. systemd 서비스 등록 ─────────────────────
@@ -113,7 +114,19 @@ restorecon -Rv $APP_DIR/uploads $APP_DIR/data
 echo "  SELinux 컨텍스트 설정 완료"
 
 # Nginx 설정
-cp $APP_DIR/se-portal.nginx.conf $NGINX_CONF
+# HTTPS 용 자체 서명 인증서 (없을 때만 생성)
+SERVER_IP=$(hostname -I | awk '{print $1}')
+mkdir -p /etc/pki/nginx/private && chmod 700 /etc/pki/nginx/private
+if [ ! -f /etc/pki/nginx/se-portal.crt ]; then
+    openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+        -keyout /etc/pki/nginx/private/se-portal.key -out /etc/pki/nginx/se-portal.crt \
+        -subj "/CN=$(hostname)/O=SE Portal" \
+        -addext "subjectAltName=IP:${SERVER_IP},DNS:$(hostname),DNS:localhost,IP:127.0.0.1" 2>/dev/null
+    chmod 600 /etc/pki/nginx/private/se-portal.key
+    restorecon -R /etc/pki/nginx 2>/dev/null || true
+    echo "  자체 서명 인증서 생성 완료"
+fi
+sed "s/server_name 192.168.x.x;.*/server_name ${SERVER_IP} $(hostname);/" $APP_DIR/se-portal.nginx.conf > $NGINX_CONF
 nginx -t
 
 systemctl enable nginx
@@ -123,9 +136,9 @@ echo "  Nginx 설정 적용 완료"
 # 방화벽
 if systemctl is-active --quiet firewalld; then
     firewall-cmd --permanent --add-service=http
-    firewall-cmd --permanent --add-port=8000/tcp
+    firewall-cmd --permanent --add-service=https
     firewall-cmd --reload
-    echo "  포트 80, 8000 오픈 완료"
+    echo "  포트 80, 443 오픈 완료 (8000 은 서버 내부 전용)"
 else
     echo "  [경고] firewalld 미실행 - 방화벽 설정 건너뜀"
 fi
@@ -137,8 +150,7 @@ echo "======================================"
 echo "  설치 완료!"
 echo "======================================"
 echo ""
-echo "  접속 URL   : http://${SERVER_IP}"
-echo "  직접 접속  : http://${SERVER_IP}:8000"
+echo "  접속 URL   : https://${SERVER_IP}  (자체 서명 인증서 - 첫 접속 시 브라우저 경고)"
 echo ""
 echo "  상태 확인  : systemctl status $SERVICE_NAME"
 echo "  로그 확인  : journalctl -u $SERVICE_NAME -f"

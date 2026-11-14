@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from database import get_db, Site, Device, Access, Report, Note, Schedule, Issue, SiteChecklist, WorkPlan, Incident
+import secure_store
 from routers.auth import get_current_user
 from routers.site_checklist import _is_done as _cl_is_done, _cl_dict
 from routers.technotes import support_only
@@ -234,7 +235,10 @@ def get_access_password(eng_id: str, site_id: str, acc_id: str, db: Session = De
     _get_valid_site(eng_id, site_id, db)
     acc = db.query(Access).filter(Access.id == acc_id, Access.site_id == site_id).first()
     if not acc: raise HTTPException(404)
-    return {"password": acc.password or ""}
+    try:
+        return {"password": secure_store.decrypt(acc.password)}
+    except ValueError:
+        raise HTTPException(status_code=500, detail="저장된 비밀번호를 풀 수 없습니다. 암호화 키 파일(data/secret.key)을 확인해주세요")
 
 class AccessUpdate(BaseModel):
     name:     Optional[str] = None
@@ -253,6 +257,8 @@ def update_access(eng_id: str, site_id: str, acc_id: str, data: AccessUpdate, db
     upd = data.dict(exclude_none=True)
     if "name" in upd and not upd["name"].strip():
         raise HTTPException(400, detail="구분명을 입력해주세요")
+    if "password" in upd:
+        upd["password"] = secure_store.encrypt(upd["password"])   # DB에는 암호화해 저장
     for k, v in upd.items():
         setattr(acc, k, v)
     db.commit()
@@ -270,7 +276,9 @@ class AccessIn(BaseModel):
 @router.post("/{site_id}/accesses")
 def create_access(eng_id: str, site_id: str, data: AccessIn, db: Session = Depends(get_db), _u: dict = Depends(_require_owner)):
     _get_valid_site(eng_id, site_id, db)
-    acc = Access(id=str(uuid.uuid4()), site_id=site_id, **data.dict())
+    vals = data.dict()
+    vals["password"] = secure_store.encrypt(vals.get("password"))   # DB에는 암호화해 저장
+    acc = Access(id=str(uuid.uuid4()), site_id=site_id, **vals)
     db.add(acc); db.commit()
     return {"id": acc.id}
 

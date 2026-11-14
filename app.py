@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.requests import Request
@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 from database import init_db
 from routers import auth, sites, logs, dashboard, schedules, issues, site_checklist, projects, technotes, development, incidents, reports
+from routers.auth import require_login
 import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -18,24 +19,27 @@ async def lifespan(app: FastAPI):
     init_db()
     yield
 
-app = FastAPI(title="SE Portal", lifespan=lifespan)
+# API 문서(/docs, /redoc, /openapi.json)는 외부에 노출하지 않는다
+app = FastAPI(title="SE Portal", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 templates  = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 static_dir = os.path.join(BASE_DIR, "static")
 os.makedirs(static_dir, exist_ok=True)
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 app.include_router(auth.router)
-app.include_router(dashboard.router)
-app.include_router(sites.router)
-app.include_router(projects.router)
-app.include_router(logs.router)
-app.include_router(schedules.router)
-app.include_router(issues.router)
-app.include_router(site_checklist.router)
-app.include_router(technotes.router)
-app.include_router(incidents.router)
-app.include_router(development.router)
-app.include_router(reports.router)
+# 인증(auth) 외 모든 API: 로그인 필수 + 주소의 eng_id 가 본인인지 확인
+_LOGIN = [Depends(require_login)]
+app.include_router(dashboard.router, dependencies=_LOGIN)
+app.include_router(sites.router, dependencies=_LOGIN)
+app.include_router(projects.router, dependencies=_LOGIN)
+app.include_router(logs.router, dependencies=_LOGIN)
+app.include_router(schedules.router, dependencies=_LOGIN)
+app.include_router(issues.router, dependencies=_LOGIN)
+app.include_router(site_checklist.router, dependencies=_LOGIN)
+app.include_router(technotes.router, dependencies=_LOGIN)
+app.include_router(incidents.router, dependencies=_LOGIN)
+app.include_router(development.router, dependencies=_LOGIN)
+app.include_router(reports.router, dependencies=_LOGIN)
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):

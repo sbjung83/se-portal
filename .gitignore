@@ -19,6 +19,7 @@ pyenv/
 # SQLite DB and uploads
 data/*.db
 data/*.db.bak*
+data/*.key
 uploads/
 
 # Logs and OS files
