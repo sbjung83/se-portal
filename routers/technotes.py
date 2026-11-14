@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from database import get_db, TechNote, WorkPlan, Engineer
+from database import get_db, TechNote, WorkPlan, Engineer, Schedule, Site
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
@@ -97,7 +97,7 @@ class WorkPlanIn(BaseModel):
     site: Optional[str] = ""
     worker: Optional[str] = ""
     reviewer: Optional[str] = ""
-    status: Optional[str] = "계획중"
+    status: Optional[str] = "예정"
     purpose: Optional[str] = ""
     impact: Optional[str] = ""
     prerequisites: Optional[str] = ""
@@ -121,7 +121,7 @@ class WorkPlanUpdate(BaseModel):
     rollback_plan: Optional[str] = None
     support_type: Optional[str] = None
 
-WP_STATUSES = ("계획중", "결재대기", "승인완료", "작업완료")
+WP_STATUSES = ("예정", "완료")
 SUPPORT_TYPES = ("기술지원", "납품", "유선원격", "이전", "기타")
 
 # 기술지원 화면에서 등록한 건은 id가 "wp-" 로 시작한다.
@@ -131,6 +131,33 @@ SUPPORT_ID_PREFIX = "wp-"
 def support_only(query):
     """기술지원(점검일정 연동분 제외)만 남기는 필터"""
     return query.filter(WorkPlan.id.startswith(SUPPORT_ID_PREFIX))
+
+def _support_types(value) -> str:
+    """지원 구분(쉼표로 여러 개 가능)을 정해진 값만 남겨 정리. 하나도 없으면 '기술지원'."""
+    got = {t.strip() for t in str(value or "").split(",")}
+    return ",".join(t for t in SUPPORT_TYPES if t in got) or "기술지원"
+
+
+def _sched_as_plans(db: Session, eng_id: str):
+    """점검 일정 중 지원 구분을 함께 체크한 건을 기술지원 목록에 같이 보여 주기 위한 형태로 바꾼다."""
+    scheds = db.query(Schedule).filter(Schedule.engineer_id == eng_id, Schedule.extra_types != "",
+                                       Schedule.extra_types.isnot(None)).all()
+    if not scheds:
+        return []
+    names = {s.id: s.name for s in db.query(Site).filter(Site.engineer_id == eng_id).all()}
+    linked = {p.id: p for p in db.query(WorkPlan).filter(WorkPlan.engineer_id == eng_id,
+                                                          WorkPlan.id.in_([s.id for s in scheds]))}
+    out = []
+    for s in scheds:
+        lp = linked.get(s.id)
+        g = lambda f: (getattr(lp, f) if lp else "") or ""
+        out.append({"id": s.id, "title": s.title, "work_date": (lp.work_date if lp and (lp.work_date or "")[:10] == s.sched_date[:10] else s.sched_date),
+                    "site": names.get(s.site_id, ""), "worker": g("worker"), "reviewer": g("reviewer"), "status": s.status,
+                    "purpose": s.memo or "", "impact": g("impact"), "prerequisites": g("prerequisites"),
+                    "mop_content": g("mop_content"), "verification": g("verification"), "rollback_plan": g("rollback_plan"),
+                    "support_type": _support_types(s.extra_types), "from_schedule": True, "has_plan": bool(lp)})
+    return out
+
 
 def _wp_dict(p):
     return {
@@ -147,7 +174,8 @@ def _wp_dict(p):
         "mop_content": p.mop_content,
         "verification": p.verification,
         "rollback_plan": p.rollback_plan,
-        "support_type": p.support_type or "기술지원",
+        "support_type": _support_types(p.support_type),
+        "from_schedule": False, "has_plan": True,
     }
 
 @router.get("/api/engineers/{eng_id}/workplans")
@@ -158,12 +186,16 @@ def get_work_plans(eng_id: str, scope: str = "support", db: Session = Depends(ge
         q = support_only(q)
     elif scope == "schedule":
         q = q.filter(~WorkPlan.id.startswith(SUPPORT_ID_PREFIX))
-    plans = q.order_by(WorkPlan.work_date.desc()).all()
-    return [_wp_dict(p) for p in plans]
+    plans = [_wp_dict(p) for p in q.order_by(WorkPlan.work_date.desc()).all()]
+    if scope == "support":      # 점검과 함께 한 지원(점검 일정에 체크된 건)도 같이 보여 준다
+        plans = sorted(plans + _sched_as_plans(db, eng_id), key=lambda x: x["work_date"] or "", reverse=True)
+    return plans
 
 @router.post("/api/engineers/{eng_id}/workplans")
 def create_work_plan(eng_id: str, plan: WorkPlanIn, db: Session = Depends(get_db)):
     plan_id = plan.id if plan.id else f"wp-{uuid.uuid4().hex[:8]}"
+    if plan.status not in WP_STATUSES:
+        plan.status = "예정"
     existing = db.query(WorkPlan).filter(WorkPlan.id == plan_id).first()
     
     if existing:
@@ -188,7 +220,7 @@ def create_work_plan(eng_id: str, plan: WorkPlanIn, db: Session = Depends(get_db
         mop_content=plan.mop_content,
         verification=plan.verification,
         rollback_plan=plan.rollback_plan,
-        support_type=plan.support_type if plan.support_type in SUPPORT_TYPES else "기술지원"
+        support_type=_support_types(plan.support_type)
     )
     db.add(new_plan)
     db.commit()
@@ -202,8 +234,8 @@ def update_work_plan(eng_id: str, plan_id: str, plan_update: WorkPlanUpdate, db:
         raise HTTPException(status_code=404, detail="작업 계획을 찾을 수 없습니다")
     if plan_update.status is not None and plan_update.status not in WP_STATUSES:
         raise HTTPException(status_code=400, detail="올바르지 않은 상태 값입니다")
-    if plan_update.support_type is not None and plan_update.support_type not in SUPPORT_TYPES:
-        raise HTTPException(status_code=400, detail="올바르지 않은 지원 구분입니다")
+    if plan_update.support_type is not None:
+        plan_update.support_type = _support_types(plan_update.support_type)
     if plan_update.title is not None and not plan_update.title.strip():
         raise HTTPException(status_code=400, detail="제목을 입력해주세요")
     

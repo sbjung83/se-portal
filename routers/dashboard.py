@@ -60,8 +60,8 @@ def get_dashboard(eng_id: str, db: Session = Depends(get_db)):
     ).order_by(Schedule.sched_date).all()
     week_plans = support_only(db.query(WorkPlan).filter(
         WorkPlan.engineer_id == eng_id, WorkPlan.work_date != "",
-        or_(and_(WorkPlan.status != "작업완료", WorkPlan.work_date <= week_end + "T99"),
-            and_(WorkPlan.status == "작업완료", WorkPlan.work_date >= this_start, WorkPlan.work_date <= this_end + "T99"))
+        or_(and_(WorkPlan.status != "완료", WorkPlan.work_date <= week_end + "T99"),
+            and_(WorkPlan.status == "완료", WorkPlan.work_date >= this_start, WorkPlan.work_date <= this_end + "T99"))
     )).order_by(WorkPlan.work_date).all()
     in_week = lambda col: and_(col >= this_start, col <= this_end + "T99")
     open_incidents = db.query(Incident).filter(

@@ -183,6 +183,20 @@ async function renderDashboard(){
   renderDashIssues();
   renderDashWarranty();
 }
+// 대시보드를 열어 둔 채로 있어도 최신 내용이 보이도록: 1분마다, 그리고 다른 창에 갔다 돌아올 때 다시 불러온다
+// (구글 캘린더에서 들어온 일정처럼 화면 밖에서 바뀐 내용 반영). 입력 창이 열려 있을 때는 건드리지 않는다.
+let _dashAutoBusy = false;
+async function _dashAutoRefresh(){
+  if(_dashAutoBusy || !ENG_ID || document.hidden) return;
+  if(!$('main-app') || $('main-app').style.display === 'none') return;
+  if(!$('page-dashboard').classList.contains('active') || document.querySelector('.overlay.open')) return;
+  _dashAutoBusy = true;
+  try { await renderDashboard(); } catch(e) {} finally { _dashAutoBusy = false; }
+}
+setInterval(_dashAutoRefresh, 60000);
+document.addEventListener('visibilitychange', () => { if(!document.hidden) _dashAutoRefresh(); });
+window.addEventListener('focus', _dashAutoRefresh);
+
 function _refreshDash(){
   if($('page-dashboard').classList.contains('active')) renderDashboard();
   if($('modal-site-detail').classList.contains('open')) loadOverview();
@@ -236,7 +250,7 @@ function renderDashWeek(){
     extra: x.sched_type !== '월간' ? `<span class="badge b-gray">${esc(x.sched_type)}</span>` : '',
     check:`<input type="checkbox" class="wk-check" ${done?'checked':''} title="${done?'완료 취소':'점검 완료 처리'}" onclick="event.stopPropagation()" onchange="weekDoneSched('${x.id}',this)">`,
     open:`openEditSched('${x.id}')`}); });
-  w.workplans.forEach(x => items.push({kind:'plan', done:x.status === '작업완료', day:x.work_date.slice(0,10), time:x.work_date.slice(11,16), title:x.title, site:x.site,
+  w.workplans.forEach(x => items.push({kind:'plan', done:x.status === '완료', day:x.work_date.slice(0,10), time:x.work_date.slice(11,16), title:x.title, site:x.site,
     extra:`<span class="badge ${WP_ST_CLS[x.status]||'b-gray'}">${esc(x.status)}</span>${_wpImpactBadge(x.impact)}`,
     open:`openEditWorkPlan('${x.id}')`}));
   _allCLItems.filter(i => i.due && i.due <= end && (!i.done || i.due >= start)).forEach(i => items.push({kind:'cl', done:i.done, day:i.due, title:i.text, site:i.site_name,
@@ -525,81 +539,11 @@ async function fillSiteSel(selId, selectedId=''){
     sites.map(s=>`<option value="${s.id}" ${s.id===selectedId?'selected':''}>${esc(s.name)}</option>`).join('');
 }
 
-$('btn-sm-add') && $('btn-sm-add').addEventListener('click', async()=>{
-  $('sched-modal-title').textContent='점검 일정 등록';
-  $('sched-id').value='';
-  ['sched-title','sched-memo','sched-worker','sched-reviewer'].forEach(id=>$(id).value='');
-  mopSet('sched-mop', '');
-  $('sched-date').value=_ymd(new Date());
-  $('sched-type').value='월간'; $('sched-status').value='예정';
-  $('btn-sched-excel').style.display='none';
-  await fillSiteSel('sched-site');
-  openModal('modal-add-sched');
-});
+$('btn-sm-add') && $('btn-sm-add').addEventListener('click', () => openEntry(null, ['점검']));
 
-const _schedById = {};
-async function openEditSched(s){
-  if(typeof s === 'string') s = _schedById[s];
-  if(!s){ toast('일정을 찾을 수 없습니다'); return; }
-  $('sched-modal-title').textContent='점검 일정 수정';
-  $('sched-id').value=s.id;
-  await fillSiteSel('sched-site', s.site_id);   // ← site_id 미리 선택
-  $('sched-title').value=s.title;
-  $('sched-date').value=s.sched_date;
-  $('sched-type').value=s.sched_type;
-  $('sched-status').value=s.status;
-  $('sched-memo').value=s.memo||'';
-  
-  ['sched-worker','sched-reviewer'].forEach(id=>$(id).value='');
-  mopSet('sched-mop', '');
-  $('btn-sched-excel').style.display='none';
-  
-  await loadSchedWorkPlans();
-  const wp = _schedWorkPlans.find(p => p.id === s.id);
-  if(wp) {
-    $('sched-worker').value = wp.worker || '';
-    $('sched-reviewer').value = wp.reviewer || '';
-    mopSet('sched-mop', wp.mop_content || '');
-    $('btn-sched-excel').style.display='block';
-  }
-
-  openModal('modal-add-sched');
-}
-
-async function saveSched(){
-  const site_id=$('sched-site').value, title=$('sched-title').value.trim();
-  if(!site_id||!title){toast('사이트와 제목을 입력해주세요');return}
-  const payload={site_id,title,sched_date:$('sched-date').value,sched_type:$('sched-type').value,status:$('sched-status').value,memo:$('sched-memo').value};
-  const id=$('sched-id').value;
-  
-  let schedId = id;
-  if(id) {
-    await api.patch(`/api/engineers/${ENG_ID}/schedules/${id}`,payload);
-  } else {
-    const res = await api.post(`/api/engineers/${ENG_ID}/schedules`,payload);
-    schedId = res.id;
-  }
-  
-  const worker = $('sched-worker').value.trim();
-  const reviewer = $('sched-reviewer').value.trim();
-  const mop = mopGet('sched-mop');
-  if(worker || reviewer || mop || id) {
-    const wpPayload = {
-      id: schedId, title: title, work_date: $('sched-date').value,
-      site: $('sched-site').options[$('sched-site').selectedIndex].text,
-      worker: worker, reviewer: reviewer, mop_content: mop,
-      status: $('sched-status').value === '완료' ? '작업완료' : '계획중'
-    };
-    await api.post(`/api/engineers/${ENG_ID}/workplans`, wpPayload);
-    await loadSchedWorkPlans(true);
-  }
-
-  closeModal('modal-add-sched');
-  _refreshDash();
-  if($('page-schedule-mgmt').classList.contains('active')) renderSchedMgmt();
-  if($('page-sched-history').classList.contains('active')) renderSchedHistory();
-  toast(id?'일정 수정됨':'일정 등록됨');
-}
+const _schedById = {};   // 대시보드·점검 화면이 불러온 일정 (id → 일정)
+// 점검 일정 수정 → 점검·기술지원 공통 입력 창 (아래 '일정 공통 입력 창' 참고)
+function openEditSched(s){ return openEntry(typeof s === 'string' ? s : s && s.id); }
 
 // ── 이슈 CRUD ─────────────────────────────
 $('btn-add-issue').addEventListener('click', async()=>{
@@ -1474,7 +1418,7 @@ function mopGet(id){
 // _schedWorkPlans: 점검일정 모달의 작업자/결재자/MOP 보관 레코드 (scope=schedule, id = 일정 id) — 기술지원 실적 제외
 let _allWorkPlans = [];
 let _schedWorkPlans = [], _schedWpLoaded = false;
-const isSupportPlan = p => String(p.id || '').startsWith('wp-');
+const isSupportPlan = p => String(p.id || '').startsWith('wp-') || !!p.from_schedule;   // from_schedule: 점검 일정에 지원 구분을 함께 체크한 건
 async function loadSchedWorkPlans(force = false){
   if(_schedWpLoaded && !force) return;
   try {
@@ -1484,9 +1428,9 @@ async function loadSchedWorkPlans(force = false){
 }
 let _wpPage = 1;
 const WP_PAGE_SIZE = 10;
-const WP_ST_CLS = {'계획중':'b-gray', '결재대기':'b-amber', '승인완료':'b-blue', '작업완료':'b-green'};
-const WP_STATUSES = ['계획중', '결재대기', '승인완료', '작업완료'];
-const WP_ACTIVE = ['계획중', '결재대기', '승인완료'];
+const WP_ST_CLS = {'예정':'b-gray', '완료':'b-green'};
+const WP_STATUSES = ['예정', '완료'];
+const WP_ACTIVE = ['예정'];
 
 function _ymd(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function _wpDates(){
@@ -1496,8 +1440,8 @@ function _wpDates(){
   return { today: _ymd(now), weekEnd: _ymd(new Date(now.getFullYear(), now.getMonth(), now.getDate() + toMon)) };
 }
 const _wpDay = p => (p.work_date || '').slice(0, 10);
-const _wpIsOverdue = (p, today) => p.status !== '작업완료' && !!_wpDay(p) && _wpDay(p) < today;
-const _wpIsThisWeek = (p, today, weekEnd) => p.status !== '작업완료' && _wpDay(p) >= today && _wpDay(p) < weekEnd;
+const _wpIsOverdue = (p, today) => p.status !== '완료' && !!_wpDay(p) && _wpDay(p) < today;
+const _wpIsThisWeek = (p, today, weekEnd) => p.status !== '완료' && _wpDay(p) >= today && _wpDay(p) < weekEnd;
 
 function _wpImpactBadge(impact){
   const v = (impact || '').trim();
@@ -1552,8 +1496,8 @@ function _renderWpSummary(){
       <div class="metric-value" style="${color ? `color:${color}` : ''}">${value}건</div>
       ${sub ? `<div style="font-size:11px;color:#64748b;margin-top:4px">${sub}</div>` : ''}</div>`;
   $('wp-summary').innerHTML =
-    card('active', '진행 중', active, `계획중 ${cnt('계획중')} · 결재대기 ${cnt('결재대기')} · 승인완료 ${cnt('승인완료')}`) +
-    card('결재대기', '결재대기', cnt('결재대기'), '결재 진행이 필요한 건', cnt('결재대기') ? '#d97706' : '') +
+    card('active', '예정', active, '아직 완료하지 않은 건') +
+    card('완료', '완료', cnt('완료'), '완료 처리한 건') +
     card('week', '이번 주 예정', week, '오늘 ~ 이번 주 일요일 (미완료)', '') +
     card('overdue', '일정 경과', overdue, '작업일이 지났지만 미완료', overdue ? '#dc2626' : '');
 }
@@ -1582,7 +1526,7 @@ function drawWorkPlans(page = 1) {
   });
 
   // 진행할 건은 가까운 일정 순(날짜 없음은 맨 뒤), 완료/전체는 최신 순
-  const asc = view && view !== '작업완료';
+  const asc = view && view !== '완료';
   list.sort((a, b) => {
     const da = a.work_date || '', db = b.work_date || '';
     if(asc){ if(!da) return 1; if(!db) return -1; return da.localeCompare(db); }
@@ -1608,19 +1552,20 @@ function drawWorkPlans(page = 1) {
             onclick="event.stopPropagation()" onchange="changeWorkPlanStatus('${p.id}', this.value)">
             ${WP_STATUSES.map(st => `<option ${st===p.status?'selected':''}>${st}</option>`).join('')}
           </select>
-          ${p.support_type && p.support_type !== '기술지원' ? `<span class="badge b-purple">${esc(p.support_type)}</span>` : ''}
+          ${p.from_schedule ? '<span class="badge b-blue" title="점검 일정에 함께 등록된 건">점검</span>' : ''}
+          ${(p.support_type || '').split(',').filter(t => t && (t !== '기술지원' || p.from_schedule || p.support_type.includes(','))).map(t => `<span class="badge b-purple">${esc(t)}</span>`).join('')}
           ${_wpImpactBadge(p.impact)}
           ${overdue ? '<span class="badge b-red">일정 경과</span>' : ''}
           <span style="font-size:12px;color:${overdue ? '#dc2626' : '#888'}">${esc(fmtDT(p.work_date))}</span>
         </div>
         <div style="font-weight:700;font-size:14px;margin-bottom:4px">${esc(p.title)}</div>
         <div style="font-size:12px;color:#666">사이트: <b>${esc(p.site||'-')}</b> | 작업자: ${esc(p.worker||'-')} | 결재/공유: ${esc(p.reviewer||'-')}</div>
-        ${p.purpose ? `<div class="svc-sub">목적: ${esc(p.purpose)}</div>` : ''}
+        ${p.purpose ? `<div class="svc-sub">내용: ${esc(p.purpose)}</div>` : ''}
       </div>
       <div style="display:flex;gap:4px;align-items:flex-start" onclick="event.stopPropagation()">
-        <button class="btn btn-sm" title="작업계획서 엑셀 다운로드" onclick="downloadWorkPlanExcel('${p.id}')">Excel</button>
+        ${p.has_plan ? `<button class="btn btn-sm" title="작업계획서 엑셀 다운로드" onclick="downloadWorkPlanExcel('${p.id}')">Excel</button>` : ''}
         <button class="icon-btn edit" title="수정" onclick="openEditWorkPlan('${p.id}')">${ICO_EDIT}</button>
-        <button class="icon-btn del" title="삭제" onclick="deleteWorkPlan('${p.id}')">${ICO_DEL}</button>
+        ${p.from_schedule ? '' : `<button class="icon-btn del" title="삭제" onclick="deleteWorkPlan('${p.id}')">${ICO_DEL}</button>`}
       </div>
     </div>`;
   }).join('');
@@ -1630,7 +1575,8 @@ async function changeWorkPlanStatus(id, status){
   if(!p) return;
   const prev = p.status;
   try {
-    const r = await fetch(`/api/engineers/${ENG_ID}/workplans/${id}`, {
+    // 점검 일정에 함께 등록된 건은 점검 일정의 상태를 바꾼다
+    const r = await fetch(`/api/engineers/${ENG_ID}/${p.from_schedule ? 'schedules' : 'workplans'}/${id}`, {
       method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status }) });
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     p.status = status;
@@ -1650,95 +1596,104 @@ $('wp-month').addEventListener('change', () => {
   _wpAllPeriod = false; _wpSyncMonthUI(); drawWorkPlans(1);
 });
 
-async function fillWpSiteSel(selectedSite=''){
-  const names = (await api.get(`/api/engineers/${ENG_ID}/sites`)).map(s => s.name);
-  if(selectedSite && !names.includes(selectedSite)) names.unshift(selectedSite);   // 삭제·변경된 사이트명도 보존
-  $('wp-site').innerHTML = '<option value="">-</option>' + names.map(n => `<option ${n===selectedSite?'selected':''}>${esc(n)}</option>`).join('');
+// ── 일정 공통 입력 창 (점검 · 기술지원) ─────────
+// 구분 체크박스에 '점검'이 있으면 점검 일정으로, 없으면 기술지원으로 저장된다 (routers/entries.py)
+const ENTRY_PLAN_IDS = ['wp-prerequisites', 'wp-verification', 'wp-rollback'];
+let _entrySiteName = '';     // 사이트로 등록되지 않은 고객사 이름(기술지원)
+function _entryTypes(){ return [...document.querySelectorAll('#wp-types input:checked')].map(c => c.value); }
+function entryTypesChanged(){
+  const isCheck = _entryTypes().includes('점검');
+  $('wp-sched-type-row').style.visibility = isCheck ? 'visible' : 'hidden';
+  $('wp-site-req').style.display = isCheck ? '' : 'none';
 }
+function openAddWorkPlan(){ return openEntry(null, ['기술지원']); }
+function openEditWorkPlan(p){ return openEntry(typeof p === 'string' ? p : p && p.id); }
 
-async function openAddWorkPlan() {
-  $('wp-modal-title').textContent = '기술지원 등록';
-  $('wp-id').value = '';
-  ['wp-title', 'wp-worker', 'wp-reviewer', 'wp-purpose', 'wp-prerequisites', 'wp-verification', 'wp-rollback'].forEach(id => $(id).value='');
-  mopSet('wp-mop', '');
-  $('wp-date').value = '';
-  $('wp-status').value = '계획중';
-  $('wp-support-type').value = '기술지원';
-  $('wp-impact').value = '없음';
+async function openEntry(id, types = ['기술지원']){
+  let e = { id:'', types, title:'', day:_ymd(new Date()), time:'', site_id:'', site_name:'', sched_type:'월간', status:'예정',
+            memo:'', worker:'', reviewer:'', impact:'', prerequisites:'', mop_content:'', verification:'', rollback_plan:'', has_plan:false };
+  let sites = [];
   try {
-    await fillWpSiteSel();
-  } catch (e) {
-    console.error("Failed to fill site selector for work plan:", e);
-    // Don't stop, just show an empty/error state in the dropdown
-    $('wp-site').innerHTML = '<option value="">사이트 로딩 실패</option>';
-  }
+    sites = await api.get(`/api/engineers/${ENG_ID}/sites`);
+    if(id) e = await _apiSend('GET', `/api/engineers/${ENG_ID}/entries/${id}`);
+  } catch(err) { toast(id ? '일정을 찾을 수 없습니다' : '사이트 목록을 불러오지 못했습니다'); if(id) return; }
+
+  $('wp-modal-title').textContent = id ? '일정 수정' : '일정 등록';
+  $('wp-id').value = e.id || '';
+  document.querySelectorAll('#wp-types input').forEach(c => c.checked = e.types.includes(c.value));
+  _entrySiteName = e.site_id ? '' : (e.site_name || '');
+  $('wp-site').innerHTML = '<option value="">— 선택 —</option>'
+    + (_entrySiteName ? `<option value="" selected>${esc(_entrySiteName)} (사이트 미등록)</option>` : '')
+    + sites.map(x => `<option value="${esc(x.id)}" ${x.id === e.site_id ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+  $('wp-title').value = e.title;
+  $('wp-day').value = e.day; $('wp-time').value = e.time || '';
+  $('wp-status').value = e.status; $('wp-sched-type').value = e.sched_type || '월간';
+  $('wp-worker').value = e.worker || ''; $('wp-reviewer').value = e.reviewer || '';
+  $('wp-purpose').value = e.memo || '';
+  $('wp-impact').value = e.impact || '없음';
+  if($('wp-impact').selectedIndex < 0) $('wp-impact').value = '없음';
+  $('wp-prerequisites').value = e.prerequisites || '';
+  mopSet('wp-mop', e.mop_content || '');
+  $('wp-verification').value = e.verification || '';
+  $('wp-rollback').value = e.rollback_plan || '';
+  // 세부 작업계획은 내용이 있을 때만 펼쳐서 보여 준다
+  $('wp-plan').open = !!(e.prerequisites || e.mop_content || e.verification || e.rollback_plan || (e.impact && e.impact !== '없음'));
+  $('wp-excel').style.display = id && e.has_plan ? '' : 'none';
+  entryTypesChanged();
   openModal('modal-add-workplan');
 }
 
-async function openEditWorkPlan(p) {
-  if(typeof p === 'string'){
-    const id = p;
-    p = _allWorkPlans.find(x => x.id === id);
-    if(!p){
-      try { _allWorkPlans = (await api.get(`/api/engineers/${ENG_ID}/workplans`)).filter(isSupportPlan); } catch(e){}
-      p = _allWorkPlans.find(x => x.id === id);
-    }
-  }
-  if(!p) { toast('기술지원 데이터를 찾을 수 없습니다'); return; }
-  $('wp-modal-title').textContent = '기술지원 수정';
-  $('wp-id').value = p.id;
-  $('wp-title').value = p.title;
-  $('wp-date').value = p.work_date || '';
-  $('wp-worker').value = p.worker || '';
-  $('wp-reviewer').value = p.reviewer || '';
-  $('wp-status').value = p.status;
-  $('wp-support-type').value = p.support_type || '기술지원';
-  $('wp-purpose').value = p.purpose || '';
-  $('wp-impact').value = p.impact || '없음';
-  $('wp-prerequisites').value = p.prerequisites || '';
-  mopSet('wp-mop', p.mop_content || '');
-  $('wp-verification').value = p.verification || '';
-  $('wp-rollback').value = p.rollback_plan || '';
-  try {
-    await fillWpSiteSel(p.site || '');
-  } catch (e) {
-    console.error("Failed to fill site selector for work plan edit:", e);
-    $('wp-site').innerHTML = '<option value="">사이트 로딩 실패</option>';
-  }
-  openModal('modal-add-workplan');
-}
-
-async function saveWorkPlan() {
-  const title = $('wp-title').value.trim();
-  if(!title) { toast('제목을 입력해주세요'); return; }
-  if(!$('wp-date').value) { toast('작업 일시를 입력해주세요'); return; }
-  const payload = { 
-    title, 
-    work_date: $('wp-date').value, 
-    site: $('wp-site').value, 
-    worker: $('wp-worker').value, 
-    reviewer: $('wp-reviewer').value, 
-    status: $('wp-status').value,
-    support_type: $('wp-support-type').value,
-    purpose: $('wp-purpose').value,
-    impact: $('wp-impact').value,
-    prerequisites: $('wp-prerequisites').value,
-    mop_content: mopGet('wp-mop'),
-    verification: $('wp-verification').value,
-    rollback_plan: $('wp-rollback').value
+function _entryPayload(){
+  const sel = $('wp-site');
+  return {
+    types: _entryTypes(), title: $('wp-title').value.trim(), day: $('wp-day').value, time: $('wp-time').value,
+    site_id: sel.value, site_name: sel.value ? '' : (sel.selectedIndex > 0 && _entrySiteName ? _entrySiteName : ''),
+    sched_type: $('wp-sched-type').value, status: $('wp-status').value, memo: $('wp-purpose').value,
+    worker: $('wp-worker').value.trim(), reviewer: $('wp-reviewer').value.trim(),
+    impact: $('wp-impact').value, prerequisites: $('wp-prerequisites').value, mop_content: mopGet('wp-mop'),
+    verification: $('wp-verification').value, rollback_plan: $('wp-rollback').value,
   };
+}
+
+// 저장하고 {id, kind} 를 돌려준다. 실패하면 null (입력 내용은 그대로 둠)
+async function _entrySave(){
+  const body = _entryPayload();
+  if(!body.types.length){ toast('구분을 하나 이상 골라주세요'); return null; }
+  if(!body.title){ toast('제목을 입력해주세요'); return null; }
+  if(!body.day){ toast('날짜를 입력해주세요'); return null; }
+  if(body.types.includes('점검') && !body.site_id){ toast('점검은 사이트를 골라주세요'); return null; }
   const id = $('wp-id').value;
-  const url = id ? `/api/engineers/${ENG_ID}/workplans/${id}` : `/api/engineers/${ENG_ID}/workplans`;
   try {
-    const r = await fetch(url, {method: id ? 'PATCH' : 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
-    if(!r.ok) throw new Error(`HTTP ${r.status}`);
-  } catch(e) {
-    console.error('기술지원 저장 실패:', e);
-    toast('저장 실패: 서버 오류가 발생했습니다. 입력 내용은 유지됩니다.');
-    return;
-  }
+    return await _apiSend(id ? 'PUT' : 'POST', `/api/engineers/${ENG_ID}/entries${id ? '/' + id : ''}`, body);
+  } catch(e) { toast('저장 실패: ' + e.message); return null; }
+}
+
+async function _entryRefresh(){
+  await loadSchedWorkPlans(true);
+  if($('page-schedule-mgmt').classList.contains('active')) renderSchedMgmt();
+  if($('page-sched-history').classList.contains('active')) renderSchedHistory();
+  if($('page-work-plan').classList.contains('active')) renderWorkPlans();
+  _refreshSvcHistory();
+}
+
+async function saveEntry(){
+  const wasNew = !$('wp-id').value;
+  const btn = $('wp-save'); btn.disabled = true;
+  const r = await _entrySave();
+  btn.disabled = false;
+  if(!r) return;
   closeModal('modal-add-workplan');
-  renderWorkPlans(); _refreshSvcHistory(); toast(id ? '기술지원 수정됨' : '기술지원 등록됨');
+  await _entryRefresh();
+  toast(`${r.kind === 'schedule' ? '점검 일정' : '기술지원'} ${wasNew ? '등록됨' : '수정됨'}`);
+}
+
+// 창에 적힌 내용을 먼저 저장한 뒤 작업계획서 엑셀을 내려받는다
+async function downloadEntryExcel(){
+  const r = await _entrySave();
+  if(!r) return;
+  $('wp-id').value = r.id;
+  _entryRefresh();
+  window.location.href = `/api/engineers/${ENG_ID}/workplans/${r.id}/download`;
 }
 
 async function deleteWorkPlan(id) {
@@ -1748,31 +1703,6 @@ async function deleteWorkPlan(id) {
 }
 
 function downloadWorkPlanExcel(id) {
-  // 백엔드 다운로드 엔드포인트로 리디렉션
-  window.location.href = `/api/engineers/${ENG_ID}/workplans/${id}/download`;
-}
-
-async function downloadSchedWorkPlanExcel() {
-  const id = $('sched-id').value;
-  if (!id) {
-    toast('일정을 먼저 저장한 후 다운로드할 수 있습니다.');
-    return;
-  }
-
-  // 다운로드 전, 현재 폼의 내용을 저장하여 최신 상태를 반영합니다.
-  const title = $('sched-title').value;
-  const worker = $('sched-worker').value;
-  const reviewer = $('sched-reviewer').value;
-  const mop = mopGet('sched-mop');
-  
-  const wpPayload = {
-    id: id, title: title, work_date: $('sched-date').value,
-    site: $('sched-site').options[$('sched-site').selectedIndex].text,
-    worker: worker, reviewer: reviewer, mop_content: mop,
-    status: $('sched-status').value === '완료' ? '작업완료' : '계획중'
-  };
-  await api.post(`/api/engineers/${ENG_ID}/workplans`, wpPayload);
-  
   // 백엔드 다운로드 엔드포인트로 리디렉션
   window.location.href = `/api/engineers/${ENG_ID}/workplans/${id}/download`;
 }
@@ -1981,10 +1911,10 @@ async function renderServiceHistory(){
 
   const downMin = incs.reduce((a, i) => a + (i.downtime_min || 0), 0);
   const openInc = incs.filter(i => i.status !== '완료').length;
-  const supDone = sup.filter(p => p.status === '작업완료').length;
+  const supDone = sup.filter(p => p.status === '완료').length;
   $('svh-summary').innerHTML = `
     <div class="metric"><div class="metric-label">기술지원</div><div class="metric-value">${sup.length}건</div>
-      <div style="font-size:11px;color:#64748b;margin-top:4px">작업완료 ${supDone}건</div></div>
+      <div style="font-size:11px;color:#64748b;margin-top:4px">완료 ${supDone}건</div></div>
     <div class="metric"><div class="metric-label">장애처리</div><div class="metric-value">${incs.length}건</div>
       <div style="font-size:11px;color:#64748b;margin-top:4px">긴급·높음 ${incs.filter(i => i.severity==='긴급'||i.severity==='높음').length}건</div></div>
     <div class="metric"><div class="metric-label">미완료 장애</div><div class="metric-value" style="${openInc?'color:#dc2626':''}">${openInc}건</div></div>
@@ -1996,7 +1926,7 @@ async function renderServiceHistory(){
   const rows = [];
   if(_svhTab !== 'incident') sup.forEach(p => rows.push({
     kind:'support', date:p.work_date, site:p.site, title:p.title, worker:p.worker,
-    status:p.status, stCls:{'계획중':'b-gray','결재대기':'b-amber','승인완료':'b-blue','작업완료':'b-green'}[p.status]||'b-gray',
+    status:p.status, stCls:WP_ST_CLS[p.status]||'b-gray',
     extra:'', open:`openEditWorkPlan('${p.id}')`,
   }));
   if(_svhTab !== 'support') incs.forEach(i => rows.push({
@@ -2088,6 +2018,14 @@ function wrMove(delta){
   else { const [y,m,d] = _wrStart.split('-').map(Number); _wrStart = _ymd(new Date(y, m-1, d + 7*delta)); }
   renderWeeklyReport();
 }
+// 비고는 직접 입력: 주(시작일)별로 이 브라우저에 기억해 둔다
+function _wrRemarkStore(){ try { return JSON.parse(localStorage.getItem('wrRemarks') || '{}'); } catch(e){ return {}; } }
+function _wrRemark(r){ const m = _wrRemarkStore()[_wrStart] || {}; return r.key in m ? m[r.key] : (r.remark || ''); }
+function wrSaveRemark(el){
+  const all = _wrRemarkStore(); (all[_wrStart] = all[_wrStart] || {})[el.dataset.key] = el.value;
+  const keep = Object.keys(all).sort().slice(-12); const out = {}; keep.forEach(k => out[k] = all[k]);   // 최근 12주만 보관
+  try { localStorage.setItem('wrRemarks', JSON.stringify(out)); } catch(e){}
+}
 async function renderWeeklyReport(){
   if(!_wrStart) _wrStart = _ymd(_wrMonday(new Date()));
   const el = $('wr-rows');
@@ -2115,20 +2053,20 @@ async function renderWeeklyReport(){
   if(!d.rows.length){ el.innerHTML = '<div class="empty">이 주에 집계된 지원 내역이 없습니다</div>'; return; }
   const n = v => v ? `<b>${v}</b>` : '';
   el.innerHTML = `<div class="svh-table-wrap"><table class="svh-table wr-table">
-    <thead><tr><th style="width:150px">고객사</th><th style="width:110px">지원일자</th><th>지원요약</th>
+    <thead><tr><th style="width:150px">고객사</th><th style="width:110px">지원일자</th><th style="min-width:280px">지원요약</th>
       <th class="c">정기<br>점검</th><th class="c">장애<br>지원</th><th class="c">기술<br>지원</th><th class="c">납품</th><th class="c">원격</th><th class="c">이전</th><th class="c">기타</th>
-      <th style="width:110px">지원엔지니어</th><th style="width:28%">비고</th></tr></thead>
+      <th style="width:110px">지원엔지니어</th><th style="width:260px">비고</th></tr></thead>
     <tbody>${d.rows.map(r => `<tr>
       <td style="font-weight:600">${esc(r.site)}</td>
-      <td>${r.date.replace(/-/g, "/")} (${r.weekday})</td>
+      <td>${r.date.replace(/-/g, "/")} (${r.weekday})${r.planned ? ' <span class="badge b-amber" title="아직 완료 처리하지 않은 주말 일정이 포함되어 있습니다">완료 전</span>' : ''}</td>
       <td class="wr-pre">${r.summary.map(x => '- ' + esc(x)).join('<br>')}</td>
       ${['F','G','H','I','J','K','L'].map(c => `<td class="c">${n(r.counts[c])}</td>`).join('')}
       <td>${esc(r.workers)}</td>
-      <td class="wr-pre wr-remark">${r.remarks.map(x => '- ' + esc(x)).join('<br>')}</td>
+      <td class="wr-remark"><textarea class="wr-remark-in" data-key="${esc(r.key)}" rows="${Math.min(6, Math.max(2, r.summary.length, Math.ceil(_wrRemark(r).length / 30)))}" placeholder="직접 입력" oninput="wrSaveRemark(this)">${esc(_wrRemark(r))}</textarea></td>
     </tr>`).join('')}</tbody>
     <tfoot><tr><td colspan="3" style="text-align:right">합계</td>${['F','G','H','I','J','K','L'].map(c => `<td class="c">${t[c]||''}</td>`).join('')}<td colspan="2">총 ${d.total}건</td></tr></tfoot>
   </table></div>
-  <div class="wr-help" style="margin-top:8px">주말 작업 등 포털에 없는 내용은 내려받은 엑셀에서 직접 추가하세요. 교체파트·담당영업 칸은 비워 둡니다.</div>`;
+  <div class="wr-help" style="margin-top:8px">지원요약은 구글 캘린더에서 가져온 건이면 캘린더 설명 내용, 아니면 제목이 들어갑니다. 비고는 직접 입력하세요(이 브라우저에 주별로 기억됨). 토·일 일정은 완료 전이어도 등록되어 있으면 포함됩니다("완료 전" 표시는 화면에만 나오고 엑셀에는 들어가지 않음). 포털에 없는 내용은 내려받은 엑셀에서 직접 추가하세요. 교체파트·담당영업 칸은 비워 둡니다.</div>`;
 }
 function wrReset(which){
   if(!_wrData) return;
@@ -2140,7 +2078,8 @@ async function downloadWeeklyReport(){
   try {
     const r = await fetch(`/api/engineers/${ENG_ID}/reports/weekly/xlsx`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ start: _wrStart, notes: $('wr-notes').value, confirmed: $('wr-confirmed').value }) });
+      body: JSON.stringify({ start: _wrStart, notes: $('wr-notes').value, confirmed: $('wr-confirmed').value,
+        remarks: Object.fromEntries([...document.querySelectorAll('.wr-remark-in')].map(t => [t.dataset.key, t.value])) }) });
     if(!r.ok){ let m = `HTTP ${r.status}`; try { m = (await r.json()).detail || m; } catch(e){} throw new Error(m); }
     const blob = await r.blob();
     const cd = r.headers.get('Content-Disposition') || '';
@@ -2241,7 +2180,7 @@ function drawSchedMgmt(){
     return `<tr class="${isDone ? 'done' : ''} ${day === today ? 'today' : ''}">
       <td class="sm-d">${_smDateLabel(day)}${day === today && !isDone ? '<span class="badge b-blue">오늘</span>' : ''}${lateDays ? `<span class="badge b-red">지연 D+${lateDays}</span>` : ''}</td>
       <td class="sm-s" title="${esc(s.site_name)}">${esc(s.site_name)}</td>
-      <td class="sm-t">${esc(s.title)}</td>
+      <td class="sm-t">${esc(s.title)}${(s.extra_types || []).map(t => ` <span class="badge b-purple">${esc(t)}</span>`).join('')}</td>
       <td class="c"><span class="badge ${SCHED_TYPE_CLS[s.sched_type] || 'b-gray'}">${esc(s.sched_type || '-')}</span></td>
       <td class="sm-memo" title="${esc(s.memo)}">${esc(s.memo)}</td>
       <td class="c"><button class="ds-check-btn ${isDone ? 'checked' : ''}" onclick="toggleSchedStatusMgmt('${s.id}')" title="${isDone ? '완료 취소' : '완료 처리'}">
@@ -2859,7 +2798,7 @@ function drawSchedHistory(page){
     return `<tr>
       <td class="sm-d">${_smDateLabel(s.sched_date)}</td>
       <td class="sm-s" title="${esc(s.site_name)}">${esc(s.site_name)}</td>
-      <td class="sm-t">${esc(s.title)}${s.memo ? `<div class="sh-memo">${esc(s.memo)}</div>` : ''}</td>
+      <td class="sm-t">${esc(s.title)}${(s.extra_types || []).map(t => ` <span class="badge b-purple">${esc(t)}</span>`).join('')}${s.memo ? `<div class="sh-memo">${esc(s.memo)}</div>` : ''}</td>
       <td class="c"><span class="badge ${SCHED_TYPE_CLS[s.sched_type] || 'b-gray'}">${esc(s.sched_type || '-')}</span></td>
       <td class="c cl-act">${hasPlan ? `<button class="btn btn-sm sm-xls" title="작업계획서 엑셀 내려받기" onclick="downloadWorkPlanExcel('${s.id}')">Excel</button>` : ''}<button class="icon-btn edit" title="수정 (상태를 예정으로 되돌릴 때도 여기서)" onclick="openEditSched('${s.id}')">${ICO_EDIT}</button></td>
     </tr>`;
@@ -3106,7 +3045,7 @@ function drawGcal(){
       <table class="gc-guide">
         <tr><th>주소 찾는 곳</th><td>구글 캘린더 → 왼쪽 캘린더 이름 옆 ⋮ → 설정 및 공유 → 맨 아래 <b>iCal 형식의 비공개 주소</b>를 복사</td></tr>
         <tr><th>제목 규칙</th><td><code>[종류] 고객사이름 - 엔지니어이름</code> &nbsp;예: <code>[점검] A병원 - ${esc(g.engineer_name)}</code> · 여러 명이면 <code>${esc(g.engineer_name)}, 홍길동</code><br>엔지니어 이름에 <b>${esc(g.engineer_name)}</b> 이(가) 들어 있는 일정만 가져옵니다.</td></tr>
-        <tr><th>종류</th><td><code>[점검]</code> <code>[분기점검]</code> <code>[특별점검]</code> → 점검 일정 &nbsp;·&nbsp; <code>[기술지원]</code> <code>[납품]</code> <code>[원격]</code> <code>[이전]</code> <code>[기타]</code> → 기술지원</td></tr>
+        <tr><th>종류</th><td><code>[점검]</code> <code>[분기점검]</code> <code>[특별점검]</code> → 점검 일정 &nbsp;·&nbsp; <code>[기술지원]</code> <code>[납품]</code> <code>[원격]</code> <code>[이전]</code> <code>[기타]</code> → 기술지원<br><code>[점검 및 기술지원]</code> <code>[점검/납품]</code> 처럼 함께 적으면 점검 일정 한 건에 지원 구분이 같이 체크됩니다.</td></tr>
         <tr><th>설명</th><td>캘린더 일정의 <b>설명</b> 칸 내용은 기술지원의 <b>작업 목적</b>에 들어갑니다 (점검 일정은 메모). 구글에서 설명을 고치면 반영하지만, 포털에서 직접 고친 내용은 덮어쓰지 않습니다.</td></tr>
         <tr><th>이미 있는 일정</th><td>포털에 <b>같은 날짜 · 같은 사이트</b>로 이미 등록된 건이 있으면 새로 만들지 않고 그 건에 연결합니다. 이렇게 연결된 건은 구글에서 일정을 지워도 포털에서 지우지 않습니다.</td></tr>
         <tr><th>반영 방식</th><td>${g.sync_minutes}분마다 자동으로 확인합니다. 구글에서 날짜를 바꾸거나 지우면 포털에도 반영하지만, 포털에서 <b>완료 처리한 건은 그대로</b> 둡니다.</td></tr>

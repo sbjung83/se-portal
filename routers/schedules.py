@@ -138,7 +138,7 @@ def create_schedules_bulk(eng_id: str, data: BulkIn, db: Session = Depends(get_d
                                 site=names[it.site_id], worker=src.worker, reviewer=src.reviewer,
                                 purpose=src.purpose, impact=src.impact, prerequisites=src.prerequisites,
                                 mop_content=src.mop_content, verification=src.verification,
-                                rollback_plan=src.rollback_plan, status="계획중", support_type=src.support_type))
+                                rollback_plan=src.rollback_plan, status="예정", support_type=src.support_type))
         created.append(sch)
     db.commit()
     return {"ok": True, "count": len(created), "items": [_sch_dict(s, db, names) for s in created]}
@@ -181,5 +181,6 @@ def _sch_dict(s, db, names: dict = None):
         "site_name": name,
         "title": s.title, "sched_date": s.sched_date,
         "sched_type": s.sched_type, "status": s.status,
-        "memo": s.memo or ""
+        "memo": s.memo or "",
+        "extra_types": [t for t in (s.extra_types or "").split(",") if t],   # 점검과 함께 한 지원 구분
     }

@@ -17,7 +17,7 @@ from copy import copy
 from urllib.parse import quote
 import io, os
 
-from database import get_db, Engineer, Site, Schedule, WorkPlan, Incident, Issue
+from database import get_db, Engineer, Site, Schedule, WorkPlan, Incident, Issue, CalendarEvent
 from routers.technotes import support_only
 
 router = APIRouter(prefix="/api/engineers/{eng_id}/reports", tags=["reports"])
@@ -43,6 +43,13 @@ def _week(start: Optional[str]):
     return mon, mon + timedelta(days=6)
 
 
+def _weekend(day: str) -> bool:
+    try:
+        return date.fromisoformat((day or "")[:10]).weekday() >= 5
+    except ValueError:
+        return False
+
+
 def _in(day: str, a: date, b: date):
     return a.isoformat() <= (day or "")[:10] <= b.isoformat()
 
@@ -62,6 +69,20 @@ def _one_line(text: str, n: int = 60):
     return t if len(t) <= n else t[:n - 1] + "…"
 
 
+IMPORT_NOTE = "구글 캘린더에서 가져옴"
+
+def _summary(title: str, text: str, from_calendar: bool) -> list:
+    """지원요약에 넣을 줄 목록. 구글 캘린더에서 가져온 건은 캘린더 '설명' 내용(점검=메모, 기술지원=작업 목적)을 줄 단위로,
+    설명이 없거나 포털에서 직접 등록한 건은 제목을 넣는다."""
+    t = (text or "").strip()
+    if from_calendar and t and t != IMPORT_NOTE:
+        lines = [l.strip().lstrip("-•·").strip() for l in t.splitlines()]
+        lines = [l for l in lines if l]
+        if lines:
+            return lines
+    return [title]
+
+
 def build_weekly(eng_id: str, start: Optional[str], db: Session):
     eng = db.query(Engineer).filter(Engineer.id == eng_id).first()
     if not eng:
@@ -70,40 +91,49 @@ def build_weekly(eng_id: str, start: Optional[str], db: Session):
     nmon, nsun = mon + timedelta(days=7), sun + timedelta(days=7)
     sites = {s.id: s for s in db.query(Site).filter(Site.engineer_id == eng_id).all()}
 
+    # 구글 캘린더에서 가져온 건(routers/gcal.py) — 지원요약에 캘린더 설명을 쓴다
+    from_cal = {e.target_id for e in db.query(CalendarEvent).filter(CalendarEvent.engineer_id == eng_id,
+                                                                    CalendarEvent.state == "등록")}
+
     rows = {}   # (date, site) -> row
 
     def row(day: str, site: str):
         key = (day[:10], site or "(사이트 미지정)")
         if key not in rows:
             rows[key] = {"date": key[0], "site": key[1], "summary": [], "remarks": [], "workers": [],
-                         "counts": {c: 0 for c in COUNT_COLS}}
+                         "counts": {c: 0 for c in COUNT_COLS}, "planned": False}
         return rows[key]
 
     # 정기점검: 이번 주 완료된 점검일정 (작업자는 점검일정 모달의 연동 레코드에서)
-    scheds = db.query(Schedule).filter(Schedule.engineer_id == eng_id, Schedule.status == "완료").all()
+    # 토·일 일정은 보고서를 주말 전에 내므로 완료 전이어도 등록되어 있으면 포함한다
+    scheds = [s for s in db.query(Schedule).filter(Schedule.engineer_id == eng_id).all()
+              if _in(s.sched_date, mon, sun) and (s.status == "완료" or _weekend(s.sched_date))]
     linked = {p.id: p for p in db.query(WorkPlan).filter(WorkPlan.engineer_id == eng_id,
                                                           WorkPlan.id.in_([s.id for s in scheds]))} if scheds else {}
     for s in scheds:
         if not _in(s.sched_date, mon, sun):
             continue
         r = row(s.sched_date, sites[s.site_id].name if s.site_id in sites else "")
-        r["summary"].append(s.title)
+        r["summary"] += _summary(s.title, s.memo, s.id in from_cal)
+        r["planned"] = r["planned"] or s.status != "완료"
         r["counts"]["F"] += 1
+        for t in (s.extra_types or "").split(","):          # 점검과 함께 한 지원(체크한 구분마다 1건)
+            if t in SUPPORT_COL:
+                r["counts"][SUPPORT_COL[t]] += 1
         lp = linked.get(s.id)
         r["workers"] += _workers(lp.worker if lp else "")
-        if s.memo:
-            r["remarks"].append(_one_line(s.memo))
 
-    # 기술지원: 이번 주 작업완료 건, 지원 구분에 따라 H~L 열
-    for p in support_only(db.query(WorkPlan).filter(WorkPlan.engineer_id == eng_id, WorkPlan.status == "작업완료")).all():
-        if not _in(p.work_date, mon, sun):
+    # 기술지원: 이번 주 완료 건, 체크한 지원 구분마다 H~L 열에 1건씩
+    for p in support_only(db.query(WorkPlan).filter(WorkPlan.engineer_id == eng_id)).all():
+        if not _in(p.work_date, mon, sun) or not (p.status == "완료" or _weekend(p.work_date)):
             continue
         r = row(p.work_date, p.site)
-        r["summary"].append(p.title)
-        r["counts"][SUPPORT_COL.get(p.support_type or "기술지원", "H")] += 1
+        r["summary"] += _summary(p.title, p.purpose, p.id in from_cal)
+        r["planned"] = r["planned"] or p.status != "완료"
+        cols = [SUPPORT_COL[t] for t in (p.support_type or "").split(",") if t in SUPPORT_COL] or ["H"]
+        for c in cols:
+            r["counts"][c] += 1
         r["workers"] += _workers(p.worker)
-        if p.purpose:
-            r["remarks"].append(_one_line(p.purpose))
 
     # 장애지원: 이번 주 발생한 장애 전체
     for i in db.query(Incident).filter(Incident.engineer_id == eng_id).all():
@@ -144,7 +174,9 @@ def build_weekly(eng_id: str, start: Optional[str], db: Session):
         "start": mon.isoformat(), "end": sun.isoformat(),
         "title": f"{mon.year}년 {mon.month:02d}월 {mon.day:02d}일 ~ {sun.year}년 {sun.month:02d}월 {sun.day:02d}일 주간보고서",
         "rows": [{"date": r["date"], "weekday": WD[date.fromisoformat(r["date"]).weekday()], "site": r["site"],
-                  "summary": r["summary"], "remarks": r["remarks"], "workers": r["workers"], "counts": r["counts"]}
+                  "key": f'{r["date"]}|{r["site"]}', "summary": r["summary"],
+                  "remark": "\n".join(f"- {t}" for t in r["remarks"]),     # 비고 기본값(장애 건만 자동) — 화면에서 직접 고쳐 쓴다
+                  "workers": r["workers"], "counts": r["counts"], "planned": r["planned"]}
                  for r in out],
         "totals": totals, "total": sum(totals.values()),
         "notes": "\n".join(notes), "confirmed": "\n".join(confirmed),
@@ -161,6 +193,7 @@ class WeeklyExportIn(BaseModel):
     start:     Optional[str] = None
     notes:     Optional[str] = None   # None 이면 기본값 사용
     confirmed: Optional[str] = None
+    remarks:   Optional[dict] = None  # 행별 비고 {"날짜|고객사": "내용"} — 화면에서 직접 입력한 값
 
 
 # ── 엑셀 작성 ────────────────────────────────────────
@@ -222,12 +255,13 @@ def write_weekly_xlsx(data: dict, notes: str, confirmed: str) -> bytes:
         for col in COUNT_COLS:
             ws[f"{col}{r}"] = item["counts"][col] or None
         ws[f"N{r}"] = item["workers"]
-        ws[f"O{r}"] = "\n".join(f" - {t}" for t in item["remarks"]) or None
+        remark = (item.get("remark") or "").strip()
+        ws[f"O{r}"] = remark or None
         for col in "DO":
             c = ws[f"{col}{r}"]
             al = copy(c.alignment); al.wrap_text = True; al.vertical = "center"
             c.alignment = al
-        lines = max(len(item["summary"]), len(item["remarks"]), 1)
+        lines = max(len(item["summary"]), len(remark.splitlines()), 1)
         ws.row_dimensions[r].height = max(25.05, 21 * lines + 6)
     for r in range(DATA_START + len(rows), last + 1):
         ws.row_dimensions[r].height = 25.05
@@ -251,6 +285,9 @@ def weekly_export(eng_id: str, body: WeeklyExportIn, db: Session = Depends(get_d
     data = build_weekly(eng_id, body.start, db)
     notes = data["notes"] if body.notes is None else body.notes
     confirmed = data["confirmed"] if body.confirmed is None else body.confirmed
+    for row in data["rows"]:
+        if body.remarks and row["key"] in body.remarks:
+            row["remark"] = str(body.remarks[row["key"]] or "")
     content = write_weekly_xlsx(data, notes, confirmed)
     eng = db.query(Engineer).filter(Engineer.id == eng_id).first()
     # 파일명: 서비스지원본부_<이름>_주간보고-<다운로드한 날짜 yymmdd>

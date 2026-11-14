@@ -28,7 +28,7 @@ journalctl -u se-portal -f
 app.py               FastAPI 진입점: 라우터 등록, /static 마운트, "/" → templates/index.html
 database.py          SQLAlchemy 엔진/세션(get_db), 전체 ORM 모델, init_db()
 routers/<도메인>.py   도메인별 APIRouter (auth, dashboard, sites, projects, logs,
-                     schedules, issues, site_checklist, technotes, development, incidents, reports, gcal)
+                     schedules, issues, site_checklist, technotes, development, incidents, reports, gcal, entries)
 templates/index.html SPA 전체 마크업 (모든 page-* 섹션과 modal-* 오버레이)
 static/js/app.js     프론트 로직 전체 (바닐라 JS, 프레임워크 없음)
 static/css/style.css 공통 스타일
@@ -44,6 +44,10 @@ uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `
 - **기술지원** (`page-work-plan`) = WorkPlan(작업계획서/MOP, 엑셀 다운로드). URL·테이블명은 `workplans` 그대로.
   - 기술지원 화면 등록분은 id `wp-*`. 점검일정 모달이 만드는 작업자/결재자/MOP 보관 레코드는 `id = Schedule.id` 이며
     기술지원 실적(목록·월별 이력·대시보드)에서 제외. `GET /workplans?scope=support(기본)|schedule|all`, 백엔드는 `support_only()` 사용.
+- **점검 일정·기술지원 공통 입력 창** (`modal-add-workplan`, `openEntry`/`saveEntry`) = `routers/entries.py` (`/api/engineers/{eng_id}/entries`).
+  구분 체크박스(점검/기술지원/납품/유선원격/이전/기타, 여러 개 가능). '점검'이 있으면 Schedule(+함께 한 지원은 `Schedule.extra_types`, 작업자·세부 작업계획은 id가 같은 WorkPlan 연동 레코드),
+  없으면 WorkPlan(`wp-*`). 수정 중 '점검' 체크가 바뀌면 다른 표로 옮김. 주간보고서는 체크한 구분마다 해당 열에 1건.
+  `GET /workplans`(scope=support)는 `extra_types`가 있는 점검 일정도 `from_schedule: true`로 함께 돌려준다.
 - **장애처리** (`page-incidents`) = Incident 모델, `routers/incidents.py`.
 - **월별 기술지원 및 장애처리 이력** (`page-service-history`) = 위 둘을 월 단위로 합쳐 보는 화면 (프론트에서 조합).
 - **주간보고서** (`page-weekly-report`) = `routers/reports.py`. 주(월~일) 단위로 점검(완료)·기술지원(작업완료)·장애(발생)를 사이트+일자 1행으로 묶어 양식에 채움.
@@ -76,7 +80,7 @@ uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `
   - Issue.severity: 긴급/높음/보통/낮음, status: 오픈/처리중/완료
   - Project.status: 진행 대기/진행 중/보류/완료, ProjectTask.status: 대기/진행중/완료
   - ProjectFile(프로젝트 제출자료).category: 완료보고서/검수확인서/구성도/회의록/기타 — `routers/projects.py`의 `/{proj_id}/files` (업로드 50MB 제한, 프로젝트 삭제 시 폴더도 삭제)
-  - WorkPlan(기술지원).status: 계획중/결재대기/승인완료/작업완료, support_type: 기술지원/납품/유선원격/이전/기타
+  - WorkPlan(기술지원).status: 예정/완료 (점검 일정과 같음, 예전 4단계는 `init_db()`가 자동 변환), support_type: 기술지원/납품/유선원격/이전/기타 — 여러 개면 쉼표로 이어 씀
   - Incident(장애처리).severity: 긴급/높음/보통/낮음, status: 접수/처리중/완료
   - 개발 체크리스트 status: 예정/진행중/완료
   - SiteChecklist.category: 일반/월간/분기 — 월간·분기는 `done_period`("YYYY-MM"/"YYYY-Qn")가 현재 주기와 같을 때만 완료로 응답(주기 바뀌면 자동 초기화, `routers/site_checklist.py` `period_info`)

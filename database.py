@@ -140,6 +140,7 @@ class Schedule(Base):
     sched_type  = Column(String, default="월간")   # 월간 / 분기 / 특별
     status      = Column(String, default="예정")   # 예정 / 완료
     memo        = Column(Text, default="")
+    extra_types = Column(String, default="")        # 점검과 함께 한 지원 구분(쉼표로 이어 씀): 기술지원/납품/유선원격/이전/기타
     site        = relationship("Site", back_populates="schedules")
 
 # ── 사이트 이슈 ───────────────────────────────
@@ -195,8 +196,8 @@ class WorkPlan(Base):
     mop_content   = Column(Text, default="")
     verification  = Column(Text, default="")
     rollback_plan = Column(Text, default="")
-    status        = Column(String, default="계획중")
-    support_type  = Column(String, default="기술지원")   # 기술지원/납품/유선원격/이전/기타 (주간보고서 열 구분)
+    status        = Column(String, default="예정")       # 예정 / 완료 (점검 일정과 같음)
+    support_type  = Column(String, default="기술지원")   # 기술지원/납품/유선원격/이전/기타 — 여러 개면 쉼표로 이어 씀 (주간보고서 열 구분)
 
 # ── 장애처리 ─────────────────────────────────
 class Incident(Base):
@@ -322,7 +323,15 @@ def init_db():
     _ensure_column("calendar_links", "start_date", "VARCHAR DEFAULT ''")
     _ensure_column("calendar_events", "adopted", "BOOLEAN DEFAULT 0")
     _ensure_column("calendar_events", "description", "TEXT DEFAULT ''")
+    _ensure_column("schedules", "extra_types", "VARCHAR DEFAULT ''")
+    _unify_workplan_status()
     _encrypt_access_passwords()
+
+def _unify_workplan_status():
+    """기술지원 상태를 점검 일정과 같은 2단계로: 작업완료 → 완료, 계획중/결재대기/승인완료 → 예정 (여러 번 실행해도 같음)."""
+    with engine.begin() as conn:
+        conn.exec_driver_sql("UPDATE workplans SET status='완료' WHERE status='작업완료'")
+        conn.exec_driver_sql("UPDATE workplans SET status='예정' WHERE status IS NULL OR status NOT IN ('예정','완료')")
 
 def _encrypt_access_passwords():
     """평문으로 남아 있는 사이트 접속 비밀번호를 암호화해 다시 저장 (이미 암호화된 행은 건너뜀)."""

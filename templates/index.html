@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=29">
+<link rel="stylesheet" href="/static/css/style.css?v=32">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -299,13 +299,10 @@
       <div class="search-bar">
         <input type="text" id="wp-search" placeholder="기술지원명, 사이트, 작업자 검색...">
         <select id="wp-view" class="filter-select" title="보기">
-          <option value="active">진행 중 (미완료)</option>
+          <option value="active">예정 (미완료)</option>
           <option value="week">이번 주 예정</option>
           <option value="overdue">일정 경과</option>
-          <option value="계획중">계획중</option>
-          <option value="결재대기">결재대기</option>
-          <option value="승인완료">승인완료</option>
-          <option value="작업완료">작업완료</option>
+          <option value="완료">완료</option>
           <option value="">전체</option>
         </select>
         <div class="svh-month">
@@ -371,7 +368,7 @@
       </div>
       <div class="grid4" id="wr-summary" style="margin-bottom:14px"></div>
       <div class="card" style="margin-bottom:14px">
-        <div class="card-title">지원 내역 미리보기 <span class="wr-help">점검은 '완료', 기술지원은 '작업완료', 장애처리는 그 주에 발생한 건 기준 · 같은 날 같은 사이트는 한 줄로 묶음</span></div>
+        <div class="card-title">지원 내역 미리보기 <span class="wr-help">점검·기술지원은 '완료', 장애처리는 그 주에 발생한 건 기준 · 토·일은 완료 전 일정도 포함 · 같은 날 같은 사이트는 한 줄로 묶음</span></div>
         <div id="wr-rows"></div>
       </div>
       <div class="grid2">
@@ -613,37 +610,6 @@
   </div>
 </div>
 
-<div class="overlay" id="modal-add-sched">
-  <div class="modal modal-lg">
-    <div class="modal-head"><div class="modal-title" id="sched-modal-title">점검 일정 등록</div><button class="btn btn-sm" onclick="closeModal('modal-add-sched')">✕</button></div>
-    <input type="hidden" id="sched-id">
-    <div class="grid2">
-      <div class="form-row"><label>사이트 *</label><select id="sched-site"></select></div>
-      <div class="form-row"><label>제목 *</label><input type="text" id="sched-title"></div>
-    </div>
-    <div class="grid2">
-      <div class="form-row"><label>점검일 *</label><input type="date" id="sched-date"></div>
-      <div class="form-row"><label>점검 유형</label><select id="sched-type"><option>월간</option><option>분기</option><option>특별</option></select></div>
-    </div>
-    <div class="grid2">
-      <div class="form-row"><label>상태</label><select id="sched-status"><option>예정</option><option>완료</option></select></div>
-      <div class="form-row"><label>메모</label><input type="text" id="sched-memo"></div>
-    </div>
-    <div style="margin-top: 16px; margin-bottom: 12px; font-weight: 600; color: #378ADD; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
-      <span>📝 작업 계획서 (MOP) 작성</span>
-      <button class="btn btn-sm" id="btn-sched-excel" style="display:none; color: #16a34a; border-color: #16a34a;" onclick="downloadSchedWorkPlanExcel()">Excel 다운로드</button>
-    </div>
-    <div class="grid2">
-      <div class="form-row"><label>작업자</label><input type="text" id="sched-worker" placeholder="예: 홍길동"></div>
-      <div class="form-row"><label>결재자/공유자</label><input type="text" id="sched-reviewer" placeholder="예: 이팀장"></div>
-    </div>
-    <div class="form-row"><label>MOP (Method of Procedure) 상세 작업 절차</label><div class="form-desc">칸에 바로 입력하세요. 엑셀에서 여러 행/열을 복사해 붙여넣을 수 있습니다. (No.는 자동 생성)</div><div class="mop-grid" id="sched-mop"></div></div>
-    <div class="form-actions">
-      <button class="btn" onclick="closeModal('modal-add-sched')">취소</button>
-      <button class="btn btn-primary" onclick="saveSched()">저장</button>
-    </div>
-  </div>
-</div>
 
 <!-- 이슈 상세 팝업 -->
 <div class="overlay" id="modal-issue-popup">
@@ -806,60 +772,66 @@
   </div>
 </div>
 
-<!-- 기술지원(작업 계획) 추가/수정 -->
+<!-- 점검 일정 · 기술지원 공통 입력 창 (routers/entries.py) -->
 <div class="overlay" id="modal-add-workplan">
   <div class="modal modal-lg">
-    <div class="modal-head"><div class="modal-title" id="wp-modal-title">기술지원 등록</div><button class="btn btn-sm" onclick="closeModal('modal-add-workplan')">✕</button></div>
+    <div class="modal-head"><div class="modal-title" id="wp-modal-title">일정 등록</div>
+      <div style="display:flex;gap:6px"><button class="btn btn-sm" id="wp-excel" style="display:none;color:#16a34a;border-color:#16a34a" onclick="downloadEntryExcel()">작업계획서 Excel</button><button class="btn btn-sm" onclick="closeModal('modal-add-workplan')">✕</button></div></div>
     <input type="hidden" id="wp-id">
 
     <div class="form-section">
-      <div class="form-section-title">1. 기본 정보</div>
-      <div class="form-row"><label>제목 *</label><input type="text" id="wp-title" placeholder="예: DB 서버 정기점검"></div>
-      <div class="grid2">
-        <div class="form-row"><label>작업 일시 *</label><input type="datetime-local" id="wp-date"></div>
-        <div class="form-row"><label>사이트</label><select id="wp-site"></select></div>
+      <div class="form-row"><label>구분 * <span class="en-hint">여러 개 선택 가능 · 주간보고서에서 체크한 구분마다 1건씩 집계</span></label>
+        <div class="en-types" id="wp-types">
+          <label class="en-type"><input type="checkbox" value="점검" onchange="entryTypesChanged()"><span>점검</span></label>
+          <label class="en-type"><input type="checkbox" value="기술지원" onchange="entryTypesChanged()"><span>기술지원</span></label>
+          <label class="en-type"><input type="checkbox" value="납품" onchange="entryTypesChanged()"><span>납품</span></label>
+          <label class="en-type"><input type="checkbox" value="유선원격" onchange="entryTypesChanged()"><span>유선원격</span></label>
+          <label class="en-type"><input type="checkbox" value="이전" onchange="entryTypesChanged()"><span>이전</span></label>
+          <label class="en-type"><input type="checkbox" value="기타" onchange="entryTypesChanged()"><span>기타</span></label>
+        </div>
       </div>
       <div class="grid2">
+        <div class="form-row"><label>사이트 <span id="wp-site-req">*</span></label><select id="wp-site"></select></div>
+        <div class="form-row"><label>제목 *</label><input type="text" id="wp-title" placeholder="예: PM, vCenter 통합 작업"></div>
+      </div>
+      <div class="grid3">
+        <div class="form-row"><label>날짜 *</label><input type="date" id="wp-day"></div>
+        <div class="form-row"><label>시간 <span class="en-hint">선택</span></label><input type="time" id="wp-time"></div>
+        <div class="form-row"><label>상태</label><select id="wp-status"><option>예정</option><option>완료</option></select></div>
+      </div>
+      <div class="grid3">
         <div class="form-row"><label>작업자</label><input type="text" id="wp-worker" placeholder="예: 홍길동, 이순신"></div>
         <div class="form-row"><label>결재자/공유자</label><input type="text" id="wp-reviewer" placeholder="예: 김팀장"></div>
+        <div class="form-row" id="wp-sched-type-row"><label>점검 유형</label><select id="wp-sched-type"><option>월간</option><option>분기</option><option>특별</option></select></div>
       </div>
-      <div class="grid2">
-        <div class="form-row"><label>상태</label><select id="wp-status"><option>계획중</option><option>결재대기</option><option>승인완료</option><option>작업완료</option></select></div>
-        <div class="form-row"><label>지원 구분 <span style="font-weight:400;color:#94a3b8">(주간보고서 집계 열)</span></label><select id="wp-support-type"><option>기술지원</option><option>납품</option><option>유선원격</option><option>이전</option><option>기타</option></select></div>
-      </div>
+      <div class="form-row" style="margin-bottom:0"><label>작업 내용 / 메모 <span class="en-hint">구글 캘린더의 설명이 들어오는 칸</span></label><textarea id="wp-purpose" style="min-height:64px" placeholder="무슨 작업을 하는지 적습니다. 여러 줄이면 줄마다 한 항목으로 봅니다."></textarea></div>
     </div>
 
-    <div class="form-section">
-      <div class="form-section-title">2. 작업 개요</div>
-      <div class="form-row"><label>작업 목적</label><textarea id="wp-purpose" style="min-height:60px" placeholder="작업을 수행하는 목적을 명확히 기재합니다."></textarea></div>
-      <div class="grid2">
-        <div class="form-row"><label>작업 영향도</label>
-          <select id="wp-impact">
-            <option>없음</option>
-            <option>낮음 (서비스 무중단)</option>
-            <option>중간 (일시적 성능 저하 또는 순단)</option>
-            <option>높음 (서비스 중단 발생)</option>
-          </select>
+    <details class="en-plan" id="wp-plan" ontoggle="this.querySelectorAll('.mop-grid textarea').forEach(mopGrow)">
+      <summary>세부 작업계획 <span class="en-hint">영향도 · 사전 준비 · 상세 절차(MOP) · 확인사항 · 비상 계획 — 필요할 때만 작성</span></summary>
+      <div class="en-plan-body">
+        <div class="grid2">
+          <div class="form-row"><label>작업 영향도</label>
+            <select id="wp-impact">
+              <option>없음</option>
+              <option>낮음 (서비스 무중단)</option>
+              <option>중간 (일시적 성능 저하 또는 순단)</option>
+              <option>높음 (서비스 중단 발생)</option>
+            </select>
+          </div>
+          <div class="form-row"><label>사전 준비사항</label><input type="text" id="wp-prerequisites" placeholder="예: 백업 확인, 관련 담당자 통보"></div>
         </div>
-        <div class="form-row"><label>사전 준비사항</label><input type="text" id="wp-prerequisites" placeholder="예: 백업 확인, 관련 담당자 통보"></div>
+        <div class="form-row"><label>상세 작업 절차 (MOP)</label>
+          <div class="form-desc">칸에 바로 입력하세요. 작업 상세는 여러 줄 입력 가능, 엑셀에서 여러 행/열을 복사해 붙여넣을 수 있습니다. (No.는 자동 생성)</div>
+          <div class="mop-grid" id="wp-mop"></div></div>
+        <div class="form-row"><label>작업 후 확인사항</label><textarea id="wp-verification" style="min-height:60px" placeholder="작업 완료 후 정상 상태를 확인하기 위한 절차를 기재합니다."></textarea></div>
+        <div class="form-row" style="margin-bottom:0"><label>비상 계획 (Rollback Plan)</label><textarea id="wp-rollback" style="min-height:60px" placeholder="문제 발생 시 작업을 원복하기 위한 절차를 기재합니다."></textarea></div>
       </div>
-    </div>
-
-    <div class="form-section">
-      <div class="form-section-title">3. 상세 작업 절차 (Method of Procedure)</div>
-      <div class="form-desc">칸에 바로 입력하세요. 작업 상세는 여러 줄 입력 가능, 엑셀에서 여러 행/열을 복사해 붙여넣을 수 있습니다. (No.는 자동 생성)</div>
-      <div class="form-row"><div class="mop-grid" id="wp-mop"></div></div>
-    </div>
-
-    <div class="form-section">
-      <div class="form-section-title">4. 추가 계획</div>
-      <div class="form-row"><label>작업 후 확인사항</label><textarea id="wp-verification" style="min-height:60px" placeholder="작업 완료 후 정상 상태를 확인하기 위한 절차를 기재합니다."></textarea></div>
-      <div class="form-row"><label>비상 계획 (Rollback Plan)</label><textarea id="wp-rollback" style="min-height:60px" placeholder="문제 발생 시 작업을 원복하기 위한 절차를 기재합니다."></textarea></div>
-    </div>
+    </details>
 
     <div class="form-actions">
       <button class="btn" onclick="closeModal('modal-add-workplan')">취소</button>
-      <button class="btn btn-primary" onclick="saveWorkPlan()">저장</button>
+      <button class="btn btn-primary" id="wp-save" onclick="saveEntry()">저장</button>
     </div>
   </div>
 </div>
@@ -946,6 +918,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=53"></script>
+<script src="/static/js/app.js?v=60"></script>
 </body>
 </html>

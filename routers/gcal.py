@@ -3,6 +3,7 @@
 제목 규칙: "[종류] 고객사이름 - 엔지니어이름"  (예: "[점검] A병원 - 홍길동")
  - 엔지니어 이름에 본인이 들어 있는 일정만 가져온다.
  - [점검] → 점검 일정(Schedule), [기술지원]/[납품]/[원격]/[이전]/[기타] → 기술지원(WorkPlan)
+ - [점검 및 기술지원] 처럼 함께 적으면 점검 일정 1건으로 만들고 지원 구분을 extra_types 에 체크한다
  - 사이트를 못 찾거나 종류를 알 수 없으면 '확인 대기' 로 두고 사용자가 직접 등록한다.
  - 구글에서 날짜·제목이 바뀌거나 일정이 지워지면 반영하되, 포털에서 완료 처리한 건은 건드리지 않는다.
 """
@@ -54,13 +55,28 @@ def parse_title(summary: str):
 
 
 def classify(tag: str):
-    """태그 → (kind, 세부 구분). 알 수 없으면 ('', '')."""
-    t = _norm(tag)
-    if "점검" in t or t == "pm":
-        return KIND_SCHEDULE, ("분기" if "분기" in t else "특별" if "특별" in t else "월간")
-    if t in SUPPORT_TAGS:
-        return KIND_SUPPORT, SUPPORT_TAGS[t]
-    return "", ""
+    """태그 → (kind, 세부 구분, 함께 한 지원 구분 목록). 알 수 없으면 ('', '', []).
+    '[점검 및 기술지원]', '[점검/납품]' 처럼 여러 개를 함께 적을 수 있다.
+     - 점검이 들어 있으면 kind='점검', 세부 구분=월간/분기/특별, 나머지는 함께 한 지원 구분
+     - 점검이 없으면 kind='기술지원', 세부 구분=지원 구분들을 쉼표로 이은 값"""
+    tokens = [t for t in re.split(r"[\s,/+&·]+|및", tag or "") if t]
+    check, sched, supports = False, "월간", []
+    for tok in tokens:
+        t = _norm(tok)
+        if "점검" in t or t == "pm":
+            check = True
+            sched = "분기" if "분기" in t else "특별" if "특별" in t else sched
+        elif t in SUPPORT_TAGS:
+            if SUPPORT_TAGS[t] not in supports:
+                supports.append(SUPPORT_TAGS[t])
+        else:
+            return "", "", []                          # 모르는 단어가 섞여 있으면 자동 등록하지 않는다
+    supports = [t for t in SUPPORT_TYPES if t in supports]
+    if check:
+        return KIND_SCHEDULE, sched, supports
+    if supports:
+        return KIND_SUPPORT, ",".join(supports), []
+    return "", "", []
 
 
 def match_site(customer: str, sites):
@@ -164,7 +180,7 @@ def _find_existing(db, eng, row: CalendarEvent, site):
     return next((c for c in cands if c.id not in used), None)
 
 
-def _make_target(db, eng, row: CalendarEvent, site, sub: str):
+def _make_target(db, eng, row: CalendarEvent, site, sub: str, extra=()):
     """row 내용으로 점검 일정 또는 기술지원을 만든다. 이미 같은 건이 있으면 새로 만들지 않고 그 건에 연결한다."""
     old = _find_existing(db, eng, row, site)
     if old is not None:
@@ -173,18 +189,24 @@ def _make_target(db, eng, row: CalendarEvent, site, sub: str):
         row.sub_type = old.sched_type if row.kind == KIND_SCHEDULE else old.support_type
         row.state, row.reason = ST_DONE, ""
         _apply_desc(old, "", row.description, only_empty=True)
+        if row.kind == KIND_SCHEDULE and extra and not (old.extra_types or ""):
+            old.extra_types = ",".join(extra)
         return
     row.adopted = False
     if row.kind == KIND_SCHEDULE:
         sub = sub if sub in SCHED_TYPES else "월간"
         obj = Schedule(id=str(uuid.uuid4()), site_id=site.id, engineer_id=eng.id, title=SCHED_TITLES[sub],
-                       sched_date=row.event_date, sched_type=sub, status="예정", memo=row.description or IMPORT_NOTE)
+                       sched_date=row.event_date, sched_type=sub, status="예정", memo=row.description or IMPORT_NOTE,
+                       extra_types=",".join(extra))
         row.target_type = "schedule"
+        if _norm(row.workers) not in ("", _norm(eng.name)):      # 여러 명이 함께 가는 점검: 작업자를 연동 레코드에 남긴다
+            db.add(WorkPlan(id=obj.id, engineer_id=eng.id, title=obj.title, work_date=obj.sched_date, site=site.name,
+                            worker=row.workers, status="예정", purpose="", support_type="기술지원"))
     else:
-        sub = sub if sub in SUPPORT_TYPES else "기술지원"
-        obj = WorkPlan(id=f"wp-{uuid.uuid4().hex[:8]}", engineer_id=eng.id, title=f"{row.customer} {sub}",
+        sub = ",".join(t for t in SUPPORT_TYPES if t in (sub or "").split(",")) or "기술지원"
+        obj = WorkPlan(id=f"wp-{uuid.uuid4().hex[:8]}", engineer_id=eng.id, title=f"{row.customer} {sub.replace(',', '·')}",
                        work_date=row.event_date, site=(site.name if site else row.customer), worker=row.workers or eng.name,
-                       status="계획중", support_type=sub, purpose=row.description or IMPORT_NOTE)
+                       status="예정", support_type=sub, purpose=row.description or IMPORT_NOTE)
         row.target_type = "workplan"
     db.add(obj)
     row.target_id, row.site_id, row.sub_type = obj.id, (site.id if site else ""), sub
@@ -200,12 +222,12 @@ def _target(db, row: CalendarEvent):
 
 
 def _is_finished(obj) -> bool:
-    return obj.status == ("완료" if isinstance(obj, Schedule) else "작업완료")
+    return obj.status == "완료"
 
 
 def _resolve(db, eng, row: CalendarEvent, tag: str, sites):
     """확인 대기 → 종류와 사이트가 정해지면 등록."""
-    kind, sub = classify(tag)
+    kind, sub, extra = classify(tag)
     row.kind, row.sub_type = kind, sub
     if not kind:
         row.state, row.reason = ST_WAIT, f"[{tag}] 가 어떤 종류인지 알 수 없음"
@@ -214,7 +236,7 @@ def _resolve(db, eng, row: CalendarEvent, tag: str, sites):
     if kind == KIND_SCHEDULE and not site:
         row.state, row.reason = ST_WAIT, "고객사 이름과 맞는 사이트를 찾지 못함"
         return
-    _make_target(db, eng, row, site, sub)
+    _make_target(db, eng, row, site, sub, extra)
 
 
 def sync_engineer(db: Session, eng_id: str, events=None) -> dict:
@@ -275,7 +297,7 @@ def sync_engineer(db: Session, eng_id: str, events=None) -> dict:
                     n["updated"] += 1
             elif changed and not _is_finished(obj):
                 _apply_desc(obj, old_desc, new_desc, only_empty=bool(row.adopted))
-                kind, sub = classify(tag)
+                kind, sub, _extra = classify(tag)
                 if kind == row.kind:                   # 종류가 바뀐 경우는 건드리지 않음
                     site = match_site(customer, sites)
                     if isinstance(obj, Schedule):
