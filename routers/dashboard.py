@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends
+from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
 from database import get_db, Site, Device, Schedule, Issue, WorkPlan, Incident
 from datetime import datetime, timedelta
@@ -49,16 +50,24 @@ def get_dashboard(eng_id: str, db: Session = Depends(get_db)):
     today    = now.strftime("%Y-%m-%d")
     this_end = (now + timedelta(days=6 - now.weekday())).strftime("%Y-%m-%d")       # 이번 주 일요일
     week_end = (now + timedelta(days=13 - now.weekday())).strftime("%Y-%m-%d")      # 다음 주 일요일
+    this_start = (now - timedelta(days=now.weekday())).strftime("%Y-%m-%d")         # 이번 주 월요일
+    # 미완료는 다음 주 일요일까지 전부(지난 것 포함), 완료는 이번 주(월~일) 것만 함께 보낸다
+    # → 대시보드에서 이번 주에 끝낸 일정이 사라지지 않고 흐리게 남는다.
     week_scheds = db.query(Schedule).filter(
-        Schedule.engineer_id == eng_id, Schedule.status != "완료",
-        Schedule.sched_date != "", Schedule.sched_date <= week_end
+        Schedule.engineer_id == eng_id, Schedule.sched_date != "",
+        or_(and_(Schedule.status != "완료", Schedule.sched_date <= week_end),
+            and_(Schedule.status == "완료", Schedule.sched_date >= this_start, Schedule.sched_date <= this_end + "T99"))
     ).order_by(Schedule.sched_date).all()
     week_plans = support_only(db.query(WorkPlan).filter(
-        WorkPlan.engineer_id == eng_id, WorkPlan.status != "작업완료",
-        WorkPlan.work_date != "", WorkPlan.work_date <= week_end + "T99"
+        WorkPlan.engineer_id == eng_id, WorkPlan.work_date != "",
+        or_(and_(WorkPlan.status != "작업완료", WorkPlan.work_date <= week_end + "T99"),
+            and_(WorkPlan.status == "작업완료", WorkPlan.work_date >= this_start, WorkPlan.work_date <= this_end + "T99"))
     )).order_by(WorkPlan.work_date).all()
+    in_week = lambda col: and_(col >= this_start, col <= this_end + "T99")
     open_incidents = db.query(Incident).filter(
-        Incident.engineer_id == eng_id, Incident.status != "완료"
+        Incident.engineer_id == eng_id,
+        or_(Incident.status != "완료",
+            and_(Incident.status == "완료", or_(in_week(Incident.occurred_at), in_week(Incident.recovered_at))))
     ).order_by(Incident.occurred_at).all()
 
     sched_done  = sum(1 for s in schedules_this_month if s.status == "완료")
@@ -75,11 +84,12 @@ def get_dashboard(eng_id: str, db: Session = Depends(get_db)):
         "issues_all": [_iss(i, sites) for i in open_issues],   # 명시적 전체 키
         "expiring_warranties": expiring,
         "week": {
-            "today": today, "this_end": this_end, "end": week_end,
+            "today": today, "this_start": this_start, "this_end": this_end, "end": week_end,
             "schedules": [_sch(s, sites) for s in week_scheds],
             "workplans": [{"id": p.id, "title": p.title, "work_date": p.work_date, "site": p.site,
                            "status": p.status, "impact": p.impact or ""} for p in week_plans],
-            "incidents": [{"id": i.id, "title": i.title, "occurred_at": i.occurred_at, "site": i.site,
+            "incidents": [{"id": i.id, "title": i.title, "occurred_at": i.occurred_at,
+                           "recovered_at": i.recovered_at or "", "site": i.site,
                            "severity": i.severity, "status": i.status} for i in open_incidents],
         },
     }

@@ -252,8 +252,9 @@ def weekly_export(eng_id: str, body: WeeklyExportIn, db: Session = Depends(get_d
     notes = data["notes"] if body.notes is None else body.notes
     confirmed = data["confirmed"] if body.confirmed is None else body.confirmed
     content = write_weekly_xlsx(data, notes, confirmed)
-    s, e = data["start"].replace("-", ""), data["end"].replace("-", "")
-    fname = quote(f"주간보고서_{s}-{e}.xlsx")
+    eng = db.query(Engineer).filter(Engineer.id == eng_id).first()
+    # 파일명: 서비스지원본부_<이름>_주간보고-<다운로드한 날짜 yymmdd>
+    fname = quote(f"서비스지원본부_{eng.name}_주간보고-{date.today():%y%m%d}.xlsx")
     return StreamingResponse(io.BytesIO(content),
                              media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                              headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname}"})

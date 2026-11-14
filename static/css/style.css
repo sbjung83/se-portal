@@ -561,3 +561,90 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .pj-clip{margin-left:8px;border:1px solid #d5dbe5;background:#f8fafc;color:#475569;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:600;font-family:inherit;cursor:pointer;vertical-align:middle;white-space:nowrap}
 .pj-clip:hover{border-color:#378ADD;color:#378ADD}
 .cl-act a.btn{margin-right:6px;text-decoration:none}
+
+/* 점검 일정 관리 · 점검 이력 */
+.sm-nav{display:flex;align-items:center;gap:8px}
+.sm-label{font-size:17px;font-weight:800;color:#0f172a;min-width:118px;text-align:center}
+#page-schedule-mgmt .pj-summary .metric{cursor:default}
+#page-schedule-mgmt .pj-summary .prog-wrap{background:#e2e8f0}
+.sm-months{display:grid;grid-template-columns:repeat(12,1fr);gap:6px;margin-bottom:16px}
+.sm-mon{display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 2px;background:#fff;border:1px solid #d5dbe5;border-radius:8px;font-family:inherit;cursor:pointer;position:relative}
+.sm-mon:hover{border-color:#94a3b8}
+.sm-mon-name{font-size:12.5px;font-weight:700;color:#334155}
+.sm-mon-cnt{font-size:11.5px;font-weight:600;color:#2563eb;font-variant-numeric:tabular-nums}
+.sm-mon.none .sm-mon-name{color:#94a3b8;font-weight:500}.sm-mon.none .sm-mon-cnt{color:#cbd5e1}
+.sm-mon.full .sm-mon-cnt{color:#16a34a}
+.sm-mon.late .sm-mon-cnt{color:#dc2626}
+.sm-mon.cur::after{content:'';position:absolute;top:5px;right:6px;width:6px;height:6px;border-radius:50%;background:#378ADD}
+.sm-mon.active{border-color:#378ADD;background:#eff6ff;box-shadow:0 0 0 2px rgba(55,138,221,.2)}
+.sm-table td{padding:10px 12px}
+.sm-table tbody tr:hover td{background:#f8fafc}
+.sm-table tbody tr.cl-msg:hover td{background:none}
+.sm-d{white-space:nowrap;font-weight:600;color:#1e293b;font-variant-numeric:tabular-nums}
+.sm-d .badge{margin-left:6px;font-size:10.5px}
+.sm-s{font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sm-t{word-break:break-word;line-height:1.45}
+.sm-memo{font-size:12.5px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sm-table tr.done .sm-d,.sm-table tr.done .sm-s,.sm-table tr.done .sm-t{color:#94a3b8;font-weight:500}
+.sm-table tr.today td{background:#f5f9ff}
+.sm-xls{color:#16a34a;border-color:#86efac;padding:3px 7px;font-size:11px;margin-right:6px}
+.sm-xls:hover{background:#f0fdf4}
+.sm-table .ds-check-btn{vertical-align:middle}
+.smc-list{max-height:52vh;overflow-y:auto;margin-bottom:14px}
+.smc-lbl{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:#334155}
+.smc-in{width:100%;padding:6px 8px;border:1px solid #d4d4d0;border-radius:6px;font-size:13px;font-family:inherit;box-sizing:border-box}
+.smc-in:focus{outline:none;border-color:#378ADD}
+.smc-date{display:flex;align-items:center;gap:6px;font-size:12.5px;color:#475569;white-space:nowrap}
+.smc-note{font-size:11px;font-weight:500;color:#d97706;margin-top:2px}
+.sh-count{margin-left:auto;font-size:13px;font-weight:700;color:#334155}
+.sh-mon-cnt{font-size:12px;font-weight:600;color:#64748b}
+.sh-memo{font-size:12px;color:#94a3b8;margin-top:2px;word-break:break-word}
+#sh-page:empty{display:none}
+#page-sched-history .cl-toolbar .filter-select{max-width:300px}
+@media (max-width:900px){.sm-months{grid-template-columns:repeat(6,1fr)}}
+
+/* 점검 이력: 월별 상자, 뚜렷한 경계 */
+#page-sched-history .cl-toolbar{border-color:#c3ccd9}
+.sh-head{border:1px solid #c3ccd9;border-radius:8px;overflow:hidden;margin-bottom:10px;background:#e9eef5}
+.sh-head .cl-table th{background:#e9eef5;border-bottom:none;color:#475569;font-weight:700;padding:9px 14px}
+.sh-head .cl-table th+th{border-left:1px solid #cfd7e3}
+.sh-month{border:1px solid #c3ccd9;border-radius:10px;overflow:hidden;background:#fff;margin-bottom:18px;box-shadow:0 1px 2px rgba(15,23,42,.05)}
+.sh-month-head{display:flex;align-items:center;gap:12px;padding:10px 14px;background:#eff6ff;border-bottom:1px solid #bfdbfe;border-left:4px solid #3b82f6}
+.sh-month-name{font-size:14.5px;font-weight:800;color:#0f172a}
+.sh-month-head .sh-mon-cnt{background:#fff;border:1px solid #bfdbfe;color:#1d4ed8;border-radius:999px;padding:1px 10px;font-size:11.5px}
+.sh-table td{padding:11px 14px;border-bottom:1px solid #dde3ec}
+.sh-table td+td{border-left:1px solid #e6ebf2}
+.sh-table tbody tr:last-child td{border-bottom:none}
+
+/* 점검 일정 관리: 점검 이력과 같은 경계 스타일 */
+#page-schedule-mgmt .cl-toolbar{border-color:#c3ccd9}
+#page-schedule-mgmt .pj-summary .metric{border-color:#c3ccd9;border-top-color:var(--mc,#94a3b8)}
+.sm-mon{border-color:#c3ccd9}
+.sh-month-head .sh-mon-cnt.late{border-color:#fecaca;color:#dc2626}
+.sh-mon-note{font-size:12px;color:#64748b}
+.sh-table tr.cl-msg td{border-left:none}
+.sh-inhead th{background:#eef2f7;border-bottom:1px solid #c3ccd9;color:#475569;font-weight:700;padding:9px 14px}
+.sh-inhead th+th{border-left:1px solid #d5dce7}
+/* 점검 일정 관리: 필터를 표 상자의 위쪽 줄로 합침 */
+.sm-panel{margin-bottom:0}
+.sm-panel-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;background:#fff;border-bottom:1px solid #c3ccd9}
+.sm-panel-title{font-size:15px;font-weight:800;color:#0f172a;margin-right:4px}
+.sm-panel-head .filter-select{max-width:240px;padding:6px 8px}
+.sm-panel-info{display:flex;align-items:center;gap:8px}
+.sm-panel-info .sh-mon-cnt{background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;border-radius:999px;padding:2px 11px;font-size:12px}
+.sm-panel-info .sh-mon-cnt.late{background:#fef2f2;border-color:#fecaca;color:#dc2626}
+.sm-months{margin-bottom:18px}
+/* 점검 이력: 필터·열 제목·달 구분을 표 상자 하나로 */
+#page-sched-history .sm-panel{margin-bottom:12px}
+#page-sched-history .sm-panel-head .pj-search{max-width:300px}
+.sh-table tr.sh-grp td{background:#eff6ff;border-top:1px solid #bfdbfe;border-bottom:1px solid #bfdbfe;border-left:4px solid #3b82f6;padding:9px 12px}
+.sh-table tbody tr.sh-grp:first-child td{border-top:none}
+.sh-table tr.sh-grp:hover td{background:#eff6ff}
+.sh-grp-cnt{margin-left:10px;font-size:12px;font-weight:600;color:#1d4ed8}
+/* 이번 주 일정: 완료한 줄은 지우지 않고 흐리게 */
+.wk-check-gap{width:14px;flex-shrink:0}
+.wk-row.done .wk-title{color:#94a3b8;font-weight:400}
+.wk-row.done .wk-kind,.wk-row.done .badge,.wk-row.done .wk-time,.wk-row.done .wk-site{opacity:.5}
+.wk-row.done{background:#fbfcfd}
+.dash-card .wk-group.past .wk-head{color:#64748b}
+.wk-head .wk-meta{font-size:11.5px}

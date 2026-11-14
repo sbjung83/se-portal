@@ -84,7 +84,7 @@ document.querySelectorAll('.nav-item').forEach(el=>{
     if(page==='dashboard')      renderDashboard();
     if(page==='checklist')      renderChecklistPage();
     if(page==='sites')          renderSites();
-    if(page==='schedule-mgmt'){ _smYear=new Date().getFullYear(); renderSchedMgmt(); }
+    if(page==='schedule-mgmt'){ _smYM=_ymd(new Date()).slice(0,7); renderSchedMgmt(); }
     if(page==='projects')       renderProjects();
     if(page==='sched-history')  renderSchedHistory();
     if(page==='technotes')      renderTechNotes();
@@ -144,7 +144,7 @@ function _dayLabel(day, today){
   return n === 0 ? `오늘 · ${md}` : n === 1 ? `내일 · ${md}` : md;
 }
 
-// ── 이번 주 할 일 ─────────────────────────
+// ── 이번 주 일정 ─────────────────────────
 const WK_KIND = {
   sched: {label:'점검',     cls:'wk-sched'},
   plan:  {label:'기술지원', cls:'wk-plan'},
@@ -165,33 +165,40 @@ function renderDashWeek(){
   const today = w.today;
   const thisEnd = w.this_end || w.end;
   const [ey, em, ed] = thisEnd.split('-').map(Number);
-  // 이번 주: 오늘 ~ 일요일 (+ 지연·진행 중 장애) / 다음 주: 다음 주 월 ~ 일
-  const start = isNext ? _ymd(new Date(ey, em-1, ed+1)) : today;
+  // 이번 주: 월 ~ 일 전체 (완료한 일정도 흐리게 남김, 지난주 이전 미완료는 "지연") / 다음 주: 다음 주 월 ~ 일
+  const start = isNext ? _ymd(new Date(ey, em-1, ed+1)) : (w.this_start || _ymd(new Date(ey, em-1, ed-6)));
   const end   = isNext ? _ymd(new Date(ey, em-1, ed+7)) : thisEnd;
-  $('dash-week-title').textContent = isNext ? '다음 주 할 일' : '이번 주 할 일';
+  $('dash-week-title').textContent = isNext ? '다음 주 일정' : '이번 주 일정';
   $('dash-week-range').textContent = `${start.slice(5).replace('-','/')} ~ ${end.slice(5).replace('-','/')}`;
 
+  const inRange = d => d >= start && d <= end;
   const items = [];
-  w.schedules.forEach(x => items.push({kind:'sched', day:x.sched_date.slice(0,10), title:x.title, site:x.site_name,
+  w.schedules.forEach(x => { const done = x.status === '완료'; items.push({kind:'sched', done, day:x.sched_date.slice(0,10), title:x.title, site:x.site_name,
     extra: x.sched_type !== '월간' ? `<span class="badge b-gray">${esc(x.sched_type)}</span>` : '',
-    check:`<input type="checkbox" class="wk-check" title="점검 완료 처리" onclick="event.stopPropagation()" onchange="weekDoneSched('${x.id}',this)">`,
-    open:`openEditSched('${x.id}')`}));
-  w.workplans.forEach(x => items.push({kind:'plan', day:x.work_date.slice(0,10), time:x.work_date.slice(11,16), title:x.title, site:x.site,
+    check:`<input type="checkbox" class="wk-check" ${done?'checked':''} title="${done?'완료 취소':'점검 완료 처리'}" onclick="event.stopPropagation()" onchange="weekDoneSched('${x.id}',this)">`,
+    open:`openEditSched('${x.id}')`}); });
+  w.workplans.forEach(x => items.push({kind:'plan', done:x.status === '작업완료', day:x.work_date.slice(0,10), time:x.work_date.slice(11,16), title:x.title, site:x.site,
     extra:`<span class="badge ${WP_ST_CLS[x.status]||'b-gray'}">${esc(x.status)}</span>${_wpImpactBadge(x.impact)}`,
     open:`openEditWorkPlan('${x.id}')`}));
-  _allCLItems.filter(i => !i.done && i.due && i.due <= end).forEach(i => items.push({kind:'cl', day:i.due, title:i.text, site:i.site_name,
+  _allCLItems.filter(i => i.due && i.due <= end && (!i.done || i.due >= start)).forEach(i => items.push({kind:'cl', done:i.done, day:i.due, title:i.text, site:i.site_name,
     extra:`<span class="badge b-gray">${esc(i.category)} 마감</span>`,
-    check:`<input type="checkbox" class="wk-check" title="완료 처리" onclick="event.stopPropagation()" onchange="dashToggleCL('${i.id}',this.checked)">`,
+    check:`<input type="checkbox" class="wk-check" ${i.done?'checked':''} title="${i.done?'완료 취소':'완료 처리'}" onclick="event.stopPropagation()" onchange="dashToggleCL('${i.id}',this.checked)">`,
     open:''}));
-  const incs = isNext ? [] : w.incidents;
+  // 이번 주에 처리 완료한 장애는 발생일(이번 주 밖이면 복구일) 칸에 흐리게 표시
+  (isNext ? [] : w.incidents.filter(i => i.status === '완료')).forEach(i => {
+    const occ = (i.occurred_at || '').slice(0,10), rec = (i.recovered_at || '').slice(0,10);
+    items.push({kind:'inc', done:true, day: inRange(occ) ? occ : rec, time: inRange(occ) ? (i.occurred_at || '').slice(11,16) : '', title:i.title, site:i.site,
+      extra:`<span class="badge ${INC_ST_CLS[i.status]||'b-gray'}">${esc(i.status)}</span>`, open:`openEditIncident('${i.id}')`});
+  });
+  const incs = isNext ? [] : w.incidents.filter(i => i.status !== '완료');
 
   const row = it => `
-    <div class="wk-row ${it.open?'clickable':''}" ${it.open?`onclick="${it.open}"`:''}>
-      ${it.check || ''}
+    <div class="wk-row ${it.open?'clickable':''} ${it.done?'done':''}" ${it.open?`onclick="${it.open}"`:''}>
+      ${it.check || '<span class="wk-check-gap"></span>'}
       <span class="wk-kind ${WK_KIND[it.kind].cls}">${WK_KIND[it.kind].label}</span>
       ${it.time ? `<span class="wk-time">${esc(it.time)}</span>` : ''}
       <span class="wk-title" title="${esc(it.title)}">${esc(it.title)}</span>
-      ${it.extra || ''}
+      ${it.lateTag ? '<span class="badge b-red">지연</span>' : ''}${it.extra || ''}
       <span class="wk-site" title="${esc(it.site||'')}">${esc(it.site||'-')}</span>
     </div>`;
 
@@ -200,36 +207,44 @@ function renderDashWeek(){
     time: i.occurred_at ? i.occurred_at.slice(5,10).replace('-','/') : '',
     extra:`<span class="badge ${INC_SEV_CLS[i.severity]||'b-gray'}">${esc(i.severity)}</span><span class="badge ${INC_ST_CLS[i.status]||'b-gray'}">${esc(i.status)}</span>`,
     open:`openEditIncident('${i.id}')`}))});
-  const late = isNext ? [] : items.filter(i => i.day < today).sort((a,b) => a.day.localeCompare(b.day));
-  if(late.length) groups.push({cls:'late', head:`지연 ${late.length}건 <span class="wk-meta">날짜가 지났지만 미완료</span>`,
+  // 이번 주 월요일 이전에 못 끝낸 일정
+  const late = isNext ? [] : items.filter(i => !i.done && i.day < start).sort((a,b) => a.day.localeCompare(b.day));
+  if(late.length) groups.push({cls:'late', head:`지연 ${late.length}건 <span class="wk-meta">지난주 이전 일정인데 미완료</span>`,
     rows: late.map(it => row({...it, time: it.day.slice(5).replace('-','/') + (it.time ? ' ' + it.time : '')}))});
   const [sy, sm, sd] = start.split('-').map(Number);
-  let shown = 0;
+  let shown = 0, doneCnt = 0;
   for(let n = 0; ; n++){
     const day = _ymd(new Date(sy, sm-1, sd+n));
     if(day > end) break;
-    const its = items.filter(i => i.day === day).sort((a,b) => (a.time||'').localeCompare(b.time||''));
+    const its = items.filter(i => i.day === day).sort((a,b) => (a.done - b.done) || (a.time||'').localeCompare(b.time||''));
+    if(!its.length) continue;
     shown += its.length;
-    if(its.length) groups.push({cls: day === today ? 'today' : '', head: _dayLabel(day, today), rows: its.map(row)});
+    const dn = its.filter(i => i.done).length;
+    doneCnt += dn;
+    const past = day < today;
+    groups.push({cls: day === today ? 'today' : past ? 'past' : '',
+      head: `${_dayLabel(day, today)}<span class="wk-meta">${dn === its.length ? '✓ 모두 완료' : dn ? `${dn}/${its.length} 완료` : `${its.length}건`}</span>`,
+      rows: its.map(it => row({...it, lateTag: past && !it.done}))});
   }
 
-  const cnt = incs.length + late.length + shown;
-  $('dash-week-cnt').textContent = cnt ? `${cnt}건` : '';
+  const total = incs.length + late.length + shown;
+  $('dash-week-cnt').innerHTML = !total ? '' : isNext ? `${total}건`
+    : `<span class="${doneCnt === total ? 'ok' : ''}">${doneCnt}/${total} 완료</span>`;
   el.innerHTML = groups.length
     ? groups.map(g => `<div class="wk-group ${g.cls}"><div class="wk-head">${g.head}</div>${g.rows.join('')}</div>`).join('')
-    : `<div class="empty">${isNext ? '다음 주' : '이번 주'}에 예정된 일이 없습니다</div>`;
+    : `<div class="empty">${isNext ? '다음 주' : '이번 주'}에 예정된 일정이 없습니다</div>`;
 }
 
+// 이번 주 일정의 점검 체크박스: 체크하면 완료, 풀면 예정으로 되돌림
 async function weekDoneSched(id, el){
+  const toDone = el ? el.checked : true;
   try {
-    const r = await fetch(`/api/engineers/${ENG_ID}/schedules/${id}`, {
-      method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status:'완료' }) });
-    if(!r.ok) throw new Error(`HTTP ${r.status}`);
-    toast('점검 완료 처리됨');
+    await _apiSend('PATCH', `/api/engineers/${ENG_ID}/schedules/${id}`, { status: toDone ? '완료' : '예정' });
+    toast(toDone ? '점검 완료 처리됨' : '완료 취소됨');
   } catch(e) {
-    console.error('점검 완료 처리 실패:', e);
-    toast('완료 처리 실패: 서버 오류가 발생했습니다.');
-    if(el) el.checked = false;
+    console.error('점검 상태 변경 실패:', e);
+    toast('변경 실패: ' + e.message);
+    if(el) el.checked = !toDone;
     return;
   }
   _schedHistory = [];
@@ -523,6 +538,7 @@ async function saveSched(){
   closeModal('modal-add-sched');
   _refreshDash();
   if($('page-schedule-mgmt').classList.contains('active')) renderSchedMgmt();
+  if($('page-sched-history').classList.contains('active')) renderSchedHistory();
   toast(id?'일정 수정됨':'일정 등록됨');
 }
 
@@ -2070,7 +2086,7 @@ async function downloadWeeklyReport(){
     const blob = await r.blob();
     const cd = r.headers.get('Content-Disposition') || '';
     const m = cd.match(/filename\*=UTF-8''([^;]+)/);
-    const name = m ? decodeURIComponent(m[1]) : `주간보고서_${_wrStart}.xlsx`;
+    const name = m ? decodeURIComponent(m[1]) : `서비스지원본부_${ENG_NAME}_주간보고-${_ymd(new Date()).slice(2).replace(/-/g,"")}.xlsx`;
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
@@ -2085,153 +2101,216 @@ async function downloadWeeklyReport(){
 }
 
 // ── 점검 일정 관리 페이지 ──────────────────
-let _smTab  = 'monthly';
-let _smYear = new Date().getFullYear();
+let _smYM = _ymd(new Date()).slice(0, 7);   // 보고 있는 달 "YYYY-MM"
+let _smType = '';                            // 유형 탭 ('' = 전체)
+const _smData = {};                          // 연도별 일정 캐시
+const SCHED_TYPE_CLS = {월간:'b-monthly', 분기:'b-quarterly', 특별:'b-special'};
+const _schedBase = () => `/api/engineers/${ENG_ID}/schedules`;
 
-function smYear(delta){
-  _smYear += delta;
-  $('sm-year-label').textContent = _smYear;
-  renderSchedMgmt();
+async function _smLoad(year, force){
+  if(force || !_smData[year]) _smData[year] = await _apiSend('GET', `${_schedBase()}/all?year=${year}`);
+  _smData[year].forEach(s => { _schedById[s.id] = s; });
+  return _smData[year];
 }
-
-function switchSchedMgmtTab(tab){
-  _smTab = tab;
-  document.querySelectorAll('.sm-tab').forEach(t=>t.classList.toggle('active',t.dataset.smtab===tab));
-  renderSchedMgmt();
+function _smDateLabel(day){   // "11/18 (수)"
+  const [y, m, d] = day.slice(0, 10).split('-').map(Number);
+  return `${m}/${d} (${_WD[new Date(y, m - 1, d).getDay()]})`;
 }
-
-function _smRow(s){
-  _schedById[s.id] = s;
-  const typCls={월간:'b-monthly',분기:'b-quarterly',특별:'b-special'};
-  const stCls={예정:'b-planned',완료:'b-done'};
-  const done = s.status==='완료';
-  return `<div class="sm-row">
-    <span class="sm-date">${s.sched_date.slice(5)}</span>
-    <span class="sm-site" style="${done?'text-decoration:line-through;color:#bbb':''}">${s.site_name}</span>
-    <span class="sm-title" style="${done?'text-decoration:line-through;color:#bbb':''}">${s.title}</span>
-    <span class="badge ${typCls[s.sched_type]||'b-gray'}" style="flex-shrink:0">${s.sched_type}</span>
-    <button class="ds-check-btn ${done?'checked':''}" onclick="toggleSchedStatusMgmt('${s.id}','${s.status}')" title="${done?'완료 취소':'완료 처리'}" style="flex-shrink:0">
-      ${done
-        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14"><polyline points="20 6 9 17 4 12"/></svg>'
-        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="opacity:.3"><polyline points="20 6 9 17 4 12"/></svg>'}
-    </button>
-    <div style="display:flex;gap:2px;flex-shrink:0">
-      ${_schedWorkPlans.some(p => p.id === s.id) ? `<button class="btn btn-sm" style="padding:2px 4px;font-size:10px;color:#16a34a;border-color:#16a34a;margin-right:4px;" title="계획서 엑셀 다운로드" onclick="downloadWorkPlanExcel('${s.id}')">Excel</button>` : ''}
-      <button class="icon-btn edit" title="수정" onclick="openEditSched('${s.id}')">${ICO_EDIT}</button>
-      <button class="icon-btn del"  title="삭제" onclick="deleteSchedAndRefresh('${s.id}')">${ICO_DEL}</button>
-    </div>
-  </div>`;
+function smMove(delta){
+  const [y, m] = _smYM.split('-').map(Number);
+  smGo(_ymd(new Date(y, m - 1 + delta, 1)).slice(0, 7));
 }
+function smGo(ym){ _smYM = ym; renderSchedMgmt(false); }
+function smToday(){ smGo(_ymd(new Date()).slice(0, 7)); }
+function smSetType(t){ _smType = t; drawSchedMgmt(); }
 
-function _smProgressBar(done, total, color){
-  const pct = total ? Math.round(done/total*100) : 0;
-  return `<div style="display:flex;align-items:center;gap:8px;flex:1">
-    <div style="flex:1;max-width:160px;background:#e8e8e4;border-radius:4px;height:6px;overflow:hidden">
-      <div style="height:100%;border-radius:4px;background:${pct===100?'#16a34a':color};width:${pct}%;transition:width .3s"></div>
-    </div>
-    <span style="font-size:11px;font-weight:600;color:${pct===100?'#16a34a':'#888'}">${done}/${total}</span>
-  </div>`;
-}
-
-async function renderSchedMgmt(){
-  $('sm-year-label').textContent = _smYear;
-  const all = await api.get(`/api/engineers/${ENG_ID}/schedules/all?year=${_smYear}`);
-  await loadSchedWorkPlans();
-  const el  = $('sm-content');
-
-  // 연간 요약 통계 — 현재 탭 기준으로 표시
-  const monthly  = all.filter(s=>s.sched_type==='월간');
-  const quarterly= all.filter(s=>s.sched_type==='분기');
-  const special  = all.filter(s=>s.sched_type==='특별');
-  const viewItems= _smTab==='monthly'
-    ? all.filter(s=>s.sched_type==='월간'||s.sched_type==='특별')
-    : all.filter(s=>s.sched_type==='분기'||s.sched_type==='특별');
-  const totalView= viewItems.length;
-  const doneView = viewItems.filter(s=>s.status==='완료').length;
-  const pctView  = totalView ? Math.round(doneView/totalView*100) : 0;
-  const tabLabel = _smTab==='monthly' ? '월간' : '분기';
-  const barColor = _smTab==='monthly' ? '#378ADD' : '#7c3aed';
-
-  const summaryHtml = `
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px">
-      <div class="metric"><div class="metric-label">${tabLabel} 전체 일정</div><div class="metric-value">${totalView}건</div>
-        <div class="prog-wrap"><div class="prog-bar" style="width:${pctView}%;background:${pctView===100?'#16a34a':barColor}"></div></div></div>
-      <div class="metric"><div class="metric-label">완료</div><div class="metric-value" style="color:#16a34a">${doneView}건</div>
-        <div style="font-size:11px;color:#888;margin-top:3px">${pctView}% 달성</div></div>
-      <div class="metric"><div class="metric-label">월간 점검</div><div class="metric-value">${monthly.length}건</div>
-        <div style="font-size:11px;color:#888;margin-top:3px">${monthly.filter(s=>s.status==='완료').length}건 완료</div></div>
-      <div class="metric"><div class="metric-label">분기 점검</div><div class="metric-value">${quarterly.length}건</div>
-        <div style="font-size:11px;color:#888;margin-top:3px">${quarterly.filter(s=>s.status==='완료').length}건 완료</div></div>
-    </div>`;
-
-  if(_smTab === 'monthly'){
-    // 월별 뷰 — 월간 + 특별 유형만 표시
-    const monthNames=['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
-    const curM = new Date().getFullYear()===_smYear ? new Date().getMonth() : -1;
-    el.innerHTML = summaryHtml + monthNames.map((name,i)=>{
-      const ym    = `${_smYear}-${String(i+1).padStart(2,'0')}`;
-      // 월별은 월간 + 특별 유형만
-      const items = all.filter(s=>s.sched_date.startsWith(ym) && (s.sched_type==='월간'||s.sched_type==='특별'));
-      const done  = items.filter(s=>s.status==='완료').length;
-      const isCur = i===curM;
-      const pct   = items.length ? Math.round(done/items.length*100) : 0;
-      return `<div class="card" style="margin-bottom:8px;${isCur?'border-color:#378ADD;box-shadow:0 0 0 2px #dbeafe':''}">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:${items.length?'10px':'0'}">
-          <div style="display:flex;align-items:center;gap:6px;min-width:60px">
-            ${isCur?'<span style="width:8px;height:8px;border-radius:50%;background:#378ADD;flex-shrink:0"></span>':'<span style="width:8px;height:8px;flex-shrink:0"></span>'}
-            <span style="font-size:14px;font-weight:700;color:${isCur?'#185FA5':'#1a1a1a'}">${name}</span>
-          </div>
-          ${items.length ? _smProgressBar(done,items.length,'#378ADD') : '<span style="font-size:12px;color:#bbb;flex:1">월간 일정 없음</span>'}
-          ${items.length ? `<span class="badge ${pct===100?'b-done':'b-gray'}" style="font-size:10px">${pct===100?'✓ 완료':'진행중'}</span>` : ''}
-          ${isCur?'<span class="badge b-blue" style="font-size:10px">이번 달</span>':''}
-        </div>
-        ${items.length ? `<div style="border-top:1px solid #f0f0ee;padding-top:4px">${items.map(s=>_smRow(s)).join('')}</div>` : ''}
-      </div>`;
-    }).join('');
-  } else {
-    // 분기별 뷰 — 분기 + 특별 유형만 표시 (월간 완전 제외)
-    const qInfo=[
-      {q:1,label:'1분기',sub:'1~3월',cls:'sm-q1',barColor:'#f97316',months:['01','02','03']},
-      {q:2,label:'2분기',sub:'4~6월',cls:'sm-q2',barColor:'#22c55e',months:['04','05','06']},
-      {q:3,label:'3분기',sub:'7~9월',cls:'sm-q3',barColor:'#a855f7',months:['07','08','09']},
-      {q:4,label:'4분기',sub:'10~12월',cls:'sm-q4',barColor:'#3b82f6',months:['10','11','12']},
-    ];
-    const curQ = Math.ceil((new Date().getMonth()+1)/3);
-    el.innerHTML = summaryHtml + qInfo.map(qi=>{
-      // 분기별은 분기 + 특별 유형만 — 월간 완전 제외
-      const items = all.filter(s=>
-        qi.months.some(m=>s.sched_date.startsWith(`${_smYear}-${m}`)) &&
-        (s.sched_type==='분기'||s.sched_type==='특별')
-      );
-      const done   = items.filter(s=>s.status==='완료').length;
-      const isCurQ = qi.q===curQ && new Date().getFullYear()===_smYear;
-      return `<div class="card" style="margin-bottom:14px;${isCurQ?'border-color:'+qi.barColor+';box-shadow:0 0 0 2px '+qi.barColor+'22':''}">
-        <div class="sm-quarter-header ${qi.cls}" style="margin-bottom:${items.length?'12px':'0'}">
-          <div style="display:flex;flex-direction:column;gap:2px;min-width:90px">
-            <span class="sm-quarter-title">${qi.label} ${isCurQ?'<span style="font-size:11px;font-weight:400;opacity:.7">(현재)</span>':''}</span>
-            <span style="font-size:11px;opacity:.7">${qi.sub}</span>
-          </div>
-          ${items.length ? _smProgressBar(done,items.length,qi.barColor) : '<span style="font-size:12px;color:#bbb;flex:1">분기 일정 없음</span>'}
-          ${items.length ? `<span class="badge" style="font-size:10px;background:${qi.barColor}22;color:${qi.barColor};border:1px solid ${qi.barColor}44">${items.length}건</span>` : ''}
-        </div>
-        ${items.length ? `<div style="border-top:1px solid #f0f0ee;padding-top:4px">${items.map(s=>_smRow(s)).join('')}</div>` : ''}
-      </div>`;
-    }).join('');
+async function renderSchedMgmt(force = true){
+  const year = _smYM.slice(0, 4);
+  try {
+    await _smLoad(year, force);
+    await loadSchedWorkPlans();
+  } catch(e){
+    $('sm-content').innerHTML = `<div class="empty">점검 일정을 불러오지 못했습니다: ${esc(e.message)}</div>`;
+    return;
   }
+  drawSchedMgmt();
 }
 
-async function toggleSchedStatusMgmt(id, currentStatus){
-  const newStatus = currentStatus==='완료'?'예정':'완료';
-  await api.patch(`/api/engineers/${ENG_ID}/schedules/${id}`,{status:newStatus});
+function drawSchedMgmt(){
+  const year = _smYM.slice(0, 4), mon = Number(_smYM.slice(5, 7));
+  const all = _smData[year] || [];
+  const today = _ymd(new Date()), nowYM = today.slice(0, 7);
+  const isLate = s => s.status !== '완료' && s.sched_date.slice(0, 10) < today;
+  const month = all.filter(s => s.sched_date.startsWith(_smYM));
+  $('sm-label').textContent = `${year}년 ${mon}월`;
+  $('sm-today-btn').style.visibility = _smYM === nowYM ? 'hidden' : 'visible';
+
+  // 이 달 요약
+  const done = month.filter(s => s.status === '완료').length, late = month.filter(isLate).length;
+  const pct = month.length ? Math.round(done / month.length * 100) : 0;
+  $('sm-summary').innerHTML = `
+    <div class="metric m-gray"><div class="metric-label">${mon}월 전체</div><div class="metric-value">${month.length}<small>건</small></div></div>
+    <div class="metric m-green"><div class="metric-label">완료</div><div class="metric-value">${done}<small>건 (${pct}%)</small></div>
+      <div class="prog-wrap"><div class="prog-bar" style="width:${pct}%;background:#22c55e"></div></div></div>
+    <div class="metric m-blue"><div class="metric-label">남음</div><div class="metric-value">${month.length - done}<small>건</small></div></div>
+    <div class="metric m-red"><div class="metric-label">지연</div><div class="metric-value" style="${late ? 'color:#dc2626' : ''}">${late}<small>건</small></div></div>`;
+
+  // 12개월 띠
+  $('sm-months').innerHTML = Array.from({length: 12}, (_, i) => {
+    const ym = `${year}-${String(i + 1).padStart(2, '0')}`;
+    const its = all.filter(s => s.sched_date.startsWith(ym)), dn = its.filter(s => s.status === '완료').length;
+    const cls = [ym === _smYM ? 'active' : '', ym === nowYM ? 'cur' : '', !its.length ? 'none' : dn === its.length ? 'full' : its.some(isLate) ? 'late' : ''].join(' ');
+    return `<button class="sm-mon ${cls}" onclick="smGo('${ym}')" title="${i + 1}월${its.length ? ` · 완료 ${dn}/${its.length}` : ' · 일정 없음'}">
+      <span class="sm-mon-name">${i + 1}월</span><span class="sm-mon-cnt">${its.length ? `${dn}/${its.length}` : '-'}</span></button>`;
+  }).join('');
+
+  // 유형 탭 · 사이트 선택
+  $('sm-types').innerHTML = ['', '월간', '분기', '특별'].map(t =>
+    `<button class="svh-tab ${_smType === t ? 'active' : ''}" onclick="smSetType('${t}')">${t || '전체'} ${month.filter(s => !t || s.sched_type === t).length}</button>`).join('');
+  const sel = $('sm-site'), prev = sel.value;
+  const sites = [...new Map(month.map(s => [s.site_id, s.site_name])).entries()].sort((a, b) => a[1].localeCompare(b[1], 'ko'));
+  sel.innerHTML = '<option value="">전체 사이트</option>' + sites.map(([id, name]) => `<option value="${id}">${esc(name)}</option>`).join('');
+  if(sites.some(([id]) => id === prev)) sel.value = prev;
+
+  const list = month.filter(s => (!_smType || s.sched_type === _smType) && (!sel.value || s.site_id === sel.value))
+    .sort((a, b) => a.sched_date.localeCompare(b.sched_date) || a.site_name.localeCompare(b.site_name, 'ko'));
+
+  const row = s => {
+    const isDone = s.status === '완료', day = s.sched_date.slice(0, 10);
+    const lateDays = isLate(s) ? _daysBetween(day, today) : 0;
+    const hasPlan = _schedWorkPlans.some(p => p.id === s.id);
+    return `<tr class="${isDone ? 'done' : ''} ${day === today ? 'today' : ''}">
+      <td class="sm-d">${_smDateLabel(day)}${day === today && !isDone ? '<span class="badge b-blue">오늘</span>' : ''}${lateDays ? `<span class="badge b-red">지연 D+${lateDays}</span>` : ''}</td>
+      <td class="sm-s" title="${esc(s.site_name)}">${esc(s.site_name)}</td>
+      <td class="sm-t">${esc(s.title)}</td>
+      <td class="c"><span class="badge ${SCHED_TYPE_CLS[s.sched_type] || 'b-gray'}">${esc(s.sched_type || '-')}</span></td>
+      <td class="sm-memo" title="${esc(s.memo)}">${esc(s.memo)}</td>
+      <td class="c"><button class="ds-check-btn ${isDone ? 'checked' : ''}" onclick="toggleSchedStatusMgmt('${s.id}')" title="${isDone ? '완료 취소' : '완료 처리'}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14" ${isDone ? '' : 'style="opacity:.3"'}><polyline points="20 6 9 17 4 12"/></svg></button></td>
+      <td class="c cl-act">${hasPlan ? `<button class="btn btn-sm sm-xls" title="작업계획서 엑셀 내려받기" onclick="downloadWorkPlanExcel('${s.id}')">Excel</button>` : ''}<button class="icon-btn edit" title="수정" onclick="openEditSched('${s.id}')">${ICO_EDIT}</button><button class="icon-btn del" title="삭제" onclick="deleteSchedAndRefresh('${s.id}')">${ICO_DEL}</button></td>
+    </tr>`;
+  };
+  const emptyMsg = !month.length
+    ? `${mon}월에 등록된 점검 일정이 없습니다<br><button class="btn btn-sm" style="margin-top:10px" onclick="openSchedCopy()">이전 달 일정 복사</button>`
+    : '조건에 맞는 일정이 없습니다';
+  // 표 상자 하나: 위쪽 줄(일정 목록 제목 + 유형·사이트 필터 + 진행 상황) → 열 제목 → 일정
+  const cols = '<colgroup><col style="width:140px"><col style="width:21%"><col><col style="width:74px"><col style="width:21%"><col style="width:64px"><col style="width:140px"></colgroup>';
+  $('sm-panel-title').textContent = `${mon}월 점검 일정`;
+  $('sm-panel-info').innerHTML = (list.length !== month.length ? `<span class="sh-mon-note">${list.length}건 표시 중</span>` : '')
+    + (late ? `<span class="sh-mon-cnt late">지연 ${late}건</span>` : '')
+    + (month.length ? `<span class="sh-mon-cnt">${done}/${month.length} 완료</span>` : '');
+  $('sm-content').innerHTML = `<table class="cl-table sm-table sh-table sh-inhead">${cols}
+    <thead><tr><th>점검일</th><th>사이트</th><th>제목</th><th class="c">유형</th><th>메모</th><th class="c">완료</th><th class="c">관리</th></tr></thead>
+    <tbody>${list.length ? list.map(row).join('') : `<tr class="cl-msg"><td colspan="7">${emptyMsg}</td></tr>`}</tbody></table>`;
+}
+
+async function toggleSchedStatusMgmt(id){
+  const s = _schedById[id];
+  if(!s) return;
+  const next = s.status === '완료' ? '예정' : '완료';
+  try { await _apiSend('PATCH', `${_schedBase()}/${id}`, {status: next}); }
+  catch(e){ toast('변경 실패: ' + e.message); return; }
   _schedHistory = [];
-  renderSchedMgmt();
+  await renderSchedMgmt();
   _refreshDash();
+  toast(next === '완료' ? '완료 처리됨' : '완료 취소됨');
 }
 
 async function deleteSchedAndRefresh(id){
-  if(!confirm('점검 일정을 삭제하시겠습니까?'))return;
-  await api.del(`/api/engineers/${ENG_ID}/schedules/${id}`);
-  renderSchedMgmt(); toast('삭제됨');
+  const s = _schedById[id];
+  if(!confirm(`${s ? `"${s.site_name} - ${s.title}" ` : ''}점검 일정을 삭제하시겠습니까?`)) return;
+  try { await _apiSend('DELETE', `${_schedBase()}/${id}`); }
+  catch(e){ toast('삭제 실패: ' + e.message); return; }
+  _schedWpLoaded = false;
+  await renderSchedMgmt(); _refreshDash(); toast('삭제됨');
+}
+
+// ── 이전 달 일정 복사 ─────────────────────
+let _smCopyRows = [];
+// 같은 주차·같은 요일로 옮김 (예: 둘째 주 화요일 → 둘째 주 화요일). 달을 넘기면 한 주 당김.
+function _smShiftDate(src, targetYM){
+  const [y, m, d] = src.slice(0, 10).split('-').map(Number);
+  const wd = new Date(y, m - 1, d).getDay(), nth = Math.floor((d - 1) / 7);
+  const [ty, tm] = targetYM.split('-').map(Number);
+  const first = 1 + (wd - new Date(ty, tm - 1, 1).getDay() + 7) % 7;
+  const last = new Date(ty, tm, 0).getDate();
+  let day = first + nth * 7;
+  while(day > last) day -= 7;
+  return `${targetYM}-${String(day).padStart(2, '0')}`;
+}
+// 제목 앞의 "06월" 같은 달 표기를 대상 달로 바꿈
+function _smShiftTitle(title, srcYM, targetYM){
+  const sm = Number(srcYM.slice(5, 7)), tm = Number(targetYM.slice(5, 7));
+  return title.replace(/^(\s*)(\d{1,2})월/, (all, sp, n) => Number(n) === sm ? `${sp}${n.length === 2 ? String(tm).padStart(2, '0') : tm}월` : all);
+}
+async function openSchedCopy(){
+  const [y] = _smYM.split('-').map(Number);
+  let rows;
+  try { rows = [...await _smLoad(String(y - 1), false), ...await _smLoad(String(y), false)]; }
+  catch(e){ toast('조회 실패: ' + e.message); return; }
+  const months = [...new Set(rows.map(s => s.sched_date.slice(0, 7)))].filter(ym => ym < _smYM).sort().reverse();
+  if(!months.length){ toast('복사할 이전 달 일정이 없습니다'); return; }
+  $('smc-title').textContent = `${Number(_smYM.slice(5, 7))}월 일정으로 복사`;
+  $('smc-src').innerHTML = months.map(ym => `<option value="${ym}">${ym.slice(0, 4)}년 ${Number(ym.slice(5, 7))}월 (${rows.filter(s => s.sched_date.startsWith(ym)).length}건)</option>`).join('');
+  $('smc-plan').checked = true;
+  drawSchedCopy();
+  openModal('modal-sched-copy');
+}
+function drawSchedCopy(){
+  const srcYM = $('smc-src').value;
+  const src = (_smData[srcYM.slice(0, 4)] || []).filter(s => s.sched_date.startsWith(srcYM))
+    .sort((a, b) => a.sched_date.localeCompare(b.sched_date));
+  const target = (_smData[_smYM.slice(0, 4)] || []).filter(s => s.sched_date.startsWith(_smYM));
+  _smCopyRows = src.map(s => {
+    const dup = target.some(t => t.site_id === s.site_id && t.sched_type === s.sched_type);
+    return {src: s, dup, on: !dup && s.sched_type === '월간',
+            title: _smShiftTitle(s.title, srcYM, _smYM), date: _smShiftDate(s.sched_date, _smYM)};
+  });
+  $('smc-list').innerHTML = `<div class="cl-panel" style="margin-bottom:0"><table class="cl-table">
+    <thead><tr><th class="c" style="width:46px"><input type="checkbox" id="smc-all" title="전체 선택" onchange="smcToggleAll(this.checked)"></th>
+      <th style="width:24%">사이트</th><th>제목</th><th style="width:66px">유형</th><th style="width:104px">원래 날짜</th><th style="width:210px">새 점검일</th></tr></thead>
+    <tbody>${_smCopyRows.map((r, i) => `<tr>
+      <td class="c"><input type="checkbox" id="smc-chk-${i}" ${r.on ? 'checked' : ''} onchange="smcCount()"></td>
+      <td class="sm-s">${esc(r.src.site_name)}${r.dup ? '<div class="smc-note">이 달에 이미 등록됨</div>' : r.src.sched_type !== '월간' ? '<div class="smc-note">월간이 아니라 선택 해제됨</div>' : ''}</td>
+      <td><input type="text" class="smc-in" id="smc-title-${i}" value="${esc(r.title)}"></td>
+      <td><span class="badge ${SCHED_TYPE_CLS[r.src.sched_type] || 'b-gray'}">${esc(r.src.sched_type || '-')}</span></td>
+      <td class="pj-period">${_smDateLabel(r.src.sched_date)}</td>
+      <td><div class="smc-date"><input type="date" class="smc-in" id="smc-date-${i}" value="${r.date}" onchange="smcWd(${i})"><span id="smc-wd-${i}">(${_WD[new Date(r.date + 'T00:00:00').getDay()]})</span></div></td>
+    </tr>`).join('')}</tbody></table></div>`;
+  smcCount();
+}
+function smcWd(i){
+  const v = $(`smc-date-${i}`).value;
+  $(`smc-wd-${i}`).textContent = v ? `(${_WD[new Date(v + 'T00:00:00').getDay()]})` : '';
+}
+function smcToggleAll(on){
+  _smCopyRows.forEach((_, i) => { $(`smc-chk-${i}`).checked = on; });
+  smcCount();
+}
+function smcCount(){
+  const n = _smCopyRows.filter((_, i) => $(`smc-chk-${i}`).checked).length;
+  $('smc-save').textContent = `선택한 ${n}건 등록`;
+  $('smc-save').disabled = !n;
+  $('smc-all').checked = n === _smCopyRows.length && n > 0;
+}
+async function saveSchedCopy(){
+  const withPlan = $('smc-plan').checked, items = [];
+  for(const [i, r] of _smCopyRows.entries()){
+    if(!$(`smc-chk-${i}`).checked) continue;
+    const title = $(`smc-title-${i}`).value.trim(), date = $(`smc-date-${i}`).value;
+    if(!title || !date){ toast(`${r.src.site_name}: 제목과 점검일을 입력해주세요`); return; }
+    items.push({site_id: r.src.site_id, title, sched_date: date, sched_type: r.src.sched_type, memo: '',
+                copy_plan_from: withPlan ? r.src.id : null});
+  }
+  if(!items.length) return;
+  const btn = $('smc-save'); btn.disabled = true;
+  try { await _apiSend('POST', `${_schedBase()}/bulk`, {items}); }
+  catch(e){ toast('등록 실패: ' + e.message); btn.disabled = false; return; }
+  closeModal('modal-sched-copy');
+  _schedWpLoaded = false;
+  Object.keys(_smData).forEach(k => delete _smData[k]);
+  await renderSchedMgmt(); _refreshDash();
+  toast(`점검 일정 ${items.length}건 등록됨`);
 }
 
 // ── Init ──────────────────────────────────
@@ -2646,44 +2725,68 @@ async function deleteTask(tid) {
 
 // ── SCHED HISTORY ─────────────────────────────
 let _schedHistory = [];
+let _shPage = 1;
+const SH_PAGE_SIZE = 20;
+
 async function renderSchedHistory(){
-  if (!$('sh-search').value) {
-     _schedHistory = await api.get(`/api/engineers/${ENG_ID}/schedules/history`);
-  }
-  const q = $('sh-search').value.toLowerCase().trim();
-  const filtered = _schedHistory.filter(s => (s.site_name||'').toLowerCase().includes(q) || (s.title||'').toLowerCase().includes(q));
-  
-  const el = $('sh-list');
-  if(!filtered.length){
-    el.innerHTML='<div class="empty">완료된 점검 이력이 없습니다</div>';
+  try {
+    _schedHistory = await _apiSend('GET', `${_schedBase()}/history`);
+    await loadSchedWorkPlans();
+  } catch(e){
+    $('sh-list').innerHTML = `<div class="empty">점검 이력을 불러오지 못했습니다: ${esc(e.message)}</div>`;
     return;
   }
-  
-  const typCls={월간:'b-monthly',분기:'b-quarterly',특별:'b-special'};
-  
-  el.innerHTML=`<table class="tbl">
-    <thead><tr><th>점검일</th><th>사이트</th><th>제목</th><th>구분</th><th>메모</th><th>상태 변경</th></tr></thead>
-    <tbody>
-      ${filtered.map(s=>`<tr>
-        <td class="mono" style="min-width:90px">${s.sched_date}</td>
-        <td style="font-weight:600;min-width:120px">${s.site_name}</td>
-        <td style="min-width:150px">${s.title}</td>
-        <td><span class="badge ${typCls[s.sched_type]||'b-gray'}">${s.sched_type}</span></td>
-        <td style="font-size:12px;color:#666">${s.memo||''}</td>
-        <td style="min-width:80px">
-          <button class="btn btn-sm" onclick="revertSchedHistory('${s.id}')">예정으로 변경</button>
-        </td>
-      </tr>`).join('')}
-    </tbody>
-  </table>`;
+  _schedHistory.forEach(s => { _schedById[s.id] = s; });
+  // 연도 선택 채우기 (고른 값은 유지, 처음에는 올해)
+  const ySel = $('sh-year'), py = ySel.value, first = !ySel.options.length;
+  const years = [...new Set(_schedHistory.map(s => s.sched_date.slice(0, 4)))].sort().reverse();
+  ySel.innerHTML = '<option value="">전체 연도</option>' + years.map(y => `<option value="${y}">${y}년</option>`).join('');
+  const thisYear = String(new Date().getFullYear());
+  ySel.value = first ? (years.includes(thisYear) ? thisYear : '') : (years.includes(py) ? py : '');
+  drawSchedHistory(1);
 }
 
-async function revertSchedHistory(id) {
-  if(!confirm('이 점검을 다시 예정 상태로 변경하시겠습니까?')) return;
-  await api.patch(`/api/engineers/${ENG_ID}/schedules/${id}`, {status: '예정'});
-  _schedHistory = [];
-  renderSchedHistory();
-  toast('상태가 변경되었습니다');
+function drawSchedHistory(page){
+  if(page) _shPage = page;
+  const year = $('sh-year').value, q = $('sh-search').value.toLowerCase().trim();
+  const base = _schedHistory.filter(s => (!year || s.sched_date.startsWith(year))
+    && (!q || (s.site_name || '').toLowerCase().includes(q) || (s.title || '').toLowerCase().includes(q) || (s.memo || '').toLowerCase().includes(q)));
+
+  // 사이트 선택: 이름 옆에 완료 횟수 표시 (고른 값은 유지)
+  const sSel = $('sh-site'), ps = sSel.value;
+  const cnt = new Map();
+  base.forEach(s => cnt.set(s.site_id, {name: s.site_name, n: (cnt.get(s.site_id)?.n || 0) + 1}));
+  const sites = [...cnt.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name, 'ko'));
+  sSel.innerHTML = `<option value="">전체 사이트 (${base.length})</option>` + sites.map(([id, v]) => `<option value="${id}">${esc(v.name)} (${v.n})</option>`).join('');
+  if(cnt.has(ps)) sSel.value = ps;
+  const site = sSel.value;
+
+  const list = base.filter(s => !site || s.site_id === site);
+  $('sh-count').textContent = `완료 ${list.length}건`;
+
+  const pages = Math.max(1, Math.ceil(list.length / SH_PAGE_SIZE));
+  if(_shPage > pages) _shPage = pages;
+  const rows = list.slice((_shPage - 1) * SH_PAGE_SIZE, _shPage * SH_PAGE_SIZE);
+
+  const cols = '<colgroup><col style="width:124px"><col style="width:28%"><col><col style="width:74px"><col style="width:124px"></colgroup>';
+  const row = s => {
+    const hasPlan = _schedWorkPlans.some(p => p.id === s.id);
+    return `<tr>
+      <td class="sm-d">${_smDateLabel(s.sched_date)}</td>
+      <td class="sm-s" title="${esc(s.site_name)}">${esc(s.site_name)}</td>
+      <td class="sm-t">${esc(s.title)}${s.memo ? `<div class="sh-memo">${esc(s.memo)}</div>` : ''}</td>
+      <td class="c"><span class="badge ${SCHED_TYPE_CLS[s.sched_type] || 'b-gray'}">${esc(s.sched_type || '-')}</span></td>
+      <td class="c cl-act">${hasPlan ? `<button class="btn btn-sm sm-xls" title="작업계획서 엑셀 내려받기" onclick="downloadWorkPlanExcel('${s.id}')">Excel</button>` : ''}<button class="icon-btn edit" title="수정 (상태를 예정으로 되돌릴 때도 여기서)" onclick="openEditSched('${s.id}')">${ICO_EDIT}</button></td>
+    </tr>`;
+  };
+  // 표 상자 하나: 위쪽 줄(필터) → 열 제목 → 달 구분 줄 + 그 달의 점검 (최근 달이 위)
+  const months = [...new Set(rows.map(s => s.sched_date.slice(0, 7)))];
+  const body = months.map(ym => `<tr class="sh-grp"><td colspan="5"><span class="sh-month-name">${ym.slice(0, 4)}년 ${Number(ym.slice(5, 7))}월</span><span class="sh-grp-cnt">${list.filter(x => x.sched_date.startsWith(ym)).length}건 완료</span></td></tr>`
+    + rows.filter(s => s.sched_date.startsWith(ym)).map(row).join('')).join('');
+  $('sh-list').innerHTML = `<table class="cl-table sm-table sh-table sh-inhead">${cols}
+    <thead><tr><th>점검일</th><th>사이트</th><th>제목 / 메모</th><th class="c">유형</th><th class="c">관리</th></tr></thead>
+    <tbody>${body || `<tr class="cl-msg"><td colspan="5">${_schedHistory.length ? '조건에 맞는 점검 이력이 없습니다' : '완료된 점검 이력이 없습니다'}</td></tr>`}</tbody></table>`;
+  renderPagination('sh-page', list.length, _shPage, 'drawSchedHistory', SH_PAGE_SIZE);
 }
 
 // ── TECH NOTES ──────────────────────────────

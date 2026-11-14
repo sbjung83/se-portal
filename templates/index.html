@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=8">
+<link rel="stylesheet" href="/static/css/style.css?v=16">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -130,11 +130,11 @@
       <div class="page-title" id="dash-title">대시보드</div>
       <div class="grid4" id="dash-metrics"></div>
       <div class="dash-body">
-        <!-- 왼쪽 6 : 이번 주 할 일, 사이트 체크리스트 -->
+        <!-- 왼쪽 6 : 이번 주 일정, 사이트 체크리스트 -->
         <div class="dash-left">
           <div class="card dash-card dc-week">
             <div class="dash-card-title">
-              <span><span id="dash-week-title">이번 주 할 일</span> <span id="dash-week-cnt" class="dcl-summary"></span></span>
+              <span><span id="dash-week-title">이번 주 일정</span> <span id="dash-week-cnt" class="dcl-summary"></span></span>
               <span style="display:flex;align-items:center;gap:8px">
                 <span id="dash-week-range" class="dash-range"></span>
                 <span class="svh-tabs">
@@ -219,19 +219,29 @@
     <!-- SCHEDULE MGMT -->
     <div class="page" id="page-schedule-mgmt">
       <div class="page-title">점검 일정 관리</div>
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap">
-        <div class="tabs" style="margin-bottom:0;border-bottom:none;gap:4px">
-          <button class="sm-tab active" data-smtab="monthly" onclick="switchSchedMgmtTab('monthly')">월별</button>
-          <button class="sm-tab" data-smtab="quarterly" onclick="switchSchedMgmtTab('quarterly')">분기별</button>
+      <div class="cl-toolbar">
+        <div class="sm-nav">
+          <button class="btn btn-sm" onclick="smMove(-1)" title="이전 달">◀</button>
+          <span id="sm-label" class="sm-label"></span>
+          <button class="btn btn-sm" onclick="smMove(1)" title="다음 달">▶</button>
+          <button class="btn btn-sm" id="sm-today-btn" onclick="smToday()">이번 달</button>
         </div>
-        <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
-          <button class="btn btn-sm" onclick="smYear(-1)">‹</button>
-          <span id="sm-year-label" style="font-size:14px;font-weight:600;min-width:50px;text-align:center"></span>
-          <button class="btn btn-sm" onclick="smYear(1)">›</button>
-        </div>
+        <span style="flex:1"></span>
+        <button class="btn" onclick="openSchedCopy()">이전 달 일정 복사</button>
         <button class="btn btn-primary" id="btn-sm-add">+ 일정 추가</button>
       </div>
-      <div id="sm-content"></div>
+      <div id="sm-summary" class="pj-summary"></div>
+      <div id="sm-months" class="sm-months"></div>
+      <div class="sh-month sm-panel">
+        <div class="sm-panel-head">
+          <span class="sm-panel-title" id="sm-panel-title"></span>
+          <div class="svh-tabs" id="sm-types"></div>
+          <select id="sm-site" class="filter-select" onchange="drawSchedMgmt()"><option value="">전체 사이트</option></select>
+          <span style="flex:1"></span>
+          <span id="sm-panel-info" class="sm-panel-info"></span>
+        </div>
+        <div id="sm-content"></div>
+      </div>
     </div>
 
     <!-- PROJECTS -->
@@ -249,12 +259,18 @@
     <!-- SCHED HISTORY -->
     <div class="page" id="page-sched-history">
       <div class="page-title">점검 이력</div>
-      <div class="card" style="padding:16px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:12px;">
-          <input type="text" id="sh-search" placeholder="사이트명 또는 제목 검색..." style="width:250px" oninput="renderSchedHistory()">
+      <div class="sh-month sm-panel">
+        <div class="sm-panel-head">
+          <span class="sm-panel-title">완료한 점검</span>
+          <select id="sh-year" class="filter-select" onchange="drawSchedHistory(1)"></select>
+          <select id="sh-site" class="filter-select" onchange="drawSchedHistory(1)"><option value="">전체 사이트</option></select>
+          <input type="text" id="sh-search" class="pj-search" placeholder="사이트명, 제목, 메모 검색..." oninput="drawSchedHistory(1)">
+          <span style="flex:1"></span>
+          <span class="sm-panel-info"><span id="sh-count" class="sh-mon-cnt"></span></span>
         </div>
         <div id="sh-list"></div>
       </div>
+      <div id="sh-page" class="pagination"></div>
     </div>
 
     <!-- 기술지원 (작업 계획) -->
@@ -579,6 +595,23 @@
 </div>
 
 <!-- 점검 일정 추가/수정 -->
+<!-- 이전 달 점검 일정 복사 -->
+<div class="overlay" id="modal-sched-copy">
+  <div class="modal modal-lg">
+    <div class="modal-head"><div class="modal-title" id="smc-title">일정 복사</div><button class="btn btn-sm" onclick="closeModal('modal-sched-copy')">✕</button></div>
+    <div class="pj-upbar">
+      <label class="smc-lbl">복사할 달 <select id="smc-src" class="filter-select" onchange="drawSchedCopy()"></select></label>
+      <label class="cl-only"><input type="checkbox" id="smc-plan" checked> 작업계획서(작업자·MOP)도 함께 복사</label>
+      <span class="pj-uphelp">날짜는 같은 주차·같은 요일로 옮겼습니다. 등록 전에 제목과 날짜를 고칠 수 있습니다.</span>
+    </div>
+    <div id="smc-list" class="smc-list"></div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-sched-copy')">취소</button>
+      <button class="btn btn-primary" id="smc-save" onclick="saveSchedCopy()">선택한 일정 등록</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="modal-add-sched">
   <div class="modal modal-lg">
     <div class="modal-head"><div class="modal-title" id="sched-modal-title">점검 일정 등록</div><button class="btn btn-sm" onclick="closeModal('modal-add-sched')">✕</button></div>
@@ -885,6 +918,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=29"></script>
+<script src="/static/js/app.js?v=41"></script>
 </body>
 </html>

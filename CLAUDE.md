@@ -66,7 +66,7 @@ uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `
 - **ID:** 모든 PK는 `str(uuid.uuid4())` 문자열.
 - **날짜:** 대부분 `"YYYY-MM-DD"` 문자열 컬럼 (`created_at` 일부만 DateTime). 월 필터는 `startswith("YYYY-MM")`.
 - **상태/구분 값은 한국어 문자열** — 기존 값과 정확히 일치시킬 것:
-  - Schedule.status: 예정/완료, sched_type: 월간/분기/특별
+  - Schedule.status: 예정/완료, sched_type: 월간/분기/특별 — 서버에서 값 검증. `POST /schedules/bulk`는 이전 달 일정 복사용(여러 건 등록, `copy_plan_from`으로 작업자/MOP 보관 레코드도 복사)
   - Issue.severity: 긴급/높음/보통/낮음, status: 오픈/처리중/완료
   - Project.status: 진행 대기/진행 중/보류/완료, ProjectTask.status: 대기/진행중/완료
   - ProjectFile(프로젝트 제출자료).category: 완료보고서/검수확인서/구성도/회의록/기타 — `routers/projects.py`의 `/{proj_id}/files` (업로드 50MB 제한, 프로젝트 삭제 시 폴더도 삭제)
