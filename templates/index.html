@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=21">
+<link rel="stylesheet" href="/static/css/style.css?v=24">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -73,6 +73,8 @@
         </button>
       </div>
     </div>
+    <!-- 메뉴: 화면이 낮으면 이 영역만 스크롤 -->
+    <div class="sidebar-nav">
     <!-- 대시보드 -->
     <div class="nav-item active" data-page="dashboard" style="margin-top:6px">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>대시보드
@@ -129,17 +131,18 @@
     </div>
     <!-- 시스템 관리 그룹 -->
     <div class="nav-group">
-      <div class="nav-group-label">🛠️ 시스템</div>
+      <div class="nav-group-label">시스템</div>
       <div class="nav-item" data-page="dev-checklist">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>개발 체크리스트
       </div>
     </div>
+    </div><!-- /sidebar-nav -->
   </div>
 
   <div class="main">
     <!-- DASHBOARD -->
     <div class="page active" id="page-dashboard">
-      <div class="page-title" id="dash-title">대시보드</div>
+      <div class="dash-head" id="dash-title"></div>
       <div class="grid4" id="dash-metrics"></div>
       <div class="dash-body">
         <!-- 왼쪽 6 : 이번 주 일정, 사이트 체크리스트 -->
@@ -261,6 +264,7 @@
       <div class="page-title">프로젝트 관리</div>
       <div id="proj-summary" class="pj-summary"></div>
       <div class="cl-toolbar">
+        <select id="proj-year" class="filter-select" title="연도" onchange="drawProjects()"></select>
         <div class="svh-tabs" id="proj-tabs"></div>
         <input type="text" id="project-search" class="pj-search" placeholder="프로젝트명, 고객사 검색...">
         <button class="btn btn-primary" style="margin-left:auto" onclick="openAddProject()">+ 프로젝트 추가</button>
@@ -506,7 +510,7 @@
       <div class="form-row"><label>구입일</label><input type="date" id="d-purchase"></div>
       <div class="form-row"><label>워런티 만료일</label><input type="date" id="d-warranty"></div>
     </div>
-    <div class="form-row"><label>메모</label><textarea id="d-memo" style="min-height:52px"></textarea></div>
+    <div class="form-row"><label>메모</label><textarea id="d-memo" placeholder="설치 위치, 구성, 특이사항 등"></textarea></div>
     <div class="form-actions">
       <button class="btn" onclick="closeModal('modal-add-device')">취소</button>
       <button class="btn btn-primary" onclick="saveDevice()">저장</button>
@@ -535,7 +539,7 @@
       <div class="form-row"><label>구입일</label><input type="date" id="ed-purchase"></div>
       <div class="form-row"><label>워런티 만료일</label><input type="date" id="ed-warranty"></div>
     </div>
-    <div class="form-row"><label>메모</label><textarea id="ed-memo" style="min-height:52px"></textarea></div>
+    <div class="form-row"><label>메모</label><textarea id="ed-memo" placeholder="설치 위치, 구성, 특이사항 등"></textarea></div>
     <div class="form-actions">
       <button class="btn" onclick="closeModal('modal-edit-device')">취소</button>
       <button class="btn btn-primary" onclick="updateDevice()">수정</button>
@@ -956,6 +960,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=45"></script>
+<script src="/static/js/app.js?v=47"></script>
 </body>
 </html>

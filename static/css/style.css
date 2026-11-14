@@ -710,3 +710,32 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .sb-user-menu button.danger:hover{background:#fef2f2}
 .sb-user-menu button+button{border-top:1px solid #eef2f6;border-radius:0 0 7px 7px}
 .cp-note{font-size:12px;color:#94a3b8;margin-top:6px}
+
+/* ── 대시보드 머리말 ── */
+.dash-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #dde3ec}
+.dash-h-title{font-size:24px;font-weight:800;color:#0f172a;letter-spacing:-0.5px;line-height:1.2}
+.dash-h-sub{display:flex;align-items:center;margin-top:6px;font-size:13.5px;color:#64748b}
+.dash-h-sub b{color:#1e293b;font-weight:700;margin-right:3px}
+.dash-h-dot{width:3px;height:3px;border-radius:50%;background:#cbd5e1;margin:0 10px}
+.dash-h-stats{display:flex;gap:8px}
+.dash-stat{display:flex;align-items:baseline;gap:8px;padding:7px 14px;background:#fff;border:1px solid #d5dbe5;border-radius:999px}
+.dash-stat em{font-style:normal;font-size:12px;font-weight:600;color:#64748b}
+.dash-stat b{font-size:15px;font-weight:800;color:#0f172a}
+
+/* ── 장비 추가·수정 창: 넓게, 입력 칸 크게 ── */
+#modal-add-device .modal,#modal-edit-device .modal{width:min(760px,94vw);padding:24px 28px}
+#modal-add-device .grid2,#modal-edit-device .grid2{gap:16px}
+#modal-add-device .form-row,#modal-edit-device .form-row{margin-bottom:14px}
+#modal-add-device .form-row label,#modal-edit-device .form-row label{font-size:12px;margin-bottom:5px}
+#modal-add-device .form-row input,#modal-add-device .form-row select,#modal-add-device .form-row textarea,
+#modal-edit-device .form-row input,#modal-edit-device .form-row select,#modal-edit-device .form-row textarea{padding:10px 12px;font-size:14px}
+#modal-add-device .form-row textarea,#modal-edit-device .form-row textarea{min-height:150px;line-height:1.55}
+
+/* ── 사이드바 메뉴: 로고·사용자 카드는 고정, 메뉴만 스크롤 ── */
+.sidebar-nav{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding-bottom:18px;scrollbar-width:thin;scrollbar-color:#d5dbe5 transparent}
+.sidebar-nav::-webkit-scrollbar{width:6px}
+.sidebar-nav::-webkit-scrollbar-thumb{background:#d5dbe5;border-radius:3px}
+.sidebar-nav::-webkit-scrollbar-thumb:hover{background:#b6c0cf}
+.sidebar-nav .nav-group{padding:14px 0 2px}
+.sidebar-nav .nav-group-label{padding-bottom:6px}
+.sidebar-logo{padding:18px 20px 16px}

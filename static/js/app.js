@@ -109,12 +109,26 @@ async function saveChangePw(){
   closeModal('modal-change-pw');
   toast('비밀번호를 변경했습니다');
 }
+// 대시보드 머리말: 제목 + "이름 님 · 오늘 날짜", 오른쪽에 사이트·장비 수
+function _dashHead(d){
+  const now = new Date();
+  const today = `${now.getFullYear()}년 ${now.getMonth()+1}월 ${now.getDate()}일 (${'일월화수목금토'[now.getDay()]})`;
+  $('dash-title').innerHTML = `
+    <div class="dash-h-main">
+      <div class="dash-h-title">대시보드</div>
+      <div class="dash-h-sub"><b>${esc(ENG_NAME)}</b> 님<span class="dash-h-dot"></span>${today}</div>
+    </div>
+    <div class="dash-h-stats">
+      <span class="dash-stat"><em>사이트</em><b>${d ? d.site_count : '-'}</b></span>
+      <span class="dash-stat"><em>장비</em><b>${d ? d.device_count : '-'}</b></span>
+    </div>`;
+}
 function initApp(){
   $('auth-wrap').style.display='none';$('main-app').style.display='flex';
   $('sidebar-eng-name').textContent=ENG_NAME;
   const av=$('sidebar-avatar'); if(av) av.textContent=ENG_NAME.charAt(0);
   closeUserMenu();
-  $('dash-title').textContent=`대시보드 — ${ENG_NAME}`;
+  _dashHead();
   renderDashboard();
 }
 
@@ -160,8 +174,7 @@ async function renderDashboard(){
   ]);
   _dashData = d;
   _allIssues = d.issues_all || d.issues || [];
-  $('dash-title').innerHTML = `대시보드 — ${esc(ENG_NAME)}
-    <span class="dash-sub">사이트 ${d.site_count} · 장비 ${d.device_count}</span>`;
+  _dashHead(d);
 
   (d.week?.schedules || []).forEach(x => { _schedById[x.id] = x; });
   renderDashMetrics();
@@ -2402,12 +2415,38 @@ function projSetTab(tab){
   drawProjects();
 }
 
+// 프로젝트가 걸쳐 있는 연도 범위 [시작, 끝]. 끝나지 않은 프로젝트는 올해까지 이어지는 것으로 본다.
+function _projYears(p){
+  const cur = new Date().getFullYear();
+  const s = Number((p.start_date || p.end_date || '').slice(0, 4)) || null;
+  let e = Number((p.end_date || p.start_date || '').slice(0, 4)) || null;
+  if(!s && !e) return null;                                   // 기간 미입력 → 모든 연도에 표시
+  if(p.status !== '완료' && e < cur) e = cur;
+  return [Math.min(s, e), Math.max(s, e)];
+}
+function _projInYear(p, y){
+  if(!y) return true;
+  const r = _projYears(p);
+  return !r || (r[0] <= y && y <= r[1]);
+}
+
 function drawProjects(){
+  // 연도 선택: 프로젝트가 있는 연도 + 올해 (처음에는 올해)
+  const ySel = $('proj-year'), curY = new Date().getFullYear();
+  const ys = new Set([curY]);
+  _projs.forEach(p => { const r = _projYears(p); if(r) for(let y = r[0]; y <= r[1]; y++) ys.add(y); });
+  const prevY = ySel.options.length ? ySel.value : String(curY);
+  ySel.innerHTML = `<option value="">전체 연도 (${_projs.length})</option>` + [...ys].sort((a, b) => b - a)
+    .map(y => `<option value="${y}">${y}년 (${_projs.filter(p => _projInYear(p, y)).length})</option>`).join('');
+  ySel.value = prevY === '' || ys.has(Number(prevY)) ? prevY : String(curY);
+  const year = Number(ySel.value) || 0;
+  const yearProjs = _projs.filter(p => _projInYear(p, year));
+
   const inTab = (p, t) => !t || (t === '지연' ? _projLate(p) > 0 : p.status === t);
-  const cnt = t => _projs.filter(p => inTab(p, t)).length;
+  const cnt = t => yearProjs.filter(p => inTab(p, t)).length;
 
   // 요약 카드 (누르면 해당 조건만 보기)
-  const cards = [['', '전체 프로젝트', 'm-gray'], ['진행 중', '진행 중', 'm-blue'], ['지연', '지연', 'm-red'], ['완료', '완료', 'm-green']];
+  const cards = [['', year ? `${year}년 프로젝트` : '전체 프로젝트', 'm-gray'], ['진행 중', '진행 중', 'm-blue'], ['지연', '지연', 'm-red'], ['완료', '완료', 'm-green']];
   $('proj-summary').innerHTML = cards.map(([t, label, cls]) => `
     <div class="metric ${cls} ${_projTab === t ? 'active' : ''}" onclick="projSetTab('${t}')">
       <div class="metric-label">${label}</div>
@@ -2418,7 +2457,7 @@ function drawProjects(){
 
   const q = $('project-search').value.trim().toLowerCase();
   const rank = p => _projLate(p) ? 0 : ({'진행 중':1, '진행 대기':2, '보류':3, '완료':4}[p.status] ?? 5);
-  const list = _projs.filter(p => inTab(p, _projTab))
+  const list = yearProjs.filter(p => inTab(p, _projTab))
     .filter(p => !q || (p.name || '').toLowerCase().includes(q) || (p.customer || '').toLowerCase().includes(q))
     .sort((a, b) => rank(a) - rank(b) || (a.end_date || '9999').localeCompare(b.end_date || '9999'));
 
@@ -2437,7 +2476,7 @@ function drawProjects(){
   $('project-list').innerHTML = `<div class="cl-panel"><table class="cl-table pj-table">
     <thead><tr><th>프로젝트</th><th style="width:16%">고객사</th><th style="width:180px">기간</th><th style="width:176px">상태</th><th style="width:176px">진척 (완료 태스크)</th><th class="c" style="width:86px">관리</th></tr></thead>
     <tbody>${list.length ? list.map(row).join('') : `<tr class="cl-msg"><td colspan="6">${
-      !_projs.length ? '등록된 프로젝트가 없습니다' : '조건에 맞는 프로젝트가 없습니다'}</td></tr>`}</tbody></table></div>`;
+      !_projs.length ? '등록된 프로젝트가 없습니다' : !yearProjs.length ? `${year}년에 해당하는 프로젝트가 없습니다. 연도를 바꿔 보세요` : '조건에 맞는 프로젝트가 없습니다'}</td></tr>`}</tbody></table></div>`;
 }
 
 $('project-search').addEventListener('input', drawProjects);
