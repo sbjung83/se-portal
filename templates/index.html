@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=36">
+<link rel="stylesheet" href="/static/css/style.css?v=38">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -603,7 +603,7 @@
 
 <!-- 테스트서버 접속 정보 -->
 <div class="overlay" id="modal-lab">
-  <div class="modal" style="width:min(680px,93vw)">
+  <div class="modal" style="width:min(760px,93vw)">
     <div class="modal-head"><div class="modal-title" id="lab-modal-title">서버 추가</div><button class="btn btn-sm" onclick="closeModal('modal-lab')">✕</button></div>
     <input type="hidden" id="lab-id">
     <div class="grid2">
@@ -617,6 +617,10 @@
     <div class="form-row"><label>계정</label>
       <div id="lab-accs"></div>
       <button class="btn btn-sm" onclick="labAddAccRow()">+ 계정 추가</button>
+    </div>
+    <div class="form-row"><label>원격 접속 (웹 = 새 탭으로 열기 · SSH/RDP = 포털에서 바로 접속)</label>
+      <div id="lab-conns"></div>
+      <button class="btn btn-sm" onclick="labAddConnRow()">+ 접속 대상 추가</button>
     </div>
     <div class="form-row"><label>메모</label><textarea id="lab-memo" style="min-height:64px"></textarea></div>
     <div class="form-actions">
@@ -969,6 +973,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=66"></script>
+<script src="/static/js/app.js?v=67"></script>
 </body>
 </html>

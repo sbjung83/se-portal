@@ -885,3 +885,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .lab-act{white-space:nowrap}
 .lab-act .icon-btn+.icon-btn{margin-left:3px}
 .lab-acc-row{display:grid;grid-template-columns:1fr 1.2fr 1.2fr 26px;gap:6px;align-items:center;margin-bottom:6px}
+.lab-gos{line-height:1}
+.lab-go{white-space:nowrap;display:inline-flex;align-items:center;gap:5px;margin:2px 4px 2px 0;padding:3px 9px;border-radius:5px;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer;text-decoration:none;border:1px solid;line-height:1.4}
+.lab-go span{font-weight:500;opacity:.85}
+.lab-go.web{color:#1d4ed8;background:#eff6ff;border-color:#93c5fd}.lab-go.web:hover{background:#dbeafe}
+.lab-go.ssh{color:#fff;background:#0f172a;border-color:#0f172a}.lab-go.ssh:hover{background:#334155}
+.lab-go.rdp{color:#fff;background:#0369a1;border-color:#0369a1}.lab-go.rdp:hover{background:#075985}
+.lab-conn-row{display:grid;grid-template-columns:72px 1fr 1.7fr 74px 1.3fr 26px;gap:6px;align-items:center;margin-bottom:6px}
+.lab-logs{margin-top:16px;background:#fff;border:1px solid #c3ccd9}
+.lab-logs>summary{cursor:pointer;padding:9px 12px;font-size:13px;font-weight:700;color:#334155;background:#eef2f7}
+.lab-logs>summary span{font-size:12px;font-weight:500;color:#64748b;margin-left:6px}
+.lab-log-tbl{border:none;font-size:12px;table-layout:auto}
+.lab-log-tbl td,.lab-log-tbl th{padding:6px 10px}
+.lab-log-bad{color:#dc2626;font-weight:600}.lab-log-on{color:#15803d;font-weight:700}

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>원격 접속 - SE Portal</title>
+<link rel="stylesheet" href="/static/vendor/xterm.css?v=1">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#0b1220;color:#e2e8f0;font-family:'Noto Sans KR','Malgun Gothic',sans-serif;overflow:hidden}
+#bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;background:#1e3a5f;border-bottom:1px solid #0f2540;font-size:13px}
+#bar .kind{font-size:11px;font-weight:700;background:#dbeafe;color:#1d4ed8;border-radius:4px;padding:1px 7px}
+#bar .name{font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#bar .target{color:#b6c6da;font-family:'SF Mono','Fira Code',Consolas,monospace;font-size:12px;white-space:nowrap}
+#state{font-size:12px;font-weight:700;border-radius:999px;padding:1px 10px;background:#475569;color:#fff;white-space:nowrap}
+#state.ok{background:#15803d}#state.bad{background:#b91c1c}
+#bar .sp{flex:1}
+#bar button{background:#2c4f7c;color:#fff;border:1px solid #47698f;border-radius:5px;padding:4px 10px;font-size:12px;font-family:inherit;cursor:pointer;white-space:nowrap}
+#bar button:hover{background:#3a618f}
+.xterm .xterm-viewport{scrollbar-width:thin;scrollbar-color:#334155 #0b1220}
+#view{position:absolute;top:40px;left:0;right:0;bottom:0}
+#term-box{position:absolute;inset:0;padding:6px 4px 4px 8px;background:#0b1220}
+#rdp-box{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#000;cursor:none}
+#msg{position:absolute;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:14px;background:rgba(11,18,32,.88);z-index:10;text-align:center;padding:20px}
+#msg.on{display:flex}
+#msg .t{font-size:16px;font-weight:700}
+#msg .d{font-size:13px;color:#b6c6da;max-width:640px;line-height:1.6;word-break:break-word}
+#msg button{background:#2563eb;color:#fff;border:none;border-radius:7px;padding:8px 18px;font-size:13px;font-family:inherit;cursor:pointer}
+</style>
+</head>
+<body>
+<div id="bar">
+  <span class="kind" id="kind"></span>
+  <span class="name" id="name"></span>
+  <span class="target" id="target"></span>
+  <span id="state">연결 중</span>
+  <span class="sp"></span>
+  <button id="b-cad" style="display:none" onclick="sendCAD()" title="원격 서버에 Ctrl+Alt+Del 보내기">Ctrl+Alt+Del</button>
+  <button id="b-paste" style="display:none" onclick="pushClipboard(true)" title="내 PC 클립보드 내용을 원격 서버로 보내기">클립보드 보내기</button>
+  <button onclick="toggleFull()">전체 화면</button>
+  <button onclick="reconnect()">다시 접속</button>
+  <button onclick="window.close()">닫기</button>
+</div>
+<div id="view">
+  <div id="term-box" style="display:none"></div>
+  <div id="rdp-box" style="display:none"></div>
+  <div id="msg"><div class="t" id="msg-t"></div><div class="d" id="msg-d"></div><button onclick="reconnect()">다시 접속</button></div>
+</div>
+<script src="/static/vendor/xterm.js?v=1"></script>
+<script src="/static/vendor/xterm-addon-fit.js?v=1"></script>
+<script src="/static/vendor/guacamole-common.min.js?v=1"></script>
+<script>
+const Q = new URLSearchParams(location.search);
+const CONN = Q.get('c') || '', KIND = (Q.get('k') || 'ssh').toLowerCase();
+const $ = id => document.getElementById(id);
+$('kind').textContent = KIND.toUpperCase();
+$('name').textContent = Q.get('n') || '';
+$('target').textContent = Q.get('t') || '';
+document.title = `${Q.get('n') || '원격 접속'} (${KIND.toUpperCase()}) - SE Portal`;
+const WS_BASE = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/api/remote/' + encodeURIComponent(CONN);
+
+function setState(text, cls){ const s = $('state'); s.textContent = text; s.className = cls || ''; }
+function showMsg(title, detail){ $('msg-t').textContent = title; $('msg-d').textContent = detail || ''; $('msg').classList.add('on'); }
+function hideMsg(){ $('msg').classList.remove('on'); }
+function toggleFull(){ if(document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {}); }
+function reconnect(){ location.reload(); }
+
+// ── SSH (xterm.js) ───────────────────────────────────────────
+var term, fit, sock;
+function startSSH(){
+  $('term-box').style.display = '';
+  term = new Terminal({cursorBlink: true, fontSize: 14, scrollback: 10000,
+    fontFamily: "'D2Coding','Cascadia Mono',Consolas,'SF Mono','Fira Code','Noto Sans Mono CJK KR',monospace",
+    theme: {background: '#0b1220', foreground: '#e2e8f0', cursor: '#93c5fd', selectionBackground: '#334e7a'}});
+  fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.open($('term-box'));
+  fit.fit();
+  term.focus();
+  sock = new WebSocket(`${WS_BASE}/ssh?cols=${term.cols}&rows=${term.rows}`);
+  sock.binaryType = 'arraybuffer';
+  let ready = false, failed = false;
+  const send = o => { if(sock.readyState === 1) sock.send(JSON.stringify(o)); };
+  sock.onmessage = ev => {
+    if(typeof ev.data !== 'string'){ term.write(new Uint8Array(ev.data)); return; }
+    let m; try { m = JSON.parse(ev.data); } catch(e){ return; }
+    if(m.t === 'ready'){ ready = true; setState('연결됨', 'ok'); send({t: 'r', c: term.cols, r: term.rows}); }
+    else if(m.t === 'error'){ failed = true; setState('접속 실패', 'bad'); showMsg('접속하지 못했습니다', m.msg); }
+    else if(m.t === 'closed'){ failed = true; setState('종료됨', 'bad'); term.write('\r\n\x1b[33m[접속이 종료되었습니다]\x1b[0m\r\n'); }
+  };
+  sock.onclose = () => {
+    if(failed) return;
+    setState('끊김', 'bad');
+    if(ready) term.write('\r\n\x1b[33m[연결이 끊겼습니다]\x1b[0m\r\n');
+    else showMsg('연결하지 못했습니다', '포털 로그인이 만료되었거나 서버에 닿지 않습니다. 포털에 다시 로그인한 뒤 시도해주세요.');
+  };
+  term.onData(d => send({t: 'i', d}));
+  term.onResize(s => send({t: 'r', c: s.cols, r: s.rows}));
+  // 드래그해서 고르면 바로 복사, 오른쪽 버튼은 붙여넣기 (PuTTY 방식)
+  term.onSelectionChange(() => { const t = term.getSelection(); if(t && navigator.clipboard) navigator.clipboard.writeText(t).catch(() => {}); });
+  $('term-box').addEventListener('contextmenu', e => {
+    e.preventDefault();
+    if(navigator.clipboard && navigator.clipboard.readText) navigator.clipboard.readText().then(t => { if(t) term.paste(t); }).catch(() => {});
+  });
+  let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => fit.fit(), 120); });
+}
+
+// ── RDP (guacamole) ──────────────────────────────────────────
+var client, lastClip = '';
+function viewSize(){ const v = $('view'); return [Math.max(640, v.clientWidth), Math.max(480, v.clientHeight)]; }
+function startRDP(){
+  const box = $('rdp-box'); box.style.display = '';
+  $('b-cad').style.display = ''; $('b-paste').style.display = '';
+  const tunnel = new Guacamole.WebSocketTunnel(WS_BASE + '/rdp');
+  client = new Guacamole.Client(tunnel);
+  const display = client.getDisplay();
+  box.appendChild(display.getElement());
+  const rescale = () => {
+    const w = display.getWidth(), h = display.getHeight();
+    if(w && h) display.scale(Math.min(box.clientWidth / w, box.clientHeight / h, 1));
+  };
+  display.onresize = rescale;
+  let failed = false;
+  client.onerror = st => { failed = true; setState('접속 실패', 'bad'); showMsg('접속하지 못했습니다', rdpError(st)); };
+  client.onstatechange = s => {
+    if(s === 3){ setState('연결됨', 'ok'); hideMsg(); }
+    else if(s === 5 && !failed){ setState('끊김', 'bad'); showMsg('연결이 끊겼습니다', '원격 서버에서 로그아웃했거나 연결이 종료되었습니다.'); }
+  };
+  client.onclipboard = (stream, mimetype) => {
+    if(!/^text\//.test(mimetype)) return;
+    const reader = new Guacamole.StringReader(stream); let text = '';
+    reader.ontext = t => text += t;
+    reader.onend = () => { lastClip = text; if(navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {}); };
+  };
+  const [w, h] = viewSize();
+  client.connect(`w=${w}&h=${h}&dpi=96`);
+  const mouse = new Guacamole.Mouse(display.getElement());
+  mouse.onEach(['mousedown', 'mousemove', 'mouseup'], e => client.sendMouseState(e.state, true));
+  const kbd = new Guacamole.Keyboard(document);
+  kbd.onkeydown = k => { client.sendKeyEvent(1, k); };
+  kbd.onkeyup = k => { client.sendKeyEvent(0, k); };
+  let rt; window.addEventListener('resize', () => {
+    clearTimeout(rt); rt = setTimeout(() => { const [w, h] = viewSize(); client.sendSize(w, h); rescale(); }, 250);
+  });
+  window.addEventListener('focus', () => pushClipboard(false));
+  window.addEventListener('beforeunload', () => client.disconnect());
+}
+function rdpError(st){
+  const code = st && st.code, m = (st && st.message) || '';
+  if(/[가-힣]/.test(m)) return m;                    // 포털이 보낸 안내는 그대로
+  const map = {519: '원격 서버에 닿지 않습니다 (전원·네트워크·RDP 포트 확인).', 514: '원격 서버가 응답하지 않습니다 (시간 초과).',
+               769: '로그인 거부 (계정·비밀번호 확인).', 771: '이 계정은 원격 접속 권한이 없습니다.',
+               521: '다른 사용자가 같은 계정으로 접속해 세션이 끊겼습니다.', 522: '원격 서버가 세션을 종료했습니다.',
+               512: '원격 화면 엔진(guacd) 오류입니다.', 515: '원격 서버 오류입니다.'};
+  return (map[code] || '원격 접속 오류') + (m ? ` [${code}] ${m}` : ` [${code}]`);
+}
+function sendCAD(){
+  [0xFFE3, 0xFFE9, 0xFFFF].forEach(k => client.sendKeyEvent(1, k));
+  [0xFFFF, 0xFFE9, 0xFFE3].forEach(k => client.sendKeyEvent(0, k));
+}
+async function pushClipboard(manual){
+  if(!client || !navigator.clipboard || !navigator.clipboard.readText){ if(manual) alert('이 브라우저에서는 클립보드를 읽을 수 없습니다'); return; }
+  let text;
+  try { text = await navigator.clipboard.readText(); }
+  catch(e){ if(manual) alert('클립보드 읽기가 허용되지 않았습니다. 주소창의 권한 설정에서 허용해주세요.'); return; }
+  if(!text || (text === lastClip && !manual)) return;
+  lastClip = text;
+  const stream = client.createClipboardStream('text/plain');
+  const writer = new Guacamole.StringWriter(stream);
+  writer.sendText(text); writer.sendEnd();
+}
+
+if(!CONN) showMsg('접속 대상이 없습니다', '포털의 테스트서버 접속 정보 화면에서 접속 버튼을 눌러주세요.');
+else if(KIND === 'rdp') startRDP();
+else startSSH();
+</script>
+</body>
+</html>

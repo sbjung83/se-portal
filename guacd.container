@@ -1,0 +1,16 @@
+# SE Portal 원격 접속(RDP)용 변환 엔진. 포털(127.0.0.1)에서만 접속한다.
+[Unit]
+Description=Apache Guacamole guacd (SE Portal 원격 접속)
+After=network-online.target
+
+[Container]
+Image=docker.io/guacamole/guacd:1.5.5
+ContainerName=guacd
+PublishPort=127.0.0.1:4822:4822
+
+[Service]
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

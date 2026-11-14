@@ -3284,7 +3284,8 @@ async function renderLab(){
 }
 function _labHit(s, q){
   if(!q) return true;
-  const hay = [s.group_name, s.name, s.os, s.address, s.memo, ...s.accounts.map(a => a.label + ' ' + a.username)].join(' ').toLowerCase();
+  const hay = [s.group_name, s.name, s.os, s.address, s.memo, ...s.accounts.map(a => a.label + ' ' + a.username),
+               ...s.conns.map(c => c.kind + ' ' + c.label + ' ' + c.host)].join(' ').toLowerCase();
   return q.split(/\s+/).every(w => hay.includes(w));
 }
 function drawLab(){
@@ -3315,15 +3316,22 @@ function drawLab(){
     const m = l.match(/^(.*?[:：]\s+)(\S.*)$/);          // "설명 : 값" 형태면 값만 복사 대상
     return `<div>${m ? `<span class="lab-addr-k">${esc(m[1])}</span>` : ''}<span class="lab-copy mono" title="눌러서 복사" onclick="labCopy(this)">${esc(m ? m[2] : l.trim())}</span></div>`;
   }).join('') || '<span class="lab-none">-</span>';
+  const go = (s, c) => {
+    const tip = esc(c.kind === '웹' ? c.host : `${c.host}:${c.port || (c.kind === 'RDP' ? 3389 : 22)}`);
+    const text = esc(c.kind) + (c.label ? ` <span>${esc(c.label)}</span>` : '');
+    if(c.kind === '웹') return `<a class="lab-go web" href="${esc(c.host)}" target="_blank" rel="noopener noreferrer" title="${tip} 새 탭으로 열기">${text}</a>`;
+    return `<button class="lab-go ${c.kind === 'RDP' ? 'rdp' : 'ssh'}" title="${tip} 접속" onclick="labConnect('${s.id}','${c.id}')">${text}</button>`;
+  };
   el.innerHTML = `<table class="lab-tbl">
-    <colgroup><col style="width:14%"><col style="width:13%"><col style="width:17%"><col><col style="width:17%"><col style="width:84px"></colgroup>
-    <thead><tr><th>이름</th><th>OS / 버전</th><th>주소</th><th>계정 / 비밀번호</th><th>메모</th><th></th></tr></thead>
+    <colgroup><col style="width:12%"><col style="width:11%"><col style="width:14%"><col style="width:15%"><col><col style="width:13%"><col style="width:84px"></colgroup>
+    <thead><tr><th>이름</th><th>OS / 버전</th><th>주소</th><th>접속</th><th>계정 / 비밀번호</th><th>메모</th><th></th></tr></thead>
     <tbody>${groups.map(g => `
-      <tr class="lab-grp"><td colspan="6">${esc(g.name)} <span>${g.rows.length}</span></td></tr>
+      <tr class="lab-grp"><td colspan="7">${esc(g.name)} <span>${g.rows.length}</span></td></tr>
       ${g.rows.map(s => `<tr>
         <td class="lab-name">${esc(s.name)}</td>
         <td class="lab-os">${esc(s.os) || '<span class="lab-none">-</span>'}</td>
         <td>${addr(s.address)}</td>
+        <td class="lab-gos">${s.conns.map(c => go(s, c)).join('') || '<span class="lab-none">-</span>'}</td>
         <td>${s.accounts.map(acc).join('') || '<span class="lab-none">-</span>'}</td>
         <td class="lab-memo">${esc(s.memo) || '<span class="lab-none">-</span>'}</td>
         <td class="lab-act">
@@ -3331,7 +3339,70 @@ function drawLab(){
           <button class="icon-btn del" title="삭제" onclick="deleteLab('${s.id}')">${ICO_DEL}</button>
         </td>
       </tr>`).join('')}`).join('')}
-    </tbody></table>`;
+    </tbody></table>
+    <details class="lab-logs" id="lab-logs" ontoggle="if(this.open) labLoadLogs()">
+      <summary>원격 접속 기록 <span>최근 50건</span></summary><div id="lab-logs-body"></div>
+    </details>`;
+}
+// 원격 접속: SSH·RDP 는 새 탭의 접속 화면(/remote)에서 포털이 대신 접속한다
+function labConnect(srvId, connId){
+  const s = _labItems.find(x => x.id === srvId), c = s && s.conns.find(x => x.id === connId);
+  if(!c) return;
+  if(!c.account_id){ toast('접속에 쓸 계정이 지정되지 않았습니다. 수정 창에서 계정을 골라주세요'); return; }
+  const q = new URLSearchParams({c: c.id, k: c.kind.toLowerCase(), n: s.name + (c.label ? ` (${c.label})` : ''),
+                                 t: `${c.host}:${c.port || (c.kind === 'RDP' ? 3389 : 22)}`});
+  window.open('/remote?' + q.toString(), '_blank');
+}
+async function labLoadLogs(){
+  const el = $('lab-logs-body');
+  let rows;
+  try { rows = await _apiSend('GET', `/api/engineers/${ENG_ID}/lab/logs`); }
+  catch(e){ el.innerHTML = `<div class="empty" style="color:#dc2626">${esc(e.message)}</div>`; return; }
+  if(!rows.length){ el.innerHTML = '<div class="empty">접속 기록이 없습니다</div>'; return; }
+  el.innerHTML = `<table class="lab-tbl lab-log-tbl">
+    <thead><tr><th>시작</th><th>종료</th><th>서버</th><th>방식</th><th>대상</th><th>계정</th><th>접속한 PC</th><th>결과</th></tr></thead>
+    <tbody>${rows.map(r => `<tr>
+      <td class="mono">${esc(r.started_at)}</td><td class="mono">${esc(r.ended_at ? r.ended_at.slice(11) : '-')}</td>
+      <td class="lab-name">${esc(r.server_name)}</td><td>${esc(r.kind)}</td><td class="mono">${esc(r.target)}</td>
+      <td class="mono">${esc(r.username)}</td><td class="mono">${esc(r.client_ip || '-')}</td>
+      <td class="${r.result.startsWith('실패') ? 'lab-log-bad' : r.result === '접속 중' ? 'lab-log-on' : ''}">${esc(r.result)}</td>
+    </tr>`).join('')}</tbody></table>`;
+}
+function labAddConnRow(c){
+  c = c || {kind: 'SSH'};
+  const row = document.createElement('div');
+  row.className = 'lab-conn-row';
+  row.dataset.id = c.id || '';
+  row.dataset.acc = c.account_id || '';
+  row.innerHTML = `<select class="lc-kind" onchange="labConnKind(this.parentNode)">${['웹', 'SSH', 'RDP'].map(k => `<option${k === c.kind ? ' selected' : ''}>${k}</option>`).join('')}</select>
+    <input type="text" class="lc-label" placeholder="구분 (선택)" value="${esc(c.label || '')}">
+    <input type="text" class="lc-host" value="${esc(c.host || '')}">
+    <input type="number" class="lc-port" min="1" max="65535" value="${c.port || ''}">
+    <select class="lc-acc" onfocus="labFillConnAcc(this.parentNode)"></select>
+    <button class="icon-btn del" title="접속 대상 삭제" onclick="this.parentNode.remove()">${ICO_DEL}</button>`;
+  $('lab-conns').appendChild(row);
+  labConnKind(row);
+  labFillConnAcc(row);
+}
+function labConnKind(row){
+  const k = row.querySelector('.lc-kind').value, web = k === '웹';
+  row.querySelector('.lc-host').placeholder = web ? 'https://10.10.10.10' : 'IP 또는 호스트 이름';
+  row.querySelector('.lc-port').placeholder = web ? '-' : (k === 'RDP' ? '3389' : '22');
+  row.querySelector('.lc-port').disabled = web;
+  row.querySelector('.lc-acc').disabled = web;
+}
+// 계정 고르는 칸: 지금 창에 적힌 계정 줄을 그대로 보여 준다 (값 = 줄 번호)
+function labFillConnAcc(row){
+  const sel = row.querySelector('.lc-acc');
+  const accs = [...$('lab-accs').querySelectorAll('.lab-acc-row')];
+  let cur = sel.value;
+  if(sel.options.length === 0 && row.dataset.acc) cur = String(accs.findIndex(r => r.dataset.id === row.dataset.acc));
+  sel.innerHTML = '<option value="">계정 선택</option>' + accs.map((r, i) => {
+    const u = r.querySelector('.la-user').value.trim(), l = r.querySelector('.la-label').value.trim();
+    return u ? `<option value="${i}">${esc((l ? l + ' · ' : '') + u)}</option>` : '';
+  }).join('');
+  if(cur !== '' && cur !== '-1' && sel.querySelector(`option[value="${cur}"]`)) sel.value = cur;
+  else if(sel.options.length === 2 && sel.options.length - 1 === accs.length && !row.dataset.id) sel.selectedIndex = 1;   // 계정이 하나뿐이면 새 줄은 그 계정으로
 }
 async function _labCopyText(text, msg){
   try {
@@ -3385,6 +3456,8 @@ function _labOpen(s){
   $('lab-memo').value = s ? s.memo : '';
   $('lab-accs').innerHTML = '';
   (s && s.accounts.length ? s.accounts : [{}]).forEach(labAddAccRow);
+  $('lab-conns').innerHTML = '';
+  (s ? s.conns : []).forEach(labAddConnRow);
   openModal('modal-lab');
 }
 function openAddLab(){ _labOpen(null); }
@@ -3400,7 +3473,17 @@ async function saveLab(){
     if(pw || !r.dataset.id) a.password = pw;      // 기존 계정은 비워 두면 그대로 유지
     return a;
   });
-  const body = {group_name: $('lab-group').value, name, os: $('lab-os').value, address: $('lab-addr').value, memo: $('lab-memo').value, accounts};
+  const conns = [];
+  for(const r of $('lab-conns').querySelectorAll('.lab-conn-row')){
+    labFillConnAcc(r);
+    const kind = r.querySelector('.lc-kind').value, host = r.querySelector('.lc-host').value.trim();
+    if(!host) continue;
+    const port = r.querySelector('.lc-port').value, acc = r.querySelector('.lc-acc').value;
+    if(kind !== '웹' && acc === ''){ toast(`${kind} 접속(${host})에 쓸 계정을 골라주세요`); return; }
+    conns.push({id: r.dataset.id || null, kind, label: r.querySelector('.lc-label').value, host,
+                port: kind === '웹' || !port ? null : parseInt(port), account_idx: kind === '웹' ? null : parseInt(acc)});
+  }
+  const body = {group_name: $('lab-group').value, name, os: $('lab-os').value, address: $('lab-addr').value, memo: $('lab-memo').value, accounts, conns};
   try {
     if(id) await _apiSend('PUT', `/api/engineers/${ENG_ID}/lab/${id}`, body);
     else   await _apiSend('POST', `/api/engineers/${ENG_ID}/lab`, body);

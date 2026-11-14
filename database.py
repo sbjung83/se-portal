@@ -231,6 +231,8 @@ class LabServer(Base):
     order_idx   = Column(Integer, default=0)
     accounts    = relationship("LabAccount", back_populates="server", cascade="all, delete-orphan",
                                order_by="LabAccount.order_idx")
+    conns       = relationship("LabConn", back_populates="server", cascade="all, delete-orphan",
+                               order_by="LabConn.order_idx")
 
 class LabAccount(Base):
     __tablename__ = "lab_accounts"
@@ -241,6 +243,33 @@ class LabAccount(Base):
     password  = Column(String, default="")         # secure_store 로 암호화 (enc:v1:)
     order_idx = Column(Integer, default=0)
     server    = relationship("LabServer", back_populates="accounts")
+
+class LabConn(Base):
+    """테스트 서버 원격 접속 대상 (routers/lab.py 가 관리, routers/remote.py 가 접속)."""
+    __tablename__ = "lab_conns"
+    id         = Column(String, primary_key=True)
+    server_id  = Column(String, ForeignKey("lab_servers.id"), nullable=False, index=True)
+    kind       = Column(String, default="SSH")     # 웹 / SSH / RDP
+    label      = Column(String, default="")        # 여러 대를 묶은 항목에서 구분용 (ESXi 1 ...)
+    host       = Column(String, default="")        # 웹은 전체 주소(https://...), SSH·RDP 는 IP/호스트
+    port       = Column(Integer, nullable=True)    # 비우면 기본 포트 (SSH 22, RDP 3389)
+    account_id = Column(String, default="")        # 접속에 쓸 LabAccount.id (웹은 사용 안 함)
+    order_idx  = Column(Integer, default=0)
+    server     = relationship("LabServer", back_populates="conns")
+
+class LabAccessLog(Base):
+    """원격 접속 기록 (SSH·RDP)."""
+    __tablename__ = "lab_access_logs"
+    id          = Column(String, primary_key=True)
+    engineer_id = Column(String, nullable=False, index=True)
+    server_name = Column(String, default="")
+    kind        = Column(String, default="")
+    target      = Column(String, default="")       # host:port
+    username    = Column(String, default="")
+    client_ip   = Column(String, default="")
+    started_at  = Column(String, default="")       # "YYYY-MM-DD HH:MM:SS" (서버 시각)
+    ended_at    = Column(String, default="")
+    result      = Column(String, default="")       # 접속 중 / 정상 종료 / 실패: 사유
 
 class CalendarLink(Base):
     """엔지니어별 구글 캘린더 주소 (routers/gcal.py)"""

@@ -5,7 +5,7 @@ from fastapi.requests import Request
 from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 from database import init_db
-from routers import auth, sites, logs, dashboard, schedules, issues, site_checklist, projects, technotes, development, incidents, reports, gcal, entries, lab
+from routers import auth, sites, logs, dashboard, schedules, issues, site_checklist, projects, technotes, development, incidents, reports, gcal, entries, lab, remote
 from routers.auth import require_login
 import os, asyncio
 
@@ -17,6 +17,7 @@ os.makedirs(os.path.join(BASE_DIR, "uploads"), exist_ok=True)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    remote.close_stale_logs()
     task = asyncio.create_task(_calendar_loop())
     yield
     task.cancel()
@@ -55,6 +56,8 @@ app.include_router(reports.router, dependencies=_LOGIN)
 app.include_router(gcal.router, dependencies=_LOGIN)
 app.include_router(entries.router, dependencies=_LOGIN)
 app.include_router(lab.router, dependencies=_LOGIN)
+# 원격 접속(WebSocket)은 require_login 을 쓸 수 없어 라우터 안에서 세션 쿠키를 직접 확인한다
+app.include_router(remote.router)
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
