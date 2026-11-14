@@ -488,6 +488,22 @@ def ignore_event(eng_id: str, ev_id: str, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+@router.post("/events/{ev_id}/reimport")
+def reimport_event(eng_id: str, ev_id: str, db: Session = Depends(get_db)):
+    """포털에서 지워서 '포털에서 삭제'로 남은 캘린더 일정을 다시 등록한다."""
+    row = _get_event(db, eng_id, ev_id)
+    if row.state != ST_GONE:
+        raise HTTPException(400, detail="포털에서 삭제한 일정만 다시 가져올 수 있습니다")
+    eng = db.query(Engineer).filter(Engineer.id == eng_id).first()
+    parsed = parse_title(row.summary)
+    if not parsed:
+        raise HTTPException(400, detail="캘린더 제목이 규칙과 맞지 않습니다")
+    row.target_type, row.target_id, row.adopted = "", "", False
+    _resolve(db, eng, row, parsed[0], db.query(Site).filter(Site.engineer_id == eng_id).all())
+    db.commit()
+    return {"ok": True, "state": row.state}
+
+
 @router.post("/events/{ev_id}/restore")
 def restore_event(eng_id: str, ev_id: str, db: Session = Depends(get_db)):
     row = _get_event(db, eng_id, ev_id)

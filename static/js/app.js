@@ -153,6 +153,7 @@ document.querySelectorAll('.nav-item').forEach(el=>{
     if(page==='weekly-report')  renderWeeklyReport();
     if(page==='dev-checklist')  loadDevChecklist();
     if(page==='gcal')           renderGcal();
+    if(page==='lab')            renderLab();
   });
 });
 
@@ -182,6 +183,7 @@ async function renderDashboard(){
   renderDashWeek();
   renderDashIssues();
   renderDashWarranty();
+  renderDashProjects();
 }
 // 대시보드를 열어 둔 채로 있어도 최신 내용이 보이도록: 1분마다, 그리고 다른 창에 갔다 돌아올 때 다시 불러온다
 // (구글 캘린더에서 들어온 일정처럼 화면 밖에서 바뀐 내용 반영). 입력 창이 열려 있을 때는 건드리지 않는다.
@@ -246,13 +248,16 @@ function renderDashWeek(){
 
   const inRange = d => d >= start && d <= end;
   const items = [];
-  w.schedules.forEach(x => { const done = x.status === '완료'; items.push({kind:'sched', done, day:x.sched_date.slice(0,10), title:x.title, site:x.site_name,
+  // 제목 옆에 흐리게 붙일 내용(메모·작업 내용): 여러 줄은 ' · ' 로 이어 한 줄로
+  const note = t => { t = (t || '').trim(); return t === '구글 캘린더에서 가져옴' ? '' : t.split('\n').map(l => l.trim().replace(/^[-•·]\s*/, '')).filter(Boolean).join(' · '); };
+  w.schedules.forEach(x => { const done = x.status === '완료'; items.push({kind:'sched', done, day:x.sched_date.slice(0,10), title:x.title, note:note(x.memo), site:x.site_name,
     extra: x.sched_type !== '월간' ? `<span class="badge b-gray">${esc(x.sched_type)}</span>` : '',
     check:`<input type="checkbox" class="wk-check" ${done?'checked':''} title="${done?'완료 취소':'점검 완료 처리'}" onclick="event.stopPropagation()" onchange="weekDoneSched('${x.id}',this)">`,
     open:`openEditSched('${x.id}')`}); });
-  w.workplans.forEach(x => items.push({kind:'plan', done:x.status === '완료', day:x.work_date.slice(0,10), time:x.work_date.slice(11,16), title:x.title, site:x.site,
-    extra:`<span class="badge ${WP_ST_CLS[x.status]||'b-gray'}">${esc(x.status)}</span>${_wpImpactBadge(x.impact)}`,
-    open:`openEditWorkPlan('${x.id}')`}));
+  w.workplans.forEach(x => { const done = x.status === '완료'; items.push({kind:'plan', done, day:x.work_date.slice(0,10), time:x.work_date.slice(11,16), title:x.title, note:note(x.purpose), site:x.site,
+    extra:_wpImpactBadge(x.impact),
+    check:`<input type="checkbox" class="wk-check" ${done?'checked':''} title="${done?'완료 취소':'기술지원 완료 처리'}" onclick="event.stopPropagation()" onchange="weekDonePlan('${x.id}',this)">`,
+    open:`openEditWorkPlan('${x.id}')`}); });
   _allCLItems.filter(i => i.due && i.due <= end && (!i.done || i.due >= start)).forEach(i => items.push({kind:'cl', done:i.done, day:i.due, title:i.text, site:i.site_name,
     extra:`<span class="badge b-gray">${esc(i.category)} 마감</span>`,
     check:`<input type="checkbox" class="wk-check" ${i.done?'checked':''} title="${i.done?'완료 취소':'완료 처리'}" onclick="event.stopPropagation()" onchange="dashToggleCL('${i.id}',this.checked)">`,
@@ -270,7 +275,7 @@ function renderDashWeek(){
       ${it.check || '<span class="wk-check-gap"></span>'}
       <span class="wk-kind ${WK_KIND[it.kind].cls}">${WK_KIND[it.kind].label}</span>
       ${it.time ? `<span class="wk-time">${esc(it.time)}</span>` : ''}
-      <span class="wk-title" title="${esc(it.title)}">${esc(it.title)}</span>
+      <span class="wk-title" title="${esc(it.title + (it.note ? ' — ' + it.note : ''))}">${esc(it.title)}${it.note ? `<span class="wk-note">${esc(it.note)}</span>` : ''}</span>
       ${it.lateTag ? '<span class="badge b-red">지연</span>' : ''}${it.extra || ''}
       <span class="wk-site" title="${esc(it.site||'')}">${esc(it.site||'-')}</span>
     </div>`;
@@ -323,6 +328,19 @@ async function weekDoneSched(id, el){
   _schedHistory = [];
   _refreshDash();
   if($('page-schedule-mgmt').classList.contains('active')) renderSchedMgmt();
+}
+
+async function weekDonePlan(id, el){
+  const toDone = el ? el.checked : true;
+  try {
+    await _apiSend('PATCH', `/api/engineers/${ENG_ID}/workplans/${id}`, { status: toDone ? '완료' : '예정' });
+    toast(toDone ? '기술지원 완료 처리됨' : '완료 취소됨');
+  } catch(e) {
+    toast('변경 실패: ' + e.message);
+    if(el) el.checked = !toDone;
+    return;
+  }
+  _refreshDash();
 }
 
 // ── 사이트 이슈 (심각도 → 오래된 순) ─────────────
@@ -384,6 +402,32 @@ function showIssuePopup(i){
 }
 
 // ── 워런티 ────────────────────────────────
+// ── 대시보드: 프로젝트 현황 (완료 전 프로젝트의 진행률, 없으면 최근 완료 건) ──
+function renderDashProjects(){
+  const pj = _dashData?.projects || { active: [], recent_done: [] };
+  const today = _ymd(new Date());
+  const cnt = st => pj.active.filter(p => p.status === st).length;
+  $('dash-proj-cnt').innerHTML = pj.active.length
+    ? [['진행 중', '#2563eb'], ['진행 대기', '#64748b'], ['보류', '#d97706']].filter(([st]) => cnt(st))
+        .map(([st, c]) => `<span style="color:${c}">${st} ${cnt(st)}</span>`).join('<span class="sep">·</span>') : '';
+  const stCls = {'진행 대기':'b-gray', '진행 중':'b-blue', '보류':'b-amber', '완료':'b-green'};
+  const row = (p, dim) => {
+    const pct = p.task_total ? Math.round(p.task_done / p.task_total * 100) : 0;
+    const dd = p.end_date && /^\d{4}-\d{2}-\d{2}/.test(p.end_date) ? _daysBetween(today, p.end_date.slice(0, 10)) : null;
+    const due = p.status === '완료' || dd === null ? '' : dd < 0 ? `<span class="badge b-red">지연 D+${-dd}</span>` : `<span class="badge ${dd <= 14 ? 'b-amber' : 'b-gray'}">D-${dd}</span>`;
+    return `<div class="dp-row ${dim ? 'dim' : ''}" title="프로젝트 상세 보기" onclick="openProjectDetail('${p.id}')">
+      <div class="dp-top"><span class="dp-name" title="${esc(p.name)}">${esc(p.name)}</span><span class="badge ${stCls[p.status] || 'b-gray'}">${esc(p.status)}</span>${due}</div>
+      <div class="dp-meta">${esc(p.customer || '-')}${p.end_date ? ` · 종료 ${esc(p.end_date.slice(0, 10))}` : ''}</div>
+      <div class="dp-prog">${p.task_total
+        ? `<span class="dp-bar"><i style="width:${pct}%"></i></span><span class="dp-pct">${p.task_done}/${p.task_total} · ${pct}%</span>`
+        : '<span class="dp-pct none">세부 작업 없음</span>'}</div>
+    </div>`;
+  };
+  $('dash-projects').innerHTML = pj.active.length ? pj.active.map(p => row(p, false)).join('')
+    : `<div class="empty" style="padding:10px 4px 12px">진행 중인 프로젝트가 없습니다</div>`
+      + (pj.recent_done.length ? `<div class="dp-sub">최근 완료</div>${pj.recent_done.map(p => row(p, true)).join('')}` : '');
+}
+
 function renderDashWarranty(){
   const all = _dashData?.expiring_warranties || [];
   const soon = all.filter(w => w.warranty_days > 0).sort((a,b) => a.warranty_days - b.warranty_days);
@@ -415,17 +459,21 @@ function renderDashMetrics(){
   const byCat = c => todo.filter(i => i.category === c).length;
   const issues = _allIssues || [];
   const hot = issues.filter(i => i.severity === '긴급' || i.severity === '높음').length;
+  // 한 줄 높이의 낮은 카드: 왼쪽에 이름·보조 설명, 오른쪽에 숫자
+  const pct = ss.total ? Math.round(ss.done / ss.total * 100) : 0;
   $('dash-metrics').innerHTML = `
-    <div class="metric m-blue" style="cursor:pointer" title="점검 일정 메뉴로 이동" onclick="document.querySelector('.nav-item[data-page=\\'schedule-mgmt\\']').click()"><div class="metric-label">이번 달 점검</div><div class="metric-value">${ss.done}/${ss.total}</div>
-      <div class="prog-wrap"><div class="prog-bar" style="width:${ss.total?Math.round(ss.done/ss.total*100):0}%"></div></div></div>
+    <div class="metric m-blue" style="cursor:pointer" title="점검 일정 메뉴로 이동" onclick="document.querySelector('.nav-item[data-page=\\'schedule-mgmt\\']').click()">
+      <div class="dm-text"><div class="metric-label">이번 달 점검</div>
+        <div class="dm-sub"><span class="prog-wrap"><span class="prog-bar" style="width:${pct}%"></span></span>${pct}%</div></div>
+      <div class="metric-value">${ss.done}<small>/${ss.total}</small></div></div>
     <div class="metric m-amber" style="cursor:pointer" title="체크리스트 할 일 보기" onclick="switchDashCL('todo');$('dash-cl').scrollIntoView({behavior:'smooth',block:'center'})">
-      <div class="metric-label">체크리스트 남은 항목</div>
-      <div class="metric-value" style="${todo.length?'color:#d97706':''}">${todo.length}건</div>
-      <div style="font-size:11px;color:#64748b;margin-top:4px">월간 ${byCat('월간')} · 분기 ${byCat('분기')} · 일반 ${byCat('일반')}</div></div>
+      <div class="dm-text"><div class="metric-label">체크리스트 남은 항목</div>
+        <div class="dm-sub">월간 ${byCat('월간')} · 분기 ${byCat('분기')} · 일반 ${byCat('일반')}</div></div>
+      <div class="metric-value" style="${todo.length?'color:#d97706':''}">${todo.length}<small>건</small></div></div>
     <div class="metric m-red" style="cursor:pointer" title="사이트 이슈 보기" onclick="$('dash-issues').scrollIntoView({behavior:'smooth',block:'center'})">
-      <div class="metric-label">미해결 이슈</div>
-      <div class="metric-value" style="${hot?'color:#dc2626':''}">${issues.length}건</div>
-      <div style="font-size:11px;color:#64748b;margin-top:4px">긴급·높음 ${hot}건</div></div>
+      <div class="dm-text"><div class="metric-label">미해결 이슈</div>
+        <div class="dm-sub">긴급·높음 ${hot}건</div></div>
+      <div class="metric-value" style="${hot?'color:#dc2626':''}">${issues.length}<small>건</small></div></div>
     ${_svcMetric(d)}`;
 }
 
@@ -1721,9 +1769,9 @@ function _svcMetric(d){
   const a = d.monthly_support_count ?? 0, b = d.monthly_incident_count ?? 0;
   return `<div class="metric m-violet" style="cursor:pointer" title="월별 기술지원 및 장애처리 이력으로 이동"
       onclick="document.querySelector('.nav-item[data-page=\\'service-history\\']').click()">
-    <div class="metric-label">이번 달 기술지원 · 장애</div>
-    <div class="metric-value">${a + b}건</div>
-    <div style="font-size:11px;color:#64748b;margin-top:4px">기술지원 ${a} · 장애처리 ${b}</div></div>`;
+    <div class="dm-text"><div class="metric-label">이번 달 기술지원 · 장애</div>
+      <div class="dm-sub">기술지원 ${a} · 장애처리 ${b}</div></div>
+    <div class="metric-value">${a + b}<small>건</small></div></div>`;
 }
 function _refreshSvcHistory(){
   if($('page-service-history').classList.contains('active')) renderServiceHistory();
@@ -1879,8 +1927,9 @@ function svhMove(delta){
   renderServiceHistory();
 }
 $('svh-month').addEventListener('change', renderServiceHistory);
-document.querySelectorAll('.svh-tab').forEach(t => t.addEventListener('click', () => {
-  document.querySelectorAll('.svh-tab').forEach(x => x.classList.toggle('active', x === t));
+// 월별 이력의 탭만 대상으로 한다 (.svh-tab 모양은 대시보드·체크리스트 등 다른 화면의 탭도 같이 쓴다)
+document.querySelectorAll('.svh-tab[data-svh]').forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('.svh-tab[data-svh]').forEach(x => x.classList.toggle('active', x === t));
   _svhTab = t.dataset.svh;
   renderServiceHistory();
 }));
@@ -3048,7 +3097,7 @@ function drawGcal(){
         <tr><th>종류</th><td><code>[점검]</code> <code>[분기점검]</code> <code>[특별점검]</code> → 점검 일정 &nbsp;·&nbsp; <code>[기술지원]</code> <code>[납품]</code> <code>[원격]</code> <code>[이전]</code> <code>[기타]</code> → 기술지원<br><code>[점검 및 기술지원]</code> <code>[점검/납품]</code> 처럼 함께 적으면 점검 일정 한 건에 지원 구분이 같이 체크됩니다.</td></tr>
         <tr><th>설명</th><td>캘린더 일정의 <b>설명</b> 칸 내용은 기술지원의 <b>작업 목적</b>에 들어갑니다 (점검 일정은 메모). 구글에서 설명을 고치면 반영하지만, 포털에서 직접 고친 내용은 덮어쓰지 않습니다.</td></tr>
         <tr><th>이미 있는 일정</th><td>포털에 <b>같은 날짜 · 같은 사이트</b>로 이미 등록된 건이 있으면 새로 만들지 않고 그 건에 연결합니다. 이렇게 연결된 건은 구글에서 일정을 지워도 포털에서 지우지 않습니다.</td></tr>
-        <tr><th>반영 방식</th><td>${g.sync_minutes}분마다 자동으로 확인합니다. 구글에서 날짜를 바꾸거나 지우면 포털에도 반영하지만, 포털에서 <b>완료 처리한 건은 그대로</b> 둡니다.</td></tr>
+        <tr><th>반영 방식</th><td>${g.sync_minutes}분마다 자동으로 확인합니다. 구글에서 날짜를 바꾸거나 지우면 포털에도 반영하지만, 포털에서 <b>완료 처리한 건은 그대로</b> 둡니다. 포털에서 직접 지운 건은 다시 만들지 않으며, 아래 표의 "다시 가져오기"로 되살릴 수 있습니다.</td></tr>
       </table>
     </div>
   </div>
@@ -3068,13 +3117,13 @@ function drawGcal(){
 
   <div class="dv-panel">
     <div class="dv-panel-head"><span class="dv-panel-title">가져온 일정</span><span class="dv-panel-sub">${rest.length}건</span></div>
-    ${rest.length ? `<table class="dv-tbl gc-tbl"><thead><tr><th style="width:104px">날짜</th><th>캘린더 제목</th><th style="width:150px">등록된 곳</th><th style="width:220px">사이트</th><th style="width:132px">상태</th></tr></thead><tbody>
+    ${rest.length ? `<table class="dv-tbl gc-tbl"><thead><tr><th style="width:104px">날짜</th><th>캘린더 제목</th><th style="width:150px">등록된 곳</th><th style="width:220px">사이트</th><th style="width:210px">상태</th></tr></thead><tbody>
       ${rest.map(e => `<tr>
         <td class="gc-date">${esc(e.event_date)}</td>
         <td><div class="dv-task">${esc(e.summary)}</div></td>
         <td>${e.state === '무시' ? '<span class="dev-muted">-</span>' : esc((e.kind === '점검' ? '점검 일정' : '기술지원') + ' - ' + (e.sub_type || ''))}</td>
         <td>${esc(e.site_name || (e.state === '무시' ? '' : e.customer))}</td>
-        <td><span class="gc-state ${stCls[e.state] || 'off'}">${esc(e.state === '등록' && e.adopted ? '기존 일정 연결' : e.state)}</span>${e.state === '무시' ? ` <button class="btn btn-sm" onclick="gcalEvent('${e.id}','restore')">되돌리기</button>` : ''}</td>
+        <td><span class="gc-state ${stCls[e.state] || 'off'}">${esc(e.state === '등록' && e.adopted ? '기존 일정 연결' : e.state)}</span>${e.state === '무시' ? ` <button class="btn btn-sm" onclick="gcalEvent('${e.id}','restore')">되돌리기</button>` : ''}${e.state === '포털에서 삭제' ? ` <button class="btn btn-sm" title="포털에서 지운 일정을 캘린더 내용으로 다시 등록합니다" onclick="gcalEvent('${e.id}','reimport')">다시 가져오기</button>` : ''}</td>
       </tr>`).join('')}</tbody></table>` : '<div class="dv-empty">아직 가져온 일정이 없습니다</div>'}
   </div>` : ''}`;
 }
@@ -3223,3 +3272,149 @@ async function changeDevItemStatus(itemId, newStatus) {
   }
 }
 
+
+// ── 테스트서버 접속 정보 (routers/lab.py) ─────────────────────────
+let _labItems = [];
+const _labPw = {};
+async function renderLab(){
+  const el = $('lab-content');
+  try { _labItems = await _apiSend('GET', `/api/engineers/${ENG_ID}/lab`); }
+  catch(e){ el.innerHTML = `<div class="empty" style="color:#dc2626">${esc(e.message)}</div>`; return; }
+  drawLab();
+}
+function _labHit(s, q){
+  if(!q) return true;
+  const hay = [s.group_name, s.name, s.os, s.address, s.memo, ...s.accounts.map(a => a.label + ' ' + a.username)].join(' ').toLowerCase();
+  return q.split(/\s+/).every(w => hay.includes(w));
+}
+function drawLab(){
+  const el = $('lab-content');
+  const q = $('lab-q').value.trim().toLowerCase();
+  const items = _labItems.filter(s => _labHit(s, q));
+  const groups = [];
+  items.forEach(s => {
+    const g = s.group_name || '미분류';
+    let grp = groups.find(x => x.name === g);
+    if(!grp){ grp = {name: g, rows: []}; groups.push(grp); }
+    grp.rows.push(s);
+  });
+  $('lab-summary').textContent = _labItems.length ? `서버 ${_labItems.length}대 · 계정 ${_labItems.reduce((n, s) => n + s.accounts.length, 0)}개` : '';
+  $('lab-groups').innerHTML = [...new Set(_labItems.map(s => s.group_name).filter(Boolean))].map(g => `<option value="${esc(g)}">`).join('');
+  if(!items.length){
+    el.innerHTML = `<div class="empty">${_labItems.length ? '검색 결과가 없습니다' : '등록된 서버가 없습니다. [+ 서버 추가]로 등록해주세요'}</div>`;
+    return;
+  }
+  const acc = a => `<div class="lab-acc">
+      ${a.label ? `<span class="lab-acc-label">${esc(a.label)}</span>` : ''}
+      <span class="lab-copy mono" title="눌러서 복사" onclick="labCopy(this)">${esc(a.username || '-')}</span>
+      ${a.has_password ? `<span class="pw-cell" id="lpw-${a.id}">••••••</span>
+        <button class="btn btn-sm pw-btn" onclick="labTogglePw('${a.id}')" id="lpwb-${a.id}">보기</button>
+        <button class="btn btn-sm pw-btn" onclick="labCopyPw('${a.id}')">복사</button>` : ''}
+    </div>`;
+  const addr = t => t.split('\n').filter(x => x.trim()).map(l => {
+    const m = l.match(/^(.*?[:：]\s+)(\S.*)$/);          // "설명 : 값" 형태면 값만 복사 대상
+    return `<div>${m ? `<span class="lab-addr-k">${esc(m[1])}</span>` : ''}<span class="lab-copy mono" title="눌러서 복사" onclick="labCopy(this)">${esc(m ? m[2] : l.trim())}</span></div>`;
+  }).join('') || '<span class="lab-none">-</span>';
+  el.innerHTML = `<table class="lab-tbl">
+    <colgroup><col style="width:14%"><col style="width:13%"><col style="width:17%"><col><col style="width:17%"><col style="width:84px"></colgroup>
+    <thead><tr><th>이름</th><th>OS / 버전</th><th>주소</th><th>계정 / 비밀번호</th><th>메모</th><th></th></tr></thead>
+    <tbody>${groups.map(g => `
+      <tr class="lab-grp"><td colspan="6">${esc(g.name)} <span>${g.rows.length}</span></td></tr>
+      ${g.rows.map(s => `<tr>
+        <td class="lab-name">${esc(s.name)}</td>
+        <td class="lab-os">${esc(s.os) || '<span class="lab-none">-</span>'}</td>
+        <td>${addr(s.address)}</td>
+        <td>${s.accounts.map(acc).join('') || '<span class="lab-none">-</span>'}</td>
+        <td class="lab-memo">${esc(s.memo) || '<span class="lab-none">-</span>'}</td>
+        <td class="lab-act">
+          <button class="icon-btn edit" title="수정" onclick="openEditLab('${s.id}')">${ICO_EDIT}</button>
+          <button class="icon-btn del" title="삭제" onclick="deleteLab('${s.id}')">${ICO_DEL}</button>
+        </td>
+      </tr>`).join('')}`).join('')}
+    </tbody></table>`;
+}
+async function _labCopyText(text, msg){
+  try {
+    if(navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(text);
+    else {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+    }
+    toast(msg);
+  } catch(e){ toast('복사 실패: 브라우저에서 클립보드 사용이 막혀 있습니다'); }
+}
+function labCopy(el){ const t = el.textContent.trim(); if(t && t !== '-') _labCopyText(t, `복사했습니다: ${t}`); }
+async function _labFetchPw(id){
+  if(_labPw[id] === undefined) _labPw[id] = (await _apiSend('GET', `/api/engineers/${ENG_ID}/lab/accounts/${id}/password`)).password;
+  return _labPw[id];
+}
+async function labTogglePw(id){
+  const cell = $('lpw-'+id), btn = $('lpwb-'+id);
+  if(!cell) return;
+  if(cell.dataset.shown){ cell.textContent = '••••••'; delete cell.dataset.shown; btn.textContent = '보기'; return; }
+  let pw;
+  try { pw = await _labFetchPw(id); } catch(e){ toast(e.message); return; }
+  cell.textContent = pw; cell.dataset.shown = '1'; btn.textContent = '숨기기';
+  clearTimeout(cell._t); cell._t = setTimeout(() => { if(cell.dataset.shown) labTogglePw(id); }, 30000);   // 30초 후 자동 숨김
+}
+async function labCopyPw(id){
+  let pw;
+  try { pw = await _labFetchPw(id); } catch(e){ toast(e.message); return; }
+  _labCopyText(pw, '비밀번호를 복사했습니다');
+}
+function labAddAccRow(a){
+  a = a || {};
+  const row = document.createElement('div');
+  row.className = 'lab-acc-row';
+  row.dataset.id = a.id || '';
+  row.innerHTML = `<input type="text" class="la-label" placeholder="용도 (OS, 웹 콘솔 ...)" value="${esc(a.label || '')}">
+    <input type="text" class="la-user" placeholder="계정" value="${esc(a.username || '')}">
+    <input type="password" class="la-pass" autocomplete="new-password" placeholder="${a.has_password ? '변경 시에만 입력' : '비밀번호'}">
+    <button class="icon-btn del" title="계정 삭제" onclick="this.parentNode.remove()">${ICO_DEL}</button>`;
+  $('lab-accs').appendChild(row);
+}
+function _labOpen(s){
+  $('lab-modal-title').textContent = s ? '서버 수정' : '서버 추가';
+  $('lab-id').value = s ? s.id : '';
+  $('lab-group').value = s ? s.group_name : '';
+  $('lab-name').value = s ? s.name : '';
+  $('lab-os').value = s ? s.os : '';
+  $('lab-addr').value = s ? s.address : '';
+  $('lab-addr').style.height = Math.max(34, 20 * ((s ? s.address : '').split('\n').length) + 14) + 'px';
+  $('lab-memo').value = s ? s.memo : '';
+  $('lab-accs').innerHTML = '';
+  (s && s.accounts.length ? s.accounts : [{}]).forEach(labAddAccRow);
+  openModal('modal-lab');
+}
+function openAddLab(){ _labOpen(null); }
+function openEditLab(id){ const s = _labItems.find(x => x.id === id); if(s) _labOpen(s); }
+async function saveLab(){
+  const name = $('lab-name').value.trim();
+  if(!name){ toast('이름을 입력해주세요'); return; }
+  const id = $('lab-id').value;
+  const accounts = [...$('lab-accs').querySelectorAll('.lab-acc-row')].map(r => {
+    const a = {label: r.querySelector('.la-label').value, username: r.querySelector('.la-user').value};
+    const pw = r.querySelector('.la-pass').value;
+    if(r.dataset.id) a.id = r.dataset.id;
+    if(pw || !r.dataset.id) a.password = pw;      // 기존 계정은 비워 두면 그대로 유지
+    return a;
+  });
+  const body = {group_name: $('lab-group').value, name, os: $('lab-os').value, address: $('lab-addr').value, memo: $('lab-memo').value, accounts};
+  try {
+    if(id) await _apiSend('PUT', `/api/engineers/${ENG_ID}/lab/${id}`, body);
+    else   await _apiSend('POST', `/api/engineers/${ENG_ID}/lab`, body);
+  } catch(e){ toast(e.message); return; }
+  accounts.forEach(a => { if(a.id) delete _labPw[a.id]; });
+  closeModal('modal-lab');
+  $('lab-accs').innerHTML = '';
+  toast(id ? '서버 정보 수정됨' : '서버 추가됨');
+  renderLab();
+}
+async function deleteLab(id){
+  const s = _labItems.find(x => x.id === id);
+  if(!s || !confirm(`'${s.name}' 접속 정보를 삭제하시겠습니까?`)) return;
+  try { await _apiSend('DELETE', `/api/engineers/${ENG_ID}/lab/${id}`); }
+  catch(e){ toast(e.message); return; }
+  toast('삭제됨'); renderLab();
+}

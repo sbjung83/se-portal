@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, String, Boolean, Text, DateTime, ForeignKey
+from sqlalchemy import create_engine, Column, String, Integer, Boolean, Text, DateTime, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -217,6 +217,30 @@ class Incident(Base):
     action       = Column(Text, default="")          # 조치 내용
     prevention   = Column(Text, default="")          # 재발 방지 대책
     created_at   = Column(String, default="")
+
+class LabServer(Base):
+    """사내 테스트 서버 접속 정보 (routers/lab.py)."""
+    __tablename__ = "lab_servers"
+    id          = Column(String, primary_key=True)
+    engineer_id = Column(String, ForeignKey("engineers.id"), nullable=False, index=True)
+    group_name  = Column(String, default="")       # 분류 (VMware, Proxmox ...)
+    name        = Column(String, nullable=False)
+    os          = Column(String, default="")       # OS / 버전
+    address     = Column(Text, default="")         # IP·포트·주소 (여러 줄 가능)
+    memo        = Column(Text, default="")
+    order_idx   = Column(Integer, default=0)
+    accounts    = relationship("LabAccount", back_populates="server", cascade="all, delete-orphan",
+                               order_by="LabAccount.order_idx")
+
+class LabAccount(Base):
+    __tablename__ = "lab_accounts"
+    id        = Column(String, primary_key=True)
+    server_id = Column(String, ForeignKey("lab_servers.id"), nullable=False, index=True)
+    label     = Column(String, default="")         # 용도 (OS, 웹 콘솔 ...)
+    username  = Column(String, default="")
+    password  = Column(String, default="")         # secure_store 로 암호화 (enc:v1:)
+    order_idx = Column(Integer, default=0)
+    server    = relationship("LabServer", back_populates="accounts")
 
 class CalendarLink(Base):
     """엔지니어별 구글 캘린더 주소 (routers/gcal.py)"""

@@ -5,7 +5,7 @@ from fastapi.requests import Request
 from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 from database import init_db
-from routers import auth, sites, logs, dashboard, schedules, issues, site_checklist, projects, technotes, development, incidents, reports, gcal, entries
+from routers import auth, sites, logs, dashboard, schedules, issues, site_checklist, projects, technotes, development, incidents, reports, gcal, entries, lab
 from routers.auth import require_login
 import os, asyncio
 
@@ -54,6 +54,7 @@ app.include_router(development.router, dependencies=_LOGIN)
 app.include_router(reports.router, dependencies=_LOGIN)
 app.include_router(gcal.router, dependencies=_LOGIN)
 app.include_router(entries.router, dependencies=_LOGIN)
+app.include_router(lab.router, dependencies=_LOGIN)
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
-from database import get_db, Site, Device, Schedule, Issue, WorkPlan, Incident
+from database import get_db, Site, Device, Schedule, Issue, WorkPlan, Incident, Project
 from datetime import datetime, timedelta
 from routers.technotes import support_only
 
@@ -83,16 +83,29 @@ def get_dashboard(eng_id: str, db: Session = Depends(get_db)):
         "issues":     [_iss(i, sites) for i in open_issues],   # 전체
         "issues_all": [_iss(i, sites) for i in open_issues],   # 명시적 전체 키
         "expiring_warranties": expiring,
+        "projects": _projects(db, eng_id),
         "week": {
             "today": today, "this_start": this_start, "this_end": this_end, "end": week_end,
             "schedules": [_sch(s, sites) for s in week_scheds],
             "workplans": [{"id": p.id, "title": p.title, "work_date": p.work_date, "site": p.site,
-                           "status": p.status, "impact": p.impact or ""} for p in week_plans],
+                           "status": p.status, "impact": p.impact or "", "purpose": p.purpose or ""} for p in week_plans],
             "incidents": [{"id": i.id, "title": i.title, "occurred_at": i.occurred_at,
                            "recovered_at": i.recovered_at or "", "site": i.site,
                            "severity": i.severity, "status": i.status} for i in open_incidents],
         },
     }
+
+def _projects(db, eng_id):
+    """대시보드 '프로젝트 현황': 완료 전 프로젝트 전부(종료일 빠른 순) + 최근 완료 3건. 진행률은 세부 작업 완료 수 기준."""
+    rows = db.query(Project).filter(Project.engineer_id == eng_id).all()
+    def d(p):
+        tasks = list(p.tasks)
+        return {"id": p.id, "name": p.name, "customer": p.customer or "", "status": p.status or "진행 대기",
+                "start_date": p.start_date or "", "end_date": p.end_date or "",
+                "task_total": len(tasks), "task_done": sum(1 for t in tasks if t.status == "완료")}
+    active = sorted((p for p in rows if p.status != "완료"), key=lambda p: (p.end_date or "9999", p.name))
+    done = sorted((p for p in rows if p.status == "완료"), key=lambda p: p.end_date or "", reverse=True)[:3]
+    return {"active": [d(p) for p in active], "recent_done": [d(p) for p in done]}
 
 def _sch(s, sites):
     site = next((x for x in sites if x.id == s.site_id), None)
