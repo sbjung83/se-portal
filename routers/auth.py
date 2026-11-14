@@ -60,6 +60,7 @@ def get_current_user(
         "username": user.username,
         "engineer_id": eng.id,
         "engineer_name": eng.name,
+        "is_admin": bool(user.is_admin),
         "session_id": session.id,
     }
 
@@ -69,6 +70,13 @@ def require_login(request: Request, user: dict = Depends(get_current_user)):
     eng_id = request.path_params.get("eng_id")
     if eng_id is not None and eng_id != user["engineer_id"]:
         raise HTTPException(status_code=403, detail="접근 권한이 없습니다")
+    return user
+
+
+def require_admin(user: dict = Depends(get_current_user)):
+    """관리자 전용 API (개발 체크리스트 등)."""
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="관리자만 사용할 수 있습니다")
     return user
 
 
@@ -141,7 +149,7 @@ def login(data: LoginIn, request: Request, response: Response, db: Session = Dep
     db.add(SessionToken(id=sid, user_id=user.id, engineer_id=eng.id, expires_at=now + timedelta(days=SESSION_DAYS)))
     db.commit()
     _set_cookie(response, sid, request)
-    return {"ok": True, "engineer_name": eng.name, "engineer_id": eng.id}
+    return {"ok": True, "engineer_name": eng.name, "engineer_id": eng.id, "is_admin": bool(user.is_admin)}
 
 @router.post("/logout")
 def logout(response: Response, session_id: Optional[str] = Cookie(default=None), db: Session = Depends(get_db)):

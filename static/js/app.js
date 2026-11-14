@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-let ENG_ID='', ENG_NAME='';
+let ENG_ID='', ENG_NAME='', IS_ADMIN=false;
 let currentSiteId=null, revealedPw={};   // revealedPw: 하위 호환용(미사용)
 
 // 페이지네이션 상태
@@ -24,7 +24,7 @@ window.fetch = async (...args) => {
 };
 function _sessionExpired(){
   if(!ENG_ID) return;
-  ENG_ID=''; ENG_NAME='';
+  ENG_ID=''; ENG_NAME=''; IS_ADMIN=false;
   document.querySelectorAll('.overlay.open').forEach(o => o.classList.remove('open'));
   $('main-app').style.display='none'; $('auth-wrap').style.display='flex';
   switchAuth('login');
@@ -71,7 +71,7 @@ async function doLogin(){
   let r;
   try { r=await api.post('/api/auth/login',{username,password}); }
   catch(e){ $('login-err').textContent='서버에 연결하지 못했습니다'; return }
-  if(r.ok){ENG_ID=r.engineer_id;ENG_NAME=r.engineer_name;$('login-pw').value='';$('login-err').textContent='';initApp()}
+  if(r.ok){ENG_ID=r.engineer_id;ENG_NAME=r.engineer_name;IS_ADMIN=!!r.is_admin;$('login-pw').value='';$('login-err').textContent='';initApp()}
   else $('login-err').textContent=(typeof r.detail==='string'&&r.detail)||'로그인 실패';
 }
 async function doRegister(){
@@ -85,7 +85,7 @@ async function doRegister(){
 }
 async function doLogout(){
   try { await api.post('/api/auth/logout',{}); } catch(e){}
-  ENG_ID='';ENG_NAME='';
+  ENG_ID='';ENG_NAME='';IS_ADMIN=false;
   $('login-err').textContent='';
   $('auth-wrap').style.display='flex';$('main-app').style.display='none';
 }
@@ -128,6 +128,9 @@ function initApp(){
   $('sidebar-eng-name').textContent=ENG_NAME;
   const av=$('sidebar-avatar'); if(av) av.textContent=ENG_NAME.charAt(0);
   closeUserMenu();
+  // 관리자 전용 메뉴(개발 체크리스트)는 관리자에게만 보인다. 서버도 관리자가 아니면 거절한다
+  document.querySelectorAll('.nav-item[data-admin]').forEach(n => n.style.display = IS_ADMIN ? '' : 'none');
+  if(!IS_ADMIN && document.querySelector('.page.active[data-admin]')){ const n = document.querySelector('.nav-item[data-page="dashboard"]'); if(n) n.click(); }
   _dashHead();
   renderDashboard();
 }
@@ -2075,6 +2078,18 @@ function wrSaveRemark(el){
   const keep = Object.keys(all).sort().slice(-12); const out = {}; keep.forEach(k => out[k] = all[k]);   // 최근 12주만 보관
   try { localStorage.setItem('wrRemarks', JSON.stringify(out)); } catch(e){}
 }
+// 특이사항·확정사항도 고쳐 쓰면 주별로 기억 (자동 내용과 같아지면 지움)
+function _wrTextStore(){ try { return JSON.parse(localStorage.getItem('wrTexts') || '{}'); } catch(e){ return {}; } }
+function _wrText(which){ const m = _wrTextStore()[_wrStart] || {}; return which in m ? m[which] : null; }
+function wrSaveText(which){
+  const el = $('wr-' + which), all = _wrTextStore(), cur = all[_wrStart] = all[_wrStart] || {};
+  if(_wrData && el.value === _wrData[which]) delete cur[which]; else cur[which] = el.value;
+  if(!Object.keys(cur).length) delete all[_wrStart];
+  const out = {}; Object.keys(all).sort().slice(-12).forEach(k => out[k] = all[k]);
+  try { localStorage.setItem('wrTexts', JSON.stringify(out)); } catch(e){}
+  $(`wr-${which}-ed`).classList.toggle('on', which in cur);
+}
+function wrGrow(el){ el.style.height = 'auto'; el.style.height = Math.max(34, el.scrollHeight + 2) + 'px'; }
 async function renderWeeklyReport(){
   if(!_wrStart) _wrStart = _ymd(_wrMonday(new Date()));
   const el = $('wr-rows');
@@ -2083,43 +2098,63 @@ async function renderWeeklyReport(){
   catch(e){ el.innerHTML = `<div class="empty" style="color:#dc2626">${esc(e.message)}</div>`; return; }
   _wrData = d;
   const fmt = x => `${Number(x.slice(5,7))}/${Number(x.slice(8,10))}`;
-  $('wr-range').textContent = `${d.start.slice(0,4)}년 ${fmt(d.start)} (월) ~ ${fmt(d.end)} (일)`;
-  $('wr-notes').value = d.notes;
-  $('wr-confirmed').value = d.confirmed;
+  const thisWeek = d.start === _ymd(_wrMonday(new Date()));
+  $('wr-range').innerHTML = `${d.start.slice(0,4)}년 ${fmt(d.start)} (월) ~ ${fmt(d.end)} (일)${thisWeek ? ' <span class="wr-now">이번 주</span>' : ''}`;
+  $('wr-today').disabled = thisWeek;
+  ['notes', 'confirmed'].forEach(w => {
+    const saved = _wrText(w);
+    $('wr-' + w).value = saved === null ? d[w] : saved;
+    $(`wr-${w}-ed`).classList.toggle('on', saved !== null);
+  });
   $('wr-download').disabled = !d.template_ok;
   $('wr-download').title = d.template_ok ? '' : '양식 파일(data/report_templates/weekly_report.xlsx)이 없습니다';
 
-  const t = d.totals;
-  const sup = t.H + t.I + t.J + t.K + t.L;
-  $('wr-summary').innerHTML = `
-    <div class="metric"><div class="metric-label">정기점검</div><div class="metric-value">${t.F}건</div></div>
-    <div class="metric"><div class="metric-label">장애지원</div><div class="metric-value" style="${t.G?'color:#dc2626':''}">${t.G}건</div></div>
-    <div class="metric"><div class="metric-label">기술지원 (요청·납품·원격·이전·기타)</div><div class="metric-value">${sup}건</div>
-      <div style="font-size:11px;color:#64748b;margin-top:4px">요청 ${t.H} · 납품 ${t.I} · 원격 ${t.J} · 이전 ${t.K} · 기타 ${t.L}</div></div>
-    <div class="metric"><div class="metric-label">합계</div><div class="metric-value">${d.total}건</div>
-      <div style="font-size:11px;color:#64748b;margin-top:4px">${d.rows.length}줄${d.rows.length > 9 ? ' (양식 9줄 초과분은 행 자동 추가)' : ''}</div></div>`;
+  const t = d.totals, COLS = [['F','정기점검'],['G','장애지원'],['H','기술지원'],['I','납품'],['J','원격'],['K','이전'],['L','기타']];
+  $('wr-summary').innerHTML = COLS.map(([c, name]) =>
+      `<div class="wr-sum-i${t[c] ? '' : ' zero'}${c === 'G' && t[c] ? ' red' : ''}"><span>${name}</span><b>${t[c]}</b></div>`).join('')
+    + `<div class="wr-sum-i total"><span>합계</span><b>${d.total}건</b></div>`;
+  $('wr-rows-sub').textContent = d.rows.length ? `${d.rows.length}줄${d.rows.length > 9 ? ' · 양식 9줄을 넘는 만큼 엑셀에 행이 추가됩니다' : ''}` : '';
 
-  if(!d.rows.length){ el.innerHTML = '<div class="empty">이 주에 집계된 지원 내역이 없습니다</div>'; return; }
+  const pend = d.pending || [];
+  $('wr-pending').innerHTML = !pend.length ? '' : `<div class="wr-pend">
+    <div class="wr-pend-head">아직 '완료'가 아니라 보고서에서 빠진 일정 ${pend.length}건</div>
+    <table><tbody>${pend.map(x => `<tr>
+      <td class="k">${esc(x.kind)}</td><td class="d">${fmt(x.date)} (${x.weekday})</td>
+      <td class="s">${esc(x.site || '-')}</td><td>${esc(x.title)}</td>
+      <td class="b"><button class="btn btn-sm" onclick="wrComplete('${x.kind}','${x.id}')">완료 처리</button></td>
+    </tr>`).join('')}</tbody></table></div>`;
+
+  if(!d.rows.length){
+    el.innerHTML = `<div class="empty">이 주에 집계된 지원 내역이 없습니다${pend.length ? ' — 위의 일정을 완료 처리하면 여기에 들어옵니다' : ''}</div>`;
+    return;
+  }
   const n = v => v ? `<b>${v}</b>` : '';
-  el.innerHTML = `<div class="svh-table-wrap"><table class="svh-table wr-table">
-    <thead><tr><th style="width:150px">고객사</th><th style="width:110px">지원일자</th><th style="min-width:280px">지원요약</th>
-      <th class="c">정기<br>점검</th><th class="c">장애<br>지원</th><th class="c">기술<br>지원</th><th class="c">납품</th><th class="c">원격</th><th class="c">이전</th><th class="c">기타</th>
-      <th style="width:110px">지원엔지니어</th><th style="width:260px">비고</th></tr></thead>
+  el.innerHTML = `<div class="svh-table-wrap"><table class="wr-tbl">
+    <thead><tr><th style="width:14%">고객사</th><th style="width:92px">지원일자</th><th>지원요약</th>
+      ${COLS.map(([c, name]) => `<th class="c">${name.length === 4 ? name.slice(0,2) + '<br>' + name.slice(2) : name}</th>`).join('')}
+      <th style="width:76px">지원<br>엔지니어</th><th style="width:22%">비고</th></tr></thead>
     <tbody>${d.rows.map(r => `<tr>
-      <td style="font-weight:600">${esc(r.site)}</td>
-      <td>${r.date.replace(/-/g, "/")} (${r.weekday})${r.planned ? ' <span class="badge b-amber" title="아직 완료 처리하지 않은 주말 일정이 포함되어 있습니다">완료 전</span>' : ''}</td>
+      <td class="wr-site">${esc(r.site)}</td>
+      <td class="wr-date">${fmt(r.date)} (${r.weekday})${r.planned ? '<br><span class="badge b-amber" title="아직 완료 처리하지 않은 주말 일정입니다. 엑셀에는 그대로 들어갑니다">완료 전</span>' : ''}</td>
       <td class="wr-pre">${r.summary.map(x => '- ' + esc(x)).join('<br>')}</td>
-      ${['F','G','H','I','J','K','L'].map(c => `<td class="c">${n(r.counts[c])}</td>`).join('')}
+      ${COLS.map(([c]) => `<td class="c${r.counts[c] ? ' on' : ''}">${n(r.counts[c])}</td>`).join('')}
       <td>${esc(r.workers)}</td>
-      <td class="wr-remark"><textarea class="wr-remark-in" data-key="${esc(r.key)}" rows="${Math.min(6, Math.max(2, r.summary.length, Math.ceil(_wrRemark(r).length / 30)))}" placeholder="직접 입력" oninput="wrSaveRemark(this)">${esc(_wrRemark(r))}</textarea></td>
+      <td class="wr-remark"><textarea class="wr-remark-in" data-key="${esc(r.key)}" rows="1" placeholder="직접 입력" oninput="wrSaveRemark(this); wrGrow(this)">${esc(_wrRemark(r))}</textarea></td>
     </tr>`).join('')}</tbody>
-    <tfoot><tr><td colspan="3" style="text-align:right">합계</td>${['F','G','H','I','J','K','L'].map(c => `<td class="c">${t[c]||''}</td>`).join('')}<td colspan="2">총 ${d.total}건</td></tr></tfoot>
-  </table></div>
-  <div class="wr-help" style="margin-top:8px">지원요약은 구글 캘린더에서 가져온 건이면 캘린더 설명 내용, 아니면 제목이 들어갑니다. 비고는 직접 입력하세요(이 브라우저에 주별로 기억됨). 토·일 일정은 완료 전이어도 등록되어 있으면 포함됩니다("완료 전" 표시는 화면에만 나오고 엑셀에는 들어가지 않음). 포털에 없는 내용은 내려받은 엑셀에서 직접 추가하세요. 교체파트·담당영업 칸은 비워 둡니다.</div>`;
+    <tfoot><tr><td colspan="3">합계</td>${COLS.map(([c]) => `<td class="c">${t[c] || ''}</td>`).join('')}<td colspan="2">총 ${d.total}건</td></tr></tfoot>
+  </table></div>`;
+  el.querySelectorAll('.wr-remark-in').forEach(wrGrow);
+}
+async function wrComplete(kind, id){
+  try { await _apiSend('PATCH', `/api/engineers/${ENG_ID}/${kind === '점검' ? 'schedules' : 'workplans'}/${id}`, {status: '완료'}); }
+  catch(e){ toast('변경 실패: ' + e.message); return; }
+  toast(`${kind} 완료 처리됨 — 보고서에 반영했습니다`);
+  renderWeeklyReport();
 }
 function wrReset(which){
   if(!_wrData) return;
-  $(which === 'notes' ? 'wr-notes' : 'wr-confirmed').value = _wrData[which];
+  $('wr-' + which).value = _wrData[which];
+  wrSaveText(which);
 }
 async function downloadWeeklyReport(){
   const btn = $('wr-download');
@@ -2365,7 +2400,7 @@ $('n-date').value=new Date().toISOString().slice(0,10);
 
 (async()=>{
   const me=await api.get('/api/auth/me').catch(()=>null);
-  if(me&&me.engineer_id){ENG_ID=me.engineer_id;ENG_NAME=me.engineer_name;initApp()}
+  if(me&&me.engineer_id){ENG_ID=me.engineer_id;ENG_NAME=me.engineer_name;IS_ADMIN=!!me.is_admin;initApp()}
 })();
 
 // ── PROJECTS ─────────────────────────────────
@@ -3273,7 +3308,7 @@ async function changeDevItemStatus(itemId, newStatus) {
 }
 
 
-// ── 테스트서버 접속 정보 (routers/lab.py) ─────────────────────────
+// ── 사내 테스트서버 (routers/lab.py) ─────────────────────────
 let _labItems = [];
 const _labPw = {};
 async function renderLab(){
@@ -3302,7 +3337,7 @@ function drawLab(){
   $('lab-summary').textContent = _labItems.length ? `서버 ${_labItems.length}대 · 계정 ${_labItems.reduce((n, s) => n + s.accounts.length, 0)}개` : '';
   $('lab-groups').innerHTML = [...new Set(_labItems.map(s => s.group_name).filter(Boolean))].map(g => `<option value="${esc(g)}">`).join('');
   if(!items.length){
-    el.innerHTML = `<div class="empty">${_labItems.length ? '검색 결과가 없습니다' : '등록된 서버가 없습니다. [+ 서버 추가]로 등록해주세요'}</div>`;
+    el.innerHTML = `<div class="empty">${_labItems.length ? '검색 결과가 없습니다' : '등록된 서버가 없습니다. [+ 서버 추가]로 내 테스트 서버를 등록해주세요 (여기 등록한 정보는 본인에게만 보입니다)'}</div>`;
     return;
   }
   const acc = a => `<div class="lab-acc">

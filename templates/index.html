@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=38">
+<link rel="stylesheet" href="/static/css/style.css?v=40">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -133,12 +133,12 @@
     <div class="nav-group">
       <div class="nav-group-label">시스템</div>
       <div class="nav-item" data-page="lab">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><line x1="6" y1="6.5" x2="6.01" y2="6.5"/><line x1="6" y1="17.5" x2="6.01" y2="17.5"/></svg>테스트서버 접속 정보
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><line x1="6" y1="6.5" x2="6.01" y2="6.5"/><line x1="6" y1="17.5" x2="6.01" y2="17.5"/></svg>사내 테스트서버
       </div>
       <div class="nav-item" data-page="gcal">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="8 16 11 19 16 13"/></svg>구글 캘린더 연동
       </div>
-      <div class="nav-item" data-page="dev-checklist">
+      <div class="nav-item" data-page="dev-checklist" data-admin style="display:none">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>개발 체크리스트
       </div>
     </div>
@@ -371,31 +371,45 @@
 
     <!-- 주간보고서 -->
     <div class="page" id="page-weekly-report">
-      <div class="page-title">주간보고서</div>
-      <div class="svh-bar">
-        <div class="svh-month">
+      <div class="wr-top">
+        <div class="page-title">주간보고서</div>
+        <div class="wr-nav">
           <button class="btn btn-sm" onclick="wrMove(-1)" title="이전 주">◀</button>
           <span id="wr-range" class="wr-range"></span>
           <button class="btn btn-sm" onclick="wrMove(1)" title="다음 주">▶</button>
-          <button class="btn btn-sm" onclick="wrMove(0)">이번 주</button>
+          <button class="btn btn-sm" id="wr-today" onclick="wrMove(0)">이번 주로</button>
         </div>
         <button class="btn btn-primary" id="wr-download" onclick="downloadWeeklyReport()">엑셀 다운로드</button>
       </div>
-      <div class="grid4" id="wr-summary" style="margin-bottom:14px"></div>
-      <div class="card" style="margin-bottom:14px">
-        <div class="card-title">지원 내역 미리보기 <span class="wr-help">점검·기술지원은 '완료', 장애처리는 그 주에 발생한 건 기준 · 토·일은 완료 전 일정도 포함 · 같은 날 같은 사이트는 한 줄로 묶음</span></div>
+      <div class="wr-sum" id="wr-summary"></div>
+      <div id="wr-pending"></div>
+      <div class="wr-box">
+        <div class="wr-box-head"><span>지원 내역</span><span class="wr-box-sub" id="wr-rows-sub"></span>
+          <details class="wr-guide"><summary>집계 기준</summary>
+            <ul>
+              <li><b>점검 · 기술지원</b>은 '완료' 처리한 건만 들어갑니다. 토·일 일정은 보고서를 미리 내므로 완료 전이어도 포함합니다("완료 전" 표시는 화면에만 나옵니다).</li>
+              <li><b>장애지원</b>은 그 주에 발생한 건이 모두 들어갑니다.</li>
+              <li>같은 날 같은 고객사는 한 줄로 묶고, 체크한 구분마다 해당 열에 1건씩 셉니다.</li>
+              <li><b>지원요약</b>은 구글 캘린더에서 가져온 건이면 캘린더 설명, 아니면 제목이 들어갑니다.</li>
+              <li><b>비고 · 특이사항 · 확정사항</b>은 고쳐 쓰면 이 브라우저에 주별로 기억됩니다(최근 12주).</li>
+              <li>교체파트 · 담당영업 칸은 비워 둡니다. 포털에 없는 내용은 내려받은 엑셀에서 직접 추가하세요.</li>
+            </ul>
+          </details>
+        </div>
         <div id="wr-rows"></div>
       </div>
-      <div class="grid2">
-        <div class="card">
-          <div class="card-title"><span>특이사항</span><button class="btn btn-sm" onclick="wrReset('notes')">기본값으로</button></div>
-          <textarea id="wr-notes" class="wr-text" placeholder="엑셀의 특이사항 칸에 들어갑니다"></textarea>
-          <div class="wr-help">기본값: 미해결 이슈 + 진행 중 장애</div>
+      <div class="grid2 wr-texts">
+        <div class="wr-box">
+          <div class="wr-box-head"><span>특이사항</span><span class="wr-box-sub">자동 내용: 미해결 이슈 + 진행 중 장애</span>
+            <span class="wr-edited" id="wr-notes-ed">수정됨</span>
+            <button class="btn btn-sm" onclick="wrReset('notes')" title="직접 고친 내용을 버리고 자동으로 만든 내용으로 되돌립니다">자동 내용으로</button></div>
+          <textarea id="wr-notes" class="wr-text" placeholder="엑셀의 특이사항 칸에 들어갑니다" oninput="wrSaveText('notes')"></textarea>
         </div>
-        <div class="card">
-          <div class="card-title"><span>확정사항 (다음 주 점검일정)</span><button class="btn btn-sm" onclick="wrReset('confirmed')">기본값으로</button></div>
-          <textarea id="wr-confirmed" class="wr-text" placeholder="엑셀의 확정사항 칸에 들어갑니다"></textarea>
-          <div class="wr-help">기본값: 다음 주에 등록된 점검일정</div>
+        <div class="wr-box">
+          <div class="wr-box-head"><span>확정사항</span><span class="wr-box-sub">자동 내용: 다음 주에 등록된 점검 일정</span>
+            <span class="wr-edited" id="wr-confirmed-ed">수정됨</span>
+            <button class="btn btn-sm" onclick="wrReset('confirmed')" title="직접 고친 내용을 버리고 자동으로 만든 내용으로 되돌립니다">자동 내용으로</button></div>
+          <textarea id="wr-confirmed" class="wr-text" placeholder="엑셀의 확정사항 칸에 들어갑니다" oninput="wrSaveText('confirmed')"></textarea>
         </div>
       </div>
     </div>
@@ -418,10 +432,10 @@
       <div id="tn-page" class="pagination"></div>
     </div>
 
-    <!-- LAB (테스트서버 접속 정보) -->
+    <!-- LAB (사내 테스트서버) -->
     <div class="page" id="page-lab">
       <div class="lab-top">
-        <div class="page-title">테스트서버 접속 정보</div>
+        <div class="page-title">사내 테스트서버</div>
         <div class="lab-summary" id="lab-summary"></div>
         <button class="btn btn-primary" onclick="openAddLab()">+ 서버 추가</button>
       </div>
@@ -436,7 +450,7 @@
     </div>
 
     <!-- DEVELOPMENT CHECKLIST -->
-    <div class="page" id="page-dev-checklist">
+    <div class="page" id="page-dev-checklist" data-admin>
       <div class="dv-top">
         <div class="page-title">개발 체크리스트</div>
         <div class="dv-summary" id="dev-summary"></div>
@@ -601,7 +615,7 @@
   </div>
 </div>
 
-<!-- 테스트서버 접속 정보 -->
+<!-- 사내 테스트서버 -->
 <div class="overlay" id="modal-lab">
   <div class="modal" style="width:min(760px,93vw)">
     <div class="modal-head"><div class="modal-title" id="lab-modal-title">서버 추가</div><button class="btn btn-sm" onclick="closeModal('modal-lab')">✕</button></div>
@@ -973,6 +987,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=67"></script>
+<script src="/static/js/app.js?v=69"></script>
 </body>
 </html>

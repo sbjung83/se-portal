@@ -148,6 +148,20 @@ def build_weekly(eng_id: str, start: Optional[str], db: Session):
         if detail or status:
             r["remarks"].append(f"{i.title}: {detail}{status}" if detail else f"{i.title}{status}")
 
+    # 평일 일정 중 아직 '완료'가 아니라 집계에서 빠진 것 — 화면에서 알려 주고 바로 완료 처리할 수 있게 한다
+    pending = []
+    today = date.today().isoformat()       # 아직 오지 않은 날의 일정은 '빠진' 것이 아니므로 알리지 않는다
+    for s in db.query(Schedule).filter(Schedule.engineer_id == eng_id).all():
+        if _in(s.sched_date, mon, sun) and s.status != "완료" and not _weekend(s.sched_date) and s.sched_date[:10] <= today:
+            pending.append({"id": s.id, "kind": "점검", "date": s.sched_date[:10], "title": s.title,
+                            "site": sites[s.site_id].name if s.site_id in sites else ""})
+    for p in support_only(db.query(WorkPlan).filter(WorkPlan.engineer_id == eng_id)).all():
+        if _in(p.work_date, mon, sun) and p.status != "완료" and not _weekend(p.work_date) and p.work_date[:10] <= today:
+            pending.append({"id": p.id, "kind": "기술지원", "date": p.work_date[:10], "title": p.title, "site": p.site or ""})
+    pending.sort(key=lambda x: (x["date"], x["site"]))
+    for x in pending:
+        x["weekday"] = WD[date.fromisoformat(x["date"]).weekday()]
+
     out = []
     for key in sorted(rows):
         r = rows[key]
@@ -179,6 +193,7 @@ def build_weekly(eng_id: str, start: Optional[str], db: Session):
                   "workers": r["workers"], "counts": r["counts"], "planned": r["planned"]}
                  for r in out],
         "totals": totals, "total": sum(totals.values()),
+        "pending": pending,
         "notes": "\n".join(notes), "confirmed": "\n".join(confirmed),
         "template_ok": os.path.exists(TEMPLATE_PATH),
     }

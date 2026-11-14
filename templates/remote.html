@@ -170,7 +170,7 @@ async function pushClipboard(manual){
   writer.sendText(text); writer.sendEnd();
 }
 
-if(!CONN) showMsg('접속 대상이 없습니다', '포털의 테스트서버 접속 정보 화면에서 접속 버튼을 눌러주세요.');
+if(!CONN) showMsg('접속 대상이 없습니다', '포털의 사내 테스트서버 화면에서 접속 버튼을 눌러주세요.');
 else if(KIND === 'rdp') startRDP();
 else startSSH();
 </script>

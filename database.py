@@ -48,6 +48,7 @@ class User(Base):
     password    = Column(String, nullable=False)
     engineer_id = Column(String, ForeignKey("engineers.id"), nullable=True)  # 1:1 매핑
     created_at  = Column(DateTime, default=datetime.utcnow)
+    is_admin    = Column(Boolean, default=False)   # 관리자: 개발 체크리스트 등 관리 메뉴 사용
     engineer    = relationship("Engineer")
 
 # ── 엔지니어 ──────────────────────────────────
@@ -377,8 +378,19 @@ def init_db():
     _ensure_column("calendar_events", "adopted", "BOOLEAN DEFAULT 0")
     _ensure_column("calendar_events", "description", "TEXT DEFAULT ''")
     _ensure_column("schedules", "extra_types", "VARCHAR DEFAULT ''")
+    _ensure_column("users", "is_admin", "BOOLEAN DEFAULT 0")
+    _ensure_admin()
     _unify_workplan_status()
     _encrypt_access_passwords()
+
+def _ensure_admin():
+    """관리자가 한 명도 없으면 가장 먼저 가입한 계정을 관리자로 둔다 (여러 번 실행해도 같음)."""
+    with engine.begin() as conn:
+        if conn.exec_driver_sql("SELECT COUNT(*) FROM users WHERE is_admin = 1").scalar():
+            return
+        first = conn.exec_driver_sql("SELECT id FROM users ORDER BY created_at LIMIT 1").scalar()
+        if first:
+            conn.exec_driver_sql("UPDATE users SET is_admin = 1 WHERE id = ?", (first,))
 
 def _unify_workplan_status():
     """기술지원 상태를 점검 일정과 같은 2단계로: 작업완료 → 완료, 계획중/결재대기/승인완료 → 예정 (여러 번 실행해도 같음)."""

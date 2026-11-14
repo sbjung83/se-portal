@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 from database import init_db
 from routers import auth, sites, logs, dashboard, schedules, issues, site_checklist, projects, technotes, development, incidents, reports, gcal, entries, lab, remote
-from routers.auth import require_login
+from routers.auth import require_login, require_admin
 import os, asyncio
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -51,7 +51,7 @@ app.include_router(issues.router, dependencies=_LOGIN)
 app.include_router(site_checklist.router, dependencies=_LOGIN)
 app.include_router(technotes.router, dependencies=_LOGIN)
 app.include_router(incidents.router, dependencies=_LOGIN)
-app.include_router(development.router, dependencies=_LOGIN)
+app.include_router(development.router, dependencies=[Depends(require_admin)])   # 개발 체크리스트는 관리자만
 app.include_router(reports.router, dependencies=_LOGIN)
 app.include_router(gcal.router, dependencies=_LOGIN)
 app.include_router(entries.router, dependencies=_LOGIN)

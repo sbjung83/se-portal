@@ -4,7 +4,7 @@
 - RDP : guacd(Apache Guacamole 변환 엔진, 127.0.0.1:4822, podman 서비스 `guacd`)를 거쳐
         브라우저의 guacamole-common-js 와 WebSocket 으로 잇는다.
 
-접속 대상·계정은 테스트서버 접속 정보(routers/lab.py)의 LabConn/LabAccount 를 쓰고,
+접속 대상·계정은 사내 테스트서버(routers/lab.py)의 LabConn/LabAccount 를 쓰고,
 비밀번호는 서버 안에서만 풀어 쓴다(브라우저로 보내지 않음). 접속할 때마다 LabAccessLog 에 기록한다.
 WebSocket 은 app.py 의 require_login 이 적용되지 않으므로 여기서 세션 쿠키와 Origin 을 직접 확인한다.
 """
