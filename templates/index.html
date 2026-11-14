@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=16">
+<link rel="stylesheet" href="/static/css/style.css?v=19">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -372,20 +372,19 @@
     <!-- TECH NOTES -->
     <div class="page" id="page-technotes">
       <div class="page-title">기술 노트</div>
-      <div class="search-bar">
-        <input type="text" id="tn-search" placeholder="제목, 내용, 태그 검색...">
-        <button class="btn btn-primary" onclick="openAddTechNote()">+ 노트 추가</button>
+      <div class="sh-month sm-panel">
+        <div class="sm-panel-head">
+          <span class="sm-panel-title">노트 목록</span>
+          <select id="tn-cat" class="filter-select" onchange="drawTechNotes(1)"><option value="">전체 분류</option></select>
+          <select id="tn-tag" class="filter-select" onchange="drawTechNotes(1)"><option value="">전체 태그</option></select>
+          <input type="text" id="tn-search" class="pj-search" placeholder="제목, 내용, 태그 검색..." oninput="drawTechNotes(1)">
+          <span style="flex:1"></span>
+          <span class="sm-panel-info"><span id="tn-count" class="sh-mon-cnt"></span></span>
+          <button class="btn btn-primary" onclick="openAddTechNote()">+ 노트 추가</button>
+        </div>
+        <div id="technote-list"></div>
       </div>
-      <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap" id="tn-category-filters">
-        <button class="badge b-blue active" style="cursor:pointer; border:none; font-family:inherit" onclick="filterTechNotes('전체')">전체</button>
-        <button class="badge b-gray" style="cursor:pointer; border:none; font-family:inherit" onclick="filterTechNotes('OS/서버구축')">OS/서버구축</button>
-        <button class="badge b-gray" style="cursor:pointer; border:none; font-family:inherit" onclick="filterTechNotes('HW장애/교체')">HW장애/교체</button>
-        <button class="badge b-gray" style="cursor:pointer; border:none; font-family:inherit" onclick="filterTechNotes('펌웨어/패치')">펌웨어/패치</button>
-        <button class="badge b-gray" style="cursor:pointer; border:none; font-family:inherit" onclick="filterTechNotes('Storage/SAN')">Storage/SAN</button>
-        <button class="badge b-gray" style="cursor:pointer; border:none; font-family:inherit" onclick="filterTechNotes('네트워크/케이블')">네트워크/케이블</button>
-        <button class="badge b-gray" style="cursor:pointer; border:none; font-family:inherit" onclick="filterTechNotes('기타')">기타</button>
-      </div>
-      <div id="technote-list" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:16px;"></div>
+      <div id="tn-page" class="pagination"></div>
     </div>
 
     <!-- DEVELOPMENT CHECKLIST -->
@@ -885,10 +884,19 @@
     <input type="hidden" id="tn-id">
     <div class="form-row"><label>제목 *</label><input type="text" id="tn-title" placeholder="노트 제목을 입력하세요"></div>
     <div class="grid2">
-      <div class="form-row"><label>카테고리</label><select id="tn-category"><option>OS/서버구축</option><option>HW장애/교체</option><option>펌웨어/패치</option><option>Storage/SAN</option><option>네트워크/케이블</option><option>기타</option></select></div>
+      <div class="form-row"><label>분류</label><select id="tn-category"><option>OS/서버구축</option><option>HW장애/교체</option><option>펌웨어/패치</option><option>Storage/SAN</option><option>네트워크/케이블</option><option>기타</option></select></div>
       <div class="form-row"><label>태그</label><input type="text" id="tn-tags" placeholder="Linux, DB, 장애처리 (쉼표로 구분)"></div>
     </div>
-    <div class="form-row"><label>내용 *</label><textarea id="tn-body" style="min-height:250px; font-family:monospace; font-size:13px; line-height:1.5" placeholder="기술 내용, 트러블슈팅 이력, 명령어, 코드 등을 자유롭게 작성하세요"></textarea></div>
+    <div class="form-row">
+      <div class="tn-edit-head">
+        <label>내용 *</label>
+        <span class="tn-hint">마크다운 사용 가능 - 명령어는 ``` 로 감싸면 코드 상자로 표시</span>
+        <span style="flex:1"></span>
+        <div class="svh-tabs"><button type="button" class="svh-tab active" id="tn-tab-edit" onclick="tnEditTab('edit')">작성</button><button type="button" class="svh-tab" id="tn-tab-preview" onclick="tnEditTab('preview')">미리보기</button></div>
+      </div>
+      <textarea id="tn-body" class="tn-editor" placeholder="기술 내용, 트러블슈팅 이력, 명령어, 코드 등을 자유롭게 작성하세요"></textarea>
+      <div id="tn-preview" class="tn-body" style="display:none"></div>
+    </div>
     <div class="form-actions">
       <button class="btn" onclick="closeModal('modal-add-technote')">취소</button>
       <button class="btn btn-primary" onclick="saveTechNote()">저장</button>
@@ -903,21 +911,23 @@
       <div class="modal-title" id="view-tn-title"></div>
       <button class="btn btn-sm" onclick="closeModal('modal-view-technote')">✕</button>
     </div>
-    <div style="display:flex; gap:8px; margin-bottom:16px; align-items:center;">
+    <div class="tn-meta">
       <span class="badge b-blue" id="view-tn-category"></span>
-      <span style="font-size:12px; color:#888;" id="view-tn-date"></span>
-      <div style="flex:1"></div>
-      <span style="font-size:12px; color:#666;" id="view-tn-tags"></span>
+      <span id="view-tn-tags"></span>
+      <span style="flex:1"></span>
+      <span class="tn-date" id="view-tn-date"></span>
     </div>
-    <div id="view-tn-body" style="background:#fff; padding:16px; border-radius:8px; font-size:14px; color:#1e293b; line-height:1.6; max-height:450px; overflow-y:auto; border:1px solid #e2e8f0;"></div>
+    <div id="view-tn-body" class="tn-body"></div>
     <div class="form-actions" style="margin-top:16px;">
-      <button class="btn btn-primary" onclick="closeModal('modal-view-technote')">확인</button>
+      <button class="btn" onclick="copyTechNote()">본문 복사</button>
+      <button class="btn" onclick="editViewedTechNote()">수정</button>
+      <button class="btn btn-primary" onclick="closeModal('modal-view-technote')">닫기</button>
     </div>
   </div>
 </div>
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=41"></script>
+<script src="/static/js/app.js?v=43"></script>
 </body>
 </html>

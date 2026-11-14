@@ -27,6 +27,14 @@ class TechNoteUpdate(BaseModel):
     tags: Optional[str] = None
     body: Optional[str] = None
 
+TN_CATEGORIES = ("OS/서버구축", "HW장애/교체", "펌웨어/패치", "Storage/SAN", "네트워크/케이블", "기타")
+
+def _check_note(title=None, category=None):
+    if title is not None and not title.strip():
+        raise HTTPException(status_code=400, detail="제목을 입력해주세요")
+    if category is not None and category not in TN_CATEGORIES:
+        raise HTTPException(status_code=400, detail="분류 값이 올바르지 않습니다")
+
 @router.get("/api/engineers/{eng_id}/technotes")
 def get_tech_notes(eng_id: str, db: Session = Depends(get_db)):
     notes = db.query(TechNote).filter(TechNote.engineer_id == eng_id).order_by(TechNote.created_at.desc()).all()
@@ -34,10 +42,11 @@ def get_tech_notes(eng_id: str, db: Session = Depends(get_db)):
 
 @router.post("/api/engineers/{eng_id}/technotes")
 def create_tech_note(eng_id: str, note: TechNoteIn, db: Session = Depends(get_db)):
+    _check_note(note.title, note.category)
     new_note = TechNote(
         id=f"tn-{uuid.uuid4().hex[:8]}",
         engineer_id=eng_id,
-        title=note.title,
+        title=note.title.strip(),
         category=note.category,
         tags=note.tags,
         body=note.body,
@@ -53,9 +62,10 @@ def update_tech_note(eng_id: str, note_id: str, note_update: TechNoteUpdate, db:
     note = db.query(TechNote).filter(TechNote.id == note_id, TechNote.engineer_id == eng_id).first()
     if not note:
         raise HTTPException(status_code=404, detail="기술 노트를 찾을 수 없습니다")
-    
+    _check_note(note_update.title, note_update.category)
+
     for k, v in note_update.dict(exclude_none=True).items():
-        setattr(note, k, v)
+        setattr(note, k, v.strip() if k == "title" else v)
     db.commit()
     return _note_dict(note)
 
@@ -64,10 +74,10 @@ def delete_tech_note(eng_id: str, note_id: str, db: Session = Depends(get_db)):
     note = db.query(TechNote).filter(TechNote.id == note_id, TechNote.engineer_id == eng_id).first()
     if not note:
         raise HTTPException(status_code=404, detail="기술 노트를 찾을 수 없습니다")
-    
+
     db.delete(note)
     db.commit()
-    return {"detail": "삭제되었습니다"}
+    return {"ok": True}
 
 def _note_dict(n):
     return {

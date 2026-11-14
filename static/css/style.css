@@ -648,3 +648,44 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .wk-row.done{background:#fbfcfd}
 .dash-card .wk-group.past .wk-head{color:#64748b}
 .wk-head .wk-meta{font-size:11.5px}
+
+/* ── 기술 노트 ── */
+#page-technotes .sm-panel{margin-bottom:12px}
+#page-technotes .sm-panel-head .pj-search{max-width:300px}
+#page-technotes .sm-panel-head .filter-select{max-width:200px}
+.tn-table tbody tr{cursor:pointer}
+.tn-table tbody tr.cl-msg{cursor:default}
+.tn-title{font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tn-pv{font-size:12px;color:#94a3b8;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tn-tags{line-height:1.9}
+.tn-tag{display:inline-block;font-size:11.5px;font-weight:600;color:#475569;background:#f1f5f9;border:1px solid #dbe2ec;border-radius:999px;padding:0 9px;margin-right:5px;cursor:pointer;white-space:nowrap}
+.tn-tag:hover{background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8}
+.tn-tag.static{cursor:default}
+.tn-tag.static:hover{background:#f1f5f9;border-color:#dbe2ec;color:#475569}
+.tn-none{color:#cbd5e1}
+.tn-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.tn-date{font-size:12px;color:#64748b}
+.tn-body{background:#fff;padding:16px 18px;border:1px solid #c3ccd9;border-radius:8px;font-size:14px;color:#1e293b;line-height:1.65;max-height:58vh;min-height:120px;overflow-y:auto;word-break:break-word}
+.tn-body>:first-child{margin-top:0}
+.tn-body>:last-child{margin-bottom:0}
+.tn-body h1,.tn-body h2,.tn-body h3{margin:18px 0 8px;color:#0f172a;line-height:1.35}
+.tn-body h1{font-size:19px;border-bottom:1px solid #e2e8f0;padding-bottom:6px}
+.tn-body h2{font-size:16.5px}
+.tn-body h3{font-size:14.5px}
+.tn-body p{margin:8px 0}
+.tn-body ul,.tn-body ol{margin:8px 0;padding-left:22px}
+.tn-body pre{background:#f6f8fa;border:1px solid #d5dce7;border-radius:6px;padding:10px 12px;overflow-x:auto;margin:10px 0;font-size:12.5px;line-height:1.5}
+.tn-body code{font-family:Consolas,"D2Coding",monospace;font-size:12.5px;background:#f1f5f9;border-radius:4px;padding:1px 5px}
+.tn-body pre code{background:none;padding:0}
+.tn-body table{border-collapse:collapse;margin:10px 0;font-size:13px}
+.tn-body th,.tn-body td{border:1px solid #d5dce7;padding:6px 10px}
+.tn-body th{background:#eef2f7}
+.tn-body blockquote{margin:10px 0;padding:4px 12px;border-left:3px solid #bfdbfe;color:#475569;background:#f8fafc}
+.tn-edit-head{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.tn-edit-head label{margin:0}
+.tn-hint{font-size:11.5px;color:#94a3b8}
+/* 작성 창: 화면 높이에 맞춰 내용 칸을 크게 */
+#modal-add-technote .modal{width:min(1240px,95vw);max-height:94vh}
+.tn-editor{width:100%;height:calc(94vh - 350px);min-height:320px;resize:vertical;font-family:Consolas,"D2Coding",monospace;font-size:13.5px;line-height:1.6}
+#tn-preview{height:calc(94vh - 350px);min-height:320px;max-height:none}
+.pagination:empty{display:none}

@@ -2790,72 +2790,116 @@ function drawSchedHistory(page){
 }
 
 // ── TECH NOTES ──────────────────────────────
+const TN_CATS = ['OS/서버구축', 'HW장애/교체', '펌웨어/패치', 'Storage/SAN', '네트워크/케이블', '기타'];
+const TN_CAT_CLS = {'OS/서버구축':'b-blue', 'HW장애/교체':'b-red', '펌웨어/패치':'b-amber', 'Storage/SAN':'b-purple', '네트워크/케이블':'b-green', '기타':'b-gray'};
+const TN_PAGE_SIZE = 20;
 let _allTechNotes = [];
-let _tnCategoryFilter = '전체';
+let _tnPage = 1;
+let _tnViewId = '';
 
-async function renderTechNotes(searchQ='') {
-  // 최초 로드 시 API 호출 시도
-  if (!_allTechNotes.length && searchQ === '') {
-    try { 
-      const res = await api.get(`/api/engineers/${ENG_ID}/technotes`); 
-      if (Array.isArray(res)) _allTechNotes = res;
-    } catch(e) { _allTechNotes = []; }
-  }
-  
-  let filtered = Array.isArray(_allTechNotes) ? _allTechNotes : [];
-  if (_tnCategoryFilter !== '전체') {
-    filtered = filtered.filter(n => n.category === _tnCategoryFilter);
-  }
-  if (searchQ) {
-    const q = searchQ.toLowerCase();
-    filtered = filtered.filter(n => (n.title||'').toLowerCase().includes(q) || (n.body||'').toLowerCase().includes(q) || (n.tags||'').toLowerCase().includes(q));
-  }
-
-  const el = $('technote-list');
-  if(!filtered.length) { el.innerHTML = '<div class="empty" style="grid-column:1/-1;">등록된 기술 노트가 없습니다.</div>'; return; }
-  
-  el.innerHTML = filtered.map(n => `
-    <div class="card" style="cursor:pointer; display:flex; flex-direction:column; height: 160px" onclick="openViewTechNote('${n.id}')">
-      <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-        <span class="badge b-blue">${n.category||'기타'}</span>
-        <div style="display:flex; gap:4px;">
-          <button class="icon-btn edit" title="수정" onclick="event.stopPropagation();openEditTechNote('${n.id}')">${ICO_EDIT}</button>
-          <button class="icon-btn del" title="삭제" onclick="event.stopPropagation();deleteTechNote('${n.id}')">${ICO_DEL}</button>
-        </div>
-      </div>
-      <div style="font-weight:700; font-size:15px; margin-bottom:6px; color:#1e293b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis">${n.title}</div>
-      <div style="font-size:12px; color:#64748b; line-height:1.4; flex:1; overflow:hidden; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; margin-bottom:12px;">
-        ${(n.body||'').replace(/</g, '&lt;')}
-      </div>
-      <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:auto">
-        <div style="font-size:11px; color:#94a3b8; font-weight:600">${(n.tags||'').split(',').filter(x=>x.trim()).map(t=>`#${t.trim()}`).join(' ')}</div>
-        <div style="font-size:11px; color:#94a3b8;">${(n.created_at||'').slice(0,10)}</div>
-      </div>
-    </div>
-  `).join('');
+function _tnTags(n){ return (n.tags || '').split(',').map(x => x.trim()).filter(Boolean); }
+// 저장 시각은 UTC — 화면에는 이곳 날짜로 표시
+function _tnDate(v){
+  if(!v) return '-';
+  const d = new Date(/[zZ]|[+-]\d\d:\d\d$/.test(v) ? v : v + 'Z');
+  return isNaN(d) ? String(v).slice(0, 10) : _ymd(d);
+}
+// 목록 미리보기: 마크다운 기호를 걷어낸 한 줄
+function _tnPreview(body){
+  return (body || '').replace(/```\w*/g, ' ').replace(/[#>*`_~|]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160);
+}
+// 마크다운 → HTML (스크립트·이벤트 속성 제거)
+function _tnRender(el, body){
+  if(!window.marked){ el.textContent = body || ''; return; }
+  const tpl = document.createElement('template');
+  tpl.innerHTML = marked.parse(body || '', {breaks: true, gfm: true});   // 줄바꿈은 쓴 그대로 유지
+  tpl.content.querySelectorAll('script,iframe,object,embed,style,link,form').forEach(x => x.remove());
+  tpl.content.querySelectorAll('*').forEach(x => [...x.attributes].forEach(at => {
+    if(/^on/i.test(at.name) || (/^(href|src)$/i.test(at.name) && /^\s*javascript:/i.test(at.value))) x.removeAttribute(at.name);
+  }));
+  tpl.content.querySelectorAll('a').forEach(x => { x.target = '_blank'; x.rel = 'noopener'; });
+  el.innerHTML = ''; el.appendChild(tpl.content);
+  if(window.hljs) el.querySelectorAll('pre code').forEach(c => hljs.highlightElement(c));
 }
 
-if ($('tn-search')) $('tn-search').addEventListener('input', e => renderTechNotes(e.target.value));
+async function renderTechNotes(){
+  try {
+    const res = await api.get(`/api/engineers/${ENG_ID}/technotes`);
+    _allTechNotes = Array.isArray(res) ? res : [];
+  } catch(e) {
+    $('technote-list').innerHTML = '<table class="cl-table"><tbody><tr class="cl-msg"><td>기술 노트를 불러오지 못했습니다</td></tr></tbody></table>';
+    return;
+  }
+  drawTechNotes(1);
+}
 
-function filterTechNotes(cat) {
-  _tnCategoryFilter = cat;
-  document.querySelectorAll('#tn-category-filters button').forEach(b => {
-    if(b.textContent === cat) {
-      b.classList.remove('b-gray'); b.classList.add('b-blue', 'active');
-    } else {
-      b.classList.remove('b-blue', 'active'); b.classList.add('b-gray');
-    }
-  });
-  renderTechNotes($('tn-search').value);
+function tnSetTag(tag){ $('tn-tag').dataset.want = tag; drawTechNotes(1); }
+
+function drawTechNotes(page){
+  if(page) _tnPage = page;
+  const q = $('tn-search').value.toLowerCase().trim();
+  const base = _allTechNotes.filter(n => !q || (n.title || '').toLowerCase().includes(q)
+    || (n.body || '').toLowerCase().includes(q) || (n.tags || '').toLowerCase().includes(q));
+
+  // 분류 선택: 이름 옆에 건수 (고른 값 유지)
+  const cSel = $('tn-cat'), pc = cSel.value;
+  const cc = c => base.filter(n => (n.category || '기타') === c).length;
+  cSel.innerHTML = `<option value="">전체 분류 (${base.length})</option>` + TN_CATS.map(c => `<option value="${esc(c)}">${esc(c)} (${cc(c)})</option>`).join('');
+  cSel.value = TN_CATS.includes(pc) ? pc : '';
+  const cat = cSel.value;
+  const inCat = base.filter(n => !cat || (n.category || '기타') === cat);
+
+  // 태그 선택: 쓰인 태그만, 많이 쓴 순
+  const tSel = $('tn-tag'), pt = tSel.dataset.want ?? tSel.value;
+  delete tSel.dataset.want;
+  const tc = new Map();
+  inCat.forEach(n => _tnTags(n).forEach(g => tc.set(g, (tc.get(g) || 0) + 1)));
+  const tags = [...tc.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ko'));
+  tSel.innerHTML = '<option value="">전체 태그</option>' + tags.map(([g, c]) => `<option value="${esc(g)}">#${esc(g)} (${c})</option>`).join('');
+  tSel.value = tc.has(pt) ? pt : '';
+  const tag = tSel.value;
+
+  const list = inCat.filter(n => !tag || _tnTags(n).includes(tag));
+  $('tn-count').textContent = `노트 ${list.length}건`;
+
+  const pages = Math.max(1, Math.ceil(list.length / TN_PAGE_SIZE));
+  if(_tnPage > pages) _tnPage = pages;
+  const rows = list.slice((_tnPage - 1) * TN_PAGE_SIZE, _tnPage * TN_PAGE_SIZE);
+
+  const cols = '<colgroup><col style="width:136px"><col><col style="width:22%"><col style="width:112px"><col style="width:96px"></colgroup>';
+  const body = rows.map(n => {
+    const c = n.category || '기타', pv = _tnPreview(n.body);
+    return `<tr onclick="openViewTechNote('${n.id}')">
+      <td class="c"><span class="badge ${TN_CAT_CLS[c] || 'b-gray'}">${esc(c)}</span></td>
+      <td class="tn-t"><div class="tn-title">${esc(n.title)}</div>${pv ? `<div class="tn-pv">${esc(pv)}</div>` : ''}</td>
+      <td class="tn-tags">${_tnTags(n).map(g => `<span class="tn-tag" title="이 태그만 보기" onclick="event.stopPropagation();tnSetTag(this.dataset.t)" data-t="${esc(g)}">#${esc(g)}</span>`).join('') || '<span class="tn-none">-</span>'}</td>
+      <td class="sm-d">${_tnDate(n.created_at)}</td>
+      <td class="c cl-act"><button class="icon-btn edit" title="수정" onclick="event.stopPropagation();openEditTechNote('${n.id}')">${ICO_EDIT}</button><button class="icon-btn del" title="삭제" onclick="event.stopPropagation();deleteTechNote('${n.id}')">${ICO_DEL}</button></td>
+    </tr>`;
+  }).join('');
+  $('technote-list').innerHTML = `<table class="cl-table sm-table sh-table sh-inhead tn-table">${cols}
+    <thead><tr><th class="c">분류</th><th>제목 / 내용</th><th>태그</th><th>작성일</th><th class="c">관리</th></tr></thead>
+    <tbody>${body || `<tr class="cl-msg"><td colspan="5">${_allTechNotes.length ? '조건에 맞는 기술 노트가 없습니다' : '등록된 기술 노트가 없습니다. 오른쪽 위 "+ 노트 추가"로 첫 노트를 남겨보세요'}</td></tr>`}</tbody></table>`;
+  renderPagination('tn-page', list.length, _tnPage, 'drawTechNotes', TN_PAGE_SIZE);
+}
+
+function tnEditTab(tab){
+  const pv = tab === 'preview';
+  $('tn-tab-edit').classList.toggle('active', !pv);
+  $('tn-tab-preview').classList.toggle('active', pv);
+  $('tn-body').style.display = pv ? 'none' : '';
+  $('tn-preview').style.display = pv ? '' : 'none';
+  if(pv) _tnRender($('tn-preview'), $('tn-body').value || '_내용이 없습니다_');
 }
 
 function openAddTechNote() {
   $('tn-modal-title').textContent = '기술 노트 작성';
   $('tn-id').value = '';
   $('tn-title').value = '';
-  $('tn-category').value = 'OS/서버구축';
+  $('tn-category').value = TN_CATS.includes($('tn-cat').value) ? $('tn-cat').value : 'OS/서버구축';
   $('tn-tags').value = '';
   $('tn-body').value = '';
+  tnEditTab('edit');
   openModal('modal-add-technote');
 }
 
@@ -2865,61 +2909,71 @@ function openEditTechNote(id) {
   $('tn-modal-title').textContent = '기술 노트 수정';
   $('tn-id').value = n.id;
   $('tn-title').value = n.title;
-  $('tn-category').value = n.category || '기타';
+  $('tn-category').value = TN_CATS.includes(n.category) ? n.category : '기타';
   $('tn-tags').value = n.tags || '';
   $('tn-body').value = n.body || '';
+  tnEditTab('edit');
   openModal('modal-add-technote');
 }
 
 function openViewTechNote(id) {
   const n = _allTechNotes.find(x => x.id === id);
   if(!n) return;
+  _tnViewId = id;
+  const c = n.category || '기타';
   $('view-tn-title').textContent = n.title;
-  $('view-tn-category').textContent = n.category || '기타';
-  $('view-tn-date').textContent = (n.created_at||new Date().toISOString()).slice(0,10);
-  $('view-tn-tags').textContent = (n.tags||'').split(',').filter(x=>x.trim()).map(t=>`#${t.trim()}`).join(' ');
-  
-  if (window.marked && window.hljs) {
-    $('view-tn-body').innerHTML = marked.parse(n.body || '');
-    document.querySelectorAll('#view-tn-body pre code').forEach(block => hljs.highlightElement(block));
-  } else {
-    $('view-tn-body').textContent = n.body || '';
-  }
-
+  $('view-tn-category').textContent = c;
+  $('view-tn-category').className = 'badge ' + (TN_CAT_CLS[c] || 'b-gray');
+  $('view-tn-date').textContent = '작성일 ' + _tnDate(n.created_at);
+  $('view-tn-tags').innerHTML = _tnTags(n).map(g => `<span class="tn-tag static">#${esc(g)}</span>`).join('');
+  _tnRender($('view-tn-body'), n.body);
   openModal('modal-view-technote');
+}
+
+function editViewedTechNote(){
+  closeModal('modal-view-technote');
+  openEditTechNote(_tnViewId);
+}
+
+async function copyTechNote(){
+  const n = _allTechNotes.find(x => x.id === _tnViewId);
+  if(!n) return;
+  try {
+    if(navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(n.body || '');
+    else {
+      const ta = document.createElement('textarea');
+      ta.value = n.body || ''; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      const ok = document.execCommand('copy'); ta.remove();
+      if(!ok) throw new Error();
+    }
+    toast('본문을 복사했습니다');
+  } catch(e) { toast('복사하지 못했습니다. 본문을 직접 선택해 복사해주세요'); }
 }
 
 async function saveTechNote() {
   const title = $('tn-title').value.trim();
   if(!title) { toast('제목을 입력해주세요'); return; }
-  if(!$('wp-date').value) { toast('작업 일시를 입력해주세요'); return; }
-  const payload = { title, category: $('tn-category').value, tags: $('tn-tags').value, body: $('tn-body').value };
+  if(!$('tn-body').value.trim()) { toast('내용을 입력해주세요'); return; }
+  const tags = [...new Set($('tn-tags').value.split(',').map(x => x.trim().replace(/^#/, '')).filter(Boolean))].join(', ');
+  const payload = { title, category: $('tn-category').value, tags, body: $('tn-body').value };
   const id = $('tn-id').value;
-  
   try {
-    if(id) await api.patch(`/api/engineers/${ENG_ID}/technotes/${id}`, payload);
-    else   await api.post(`/api/engineers/${ENG_ID}/technotes`, payload);
-  } catch (e) {
-    // 백엔드 API가 아직 준비되지 않았을 경우를 대비해 화면상 데이터만 갱신
-    console.warn("API 호출 실패, 로컬 뷰 데이터를 업데이트합니다.");
-    if(!id) _allTechNotes.push({ id: 'tn-'+Date.now(), ...payload, created_at: new Date().toISOString() });
-    else { const idx = _allTechNotes.findIndex(x=>x.id===id); if(idx>=0) _allTechNotes[idx] = {..._allTechNotes[idx], ...payload}; }
-  }
-  
+    if(id) await _apiSend('PATCH', `/api/engineers/${ENG_ID}/technotes/${id}`, payload);
+    else   await _apiSend('POST', `/api/engineers/${ENG_ID}/technotes`, payload);
+  } catch (e) { toast('저장 실패: ' + e.message); return; }
   closeModal('modal-add-technote');
-  try { _allTechNotes = await api.get(`/api/engineers/${ENG_ID}/technotes`); } catch(e){}
-  renderTechNotes($('tn-search').value);
   toast(id ? '수정되었습니다' : '저장되었습니다');
+  await renderTechNotes();
 }
 
 async function deleteTechNote(id) {
-  if(!confirm('노트를 삭제하시겠습니까?')) return;
-  try { await api.del(`/api/engineers/${ENG_ID}/technotes/${id}`); } catch (e) {}
-  if (Array.isArray(_allTechNotes)) {
-    _allTechNotes = _allTechNotes.filter(x=>x.id!==id);
-  }
-  renderTechNotes($('tn-search').value);
-  toast('삭제됨');
+  const n = _allTechNotes.find(x => x.id === id);
+  if(!confirm(`"${n ? n.title : '이 노트'}"\n노트를 삭제하시겠습니까? 되돌릴 수 없습니다.`)) return;
+  try { await _apiSend('DELETE', `/api/engineers/${ENG_ID}/technotes/${id}`); }
+  catch (e) { toast('삭제 실패: ' + e.message); return; }
+  toast('삭제되었습니다');
+  await renderTechNotes();
 }
 
 // ── DEVELOPMENT CHECKLIST ─────────────────
