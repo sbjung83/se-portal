@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=40">
+<link rel="stylesheet" href="/static/css/style.css?v=46">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -96,19 +96,12 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>프로젝트 관리
       </div>
     </div>
-    <!-- 점검 일정 그룹 -->
-    <div class="nav-group">
-      <div class="nav-group-label">점검 일정</div>
-      <div class="nav-item" data-page="schedule-mgmt">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>점검 일정 관리
-      </div>
-      <div class="nav-item" data-page="sched-history">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.95"/></svg>점검 이력
-      </div>
-    </div>
     <!-- 서비스 지원 그룹 -->
     <div class="nav-group">
       <div class="nav-group-label">서비스 지원</div>
+      <div class="nav-item" data-page="schedule-mgmt">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>점검 일정
+      </div>
       <div class="nav-item" data-page="work-plan">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>기술지원
       </div>
@@ -116,7 +109,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>장애처리
       </div>
       <div class="nav-item" data-page="service-history">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>월별 기술지원 및 장애처리 이력
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>서비스 지원 이력
       </div>
       <div class="nav-item" data-page="weekly-report">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>주간보고서
@@ -241,17 +234,21 @@
 
     <!-- SITES -->
     <div class="page" id="page-sites">
-      <div class="page-title">사이트 관리</div>
-      <div class="search-bar">
-        <input type="text" id="site-search" placeholder="사이트명, 위치, 담당자 검색...">
+      <div class="wr-top">
+        <div class="page-title">사이트 관리</div>
+        <input type="text" id="site-search" class="st-search" placeholder="사이트명 · 위치 · 담당자 · 메모 검색">
         <button class="btn btn-primary" onclick="openAddSite()">+ 사이트 추가</button>
       </div>
-      <div id="site-list"></div>
+      <div class="wr-sum" id="site-summary"></div>
+      <div class="wr-box">
+        <div class="wr-box-head"><span>사이트 목록</span><span class="wr-box-sub" id="site-list-sub"></span></div>
+        <div id="site-list"></div>
+      </div>
     </div>
 
     <!-- SCHEDULE MGMT -->
     <div class="page" id="page-schedule-mgmt">
-      <div class="page-title">점검 일정 관리</div>
+      <div class="page-title">점검 일정</div>
       <div class="cl-toolbar">
         <div class="sm-nav">
           <button class="btn btn-sm" onclick="smMove(-1)" title="이전 달">◀</button>
@@ -291,79 +288,84 @@
     </div>
 
     <!-- SCHED HISTORY -->
-    <div class="page" id="page-sched-history">
-      <div class="page-title">점검 이력</div>
-      <div class="sh-month sm-panel">
-        <div class="sm-panel-head">
-          <span class="sm-panel-title">완료한 점검</span>
-          <select id="sh-year" class="filter-select" onchange="drawSchedHistory(1)"></select>
-          <select id="sh-site" class="filter-select" onchange="drawSchedHistory(1)"><option value="">전체 사이트</option></select>
-          <input type="text" id="sh-search" class="pj-search" placeholder="사이트명, 제목, 메모 검색..." oninput="drawSchedHistory(1)">
-          <span style="flex:1"></span>
-          <span class="sm-panel-info"><span id="sh-count" class="sh-mon-cnt"></span></span>
-        </div>
-        <div id="sh-list"></div>
-      </div>
-      <div id="sh-page" class="pagination"></div>
-    </div>
-
     <!-- 기술지원 (작업 계획) -->
     <div class="page" id="page-work-plan">
       <div class="page-title">기술지원</div>
-      <div class="grid4" id="wp-summary" style="margin-bottom:14px"></div>
-      <div class="search-bar">
-        <input type="text" id="wp-search" placeholder="기술지원명, 사이트, 작업자 검색...">
-        <select id="wp-view" class="filter-select" title="보기">
-          <option value="active">예정 (미완료)</option>
-          <option value="week">이번 주 예정</option>
-          <option value="overdue">일정 경과</option>
-          <option value="완료">완료</option>
-          <option value="">전체</option>
-        </select>
-        <div class="svh-month">
-          <button class="btn btn-sm" onclick="wpMoveMonth(-1)" title="이전 달">◀</button>
-          <input type="month" id="wp-month" title="작업 월">
-          <button class="btn btn-sm" onclick="wpMoveMonth(1)" title="다음 달">▶</button>
-          <button class="btn btn-sm" onclick="wpMoveMonth(0)">이번 달</button>
-          <button class="btn btn-sm" id="wp-all-period" onclick="wpToggleAllPeriod()" title="월 구분 없이 전체 기간 보기">전체 기간</button>
+      <div class="cl-toolbar">
+        <div class="sm-nav">
+          <button class="btn btn-sm" onclick="wpMove(-1)" title="이전 달">◀</button>
+          <span id="wp-label" class="sm-label"></span>
+          <button class="btn btn-sm" onclick="wpMove(1)" title="다음 달">▶</button>
+          <button class="btn btn-sm" id="wp-today-btn" onclick="wpToday()">이번 달</button>
         </div>
+        <span style="flex:1"></span>
         <button class="btn btn-primary" onclick="openAddWorkPlan()">+ 기술지원 등록</button>
       </div>
-      <div class="card"><div id="wp-list"></div><div id="wp-page" class="pagination"></div></div>
+      <div id="wp-summary" class="pj-summary"></div>
+      <div id="wp-months" class="sm-months"></div>
+      <div class="sh-month sm-panel">
+        <div class="sm-panel-head">
+          <span class="sm-panel-title" id="wp-panel-title"></span>
+          <div class="svh-tabs" id="wp-types"></div>
+          <select id="wp-site" class="filter-select" onchange="drawWorkPlans()"><option value="">전체 사이트</option></select>
+          <input type="text" id="wp-search" class="pj-search" placeholder="제목 · 작업자 · 내용 검색">
+          <span style="flex:1"></span>
+          <span id="wp-panel-info" class="sm-panel-info"></span>
+        </div>
+        <div id="wp-list"></div>
+      </div>
     </div>
 
     <!-- 장애처리 -->
     <div class="page" id="page-incidents">
       <div class="page-title">장애처리</div>
-      <div class="search-bar">
-        <input type="text" id="inc-search" placeholder="장애명, 사이트, 장비 검색...">
-        <select id="inc-status-filter" class="filter-select">
-          <option value="">전체 상태</option><option>접수</option><option>처리중</option><option>완료</option>
-        </select>
+      <div class="cl-toolbar">
+        <div class="sm-nav">
+          <button class="btn btn-sm" onclick="incMove(-1)" title="이전 달">◀</button>
+          <span id="inc-label" class="sm-label"></span>
+          <button class="btn btn-sm" onclick="incMove(1)" title="다음 달">▶</button>
+          <button class="btn btn-sm" id="inc-today-btn" onclick="incToday()">이번 달</button>
+        </div>
+        <span id="inc-others"></span>
+        <span style="flex:1"></span>
         <button class="btn btn-primary" onclick="openAddIncident()">+ 장애 등록</button>
       </div>
-      <div class="card"><div id="inc-list"></div></div>
+      <div id="inc-summary" class="pj-summary"></div>
+      <div id="inc-months" class="sm-months"></div>
+      <div class="sh-month sm-panel">
+        <div class="sm-panel-head">
+          <span class="sm-panel-title" id="inc-panel-title"></span>
+          <div class="svh-tabs" id="inc-sts"></div>
+          <select id="inc-site-filter" class="filter-select" onchange="drawIncidents()"><option value="">전체 사이트</option></select>
+          <input type="text" id="inc-search" class="pj-search" placeholder="장애명 · 장비 · 내용 검색">
+          <span style="flex:1"></span>
+          <span id="inc-panel-info" class="sm-panel-info"></span>
+        </div>
+        <div id="inc-list"></div>
+      </div>
     </div>
 
-    <!-- 월별 기술지원 및 장애처리 이력 -->
+    <!-- 서비스 지원 이력 -->
     <div class="page" id="page-service-history">
-      <div class="page-title">월별 기술지원 및 장애처리 이력</div>
-      <div class="svh-bar">
-        <div class="svh-month">
+      <div class="wr-top">
+        <div class="page-title">서비스 지원 이력</div>
+        <div class="wr-nav">
           <button class="btn btn-sm" onclick="svhMove(-1)" title="이전 달">◀</button>
-          <input type="month" id="svh-month">
+          <label class="sv-month" title="눌러서 달 고르기"><span id="svh-label"></span><input type="month" id="svh-month"></label>
           <button class="btn btn-sm" onclick="svhMove(1)" title="다음 달">▶</button>
-          <button class="btn btn-sm" onclick="svhMove(0)">이번 달</button>
+          <button class="btn btn-sm" id="svh-today" onclick="svhMove(0)">이번 달로</button>
         </div>
         <div class="svh-tabs">
           <button class="svh-tab active" data-svh="all">전체</button>
+          <button class="svh-tab" data-svh="check">점검</button>
           <button class="svh-tab" data-svh="support">기술지원</button>
           <button class="svh-tab" data-svh="incident">장애처리</button>
         </div>
       </div>
-      <div class="grid4" id="svh-summary" style="margin-bottom:14px"></div>
-      <div class="card" style="margin-bottom:14px">
-        <div class="card-title" id="svh-list-title">월간 기술지원 / 장애처리 이력</div>
+      <div class="wr-sum" id="svh-summary"></div>
+      <div class="wr-box">
+        <div class="wr-box-head"><span id="svh-list-title">이력</span><span class="wr-box-sub" id="svh-list-sub"></span>
+          <input type="text" id="svh-q" class="st-search sv-q" placeholder="그 해 전체에서 검색 (사이트 · 제목 · 내용 · 작업자)"></div>
         <div id="svh-list"></div>
       </div>
       <div id="svh-site-stats"></div>
@@ -987,6 +989,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=69"></script>
+<script src="/static/js/app.js?v=76"></script>
 </body>
 </html>

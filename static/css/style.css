@@ -945,3 +945,68 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .wr-edited{display:none;font-size:11px;font-weight:700;color:#b45309;background:#fef3c7;border-radius:999px;padding:1px 8px}
 .wr-edited.on{display:inline-block}
 .wr-nav .btn:disabled{opacity:.4;cursor:default}
+
+/* 월별 기술지원·장애처리 이력 (개편) */
+.sv-month{position:relative;display:inline-flex;align-items:center;font-size:14px;font-weight:700;color:#0f172a;padding:3px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.sv-month:hover{background:#e2e8f0}
+.sv-month input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;border:none;padding:0}
+#page-service-history .wr-nav{margin-right:auto}
+.wr-sum-i span em{font-style:normal;font-weight:500;color:#94a3b8;margin-left:4px}
+.wr-sum-i.sm b{font-size:15px}
+.sv-kind{display:inline-block;font-size:11.5px;font-weight:700;border-radius:4px;padding:1px 8px;border:1px solid;white-space:nowrap}
+.sv-kind.chk{color:#047857;background:#ecfdf5;border-color:#6ee7b7}
+.sv-kind.sup{color:#1d4ed8;background:#eff6ff;border-color:#93c5fd}
+.sv-kind.inc{color:#b91c1c;background:#fef2f2;border-color:#fca5a5}
+.sv-list td{vertical-align:middle}
+.sv-list tbody tr{cursor:pointer}
+.sv-list tbody tr:hover td{background:#f8fafc}
+.sv-time{color:#64748b;font-size:12px;margin-left:2px}
+.sv-down{font-size:11.5px;color:#dc2626;white-space:nowrap}
+.sv-stat{min-width:1040px;table-layout:fixed}
+.sv-stat th,.sv-stat td{text-align:center;padding:6px 2px;vertical-align:middle;white-space:nowrap}
+.sv-stat .sv-site{text-align:left;padding-left:10px;font-weight:700;color:#0f172a;width:210px;overflow:hidden;text-overflow:ellipsis}
+.sv-stat th.sv-m{cursor:pointer}
+.sv-stat th.sv-m:hover{color:#1d4ed8;background:#e0ecff}
+.sv-stat th.svh-sel{background:#1e3a5f;color:#fff}
+.sv-stat td.svh-sel{background:#eff6ff}
+.sv-stat .sv-year{width:86px;background:#f1f5f9;border-left:1px solid #c3ccd9}
+.sv-stat tr.sv-idle .sv-site{color:#94a3b8;font-weight:500}
+.sv-stat tfoot td.svh-sel{background:#dbeafe}
+.sv-n{display:inline-block;min-width:20px;height:20px;line-height:20px;border-radius:5px;font-size:12px;font-weight:700;margin:0 1px;padding:0 4px;box-sizing:border-box}
+.sv-n.chk{color:#047857;background:#d1fae5}
+.sv-n.sup{color:#1d4ed8;background:#dbeafe}
+.sv-n.inc{color:#b91c1c;background:#fee2e2}
+.sv-legend{display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:#475569}
+.sv-legend .sv-n{margin-left:8px}
+.sv-stat tfoot td.sv-site{text-align:left}
+
+/* 사이트 관리 (개편) */
+.st-search{flex:1;min-width:200px;max-width:420px;margin-left:auto;padding:7px 12px;border:1px solid #c3ccd9;border-radius:7px;background:#fff;font-size:13px;font-family:inherit}
+.st-search:focus{outline:none;border-color:#378ADD}
+.wr-sum-i.amber b{color:#b45309}
+.wr-sum-i.st-f:not(.zero){cursor:pointer}
+.wr-sum-i.st-f:not(.zero):hover{background:#f1f5f9}
+.wr-sum-i.st-f.on{background:#1e3a5f;color:#dbe6f3}
+.wr-sum-i.st-f.on b,.wr-sum-i.st-f.on em{color:#fff}
+.st-tbl td{vertical-align:middle}
+.st-tbl tbody tr{cursor:pointer}
+.st-tbl tbody tr:hover td{background:#f8fafc}
+.st-tbl .st-loc{color:#475569;font-size:12.5px}
+.st-tbl .st-tel{font-size:12.5px;white-space:nowrap}
+.st-memo{font-size:12px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+.st-ok{font-size:12px;color:#94a3b8}
+.wr-box-sub a{color:#1d4ed8}
+
+/* 기술지원 (점검 일정 관리와 같은 구성) */
+.wp-time{font-size:12px;font-weight:500;color:#64748b}
+.wp-purpose{font-size:12px;color:#94a3b8;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wp-worker{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#334155}
+#page-work-plan .sm-panel-head .pj-search{max-width:220px}
+.sv-q{flex:0 1 340px;margin-left:0;padding:5px 10px;font-weight:400}
+/* 장애처리 (점검 일정·기술지원과 같은 구성) */
+.inc-others{color:#b45309;border-color:#fcd34d;background:#fffbeb;font-weight:600}
+.inc-others:hover{background:#fef3c7}
+.inc-down{white-space:nowrap;font-weight:600;color:#b91c1c}
+.inc-nodown{font-weight:500;color:#94a3b8}
+tr.done .inc-down{color:#64748b}
+#inc-list .badge{white-space:nowrap}

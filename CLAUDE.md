@@ -49,7 +49,7 @@ uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `
   없으면 WorkPlan(`wp-*`). 수정 중 '점검' 체크가 바뀌면 다른 표로 옮김. 주간보고서는 체크한 구분마다 해당 열에 1건.
   `GET /workplans`(scope=support)는 `extra_types`가 있는 점검 일정도 `from_schedule: true`로 함께 돌려준다.
 - **장애처리** (`page-incidents`) = Incident 모델, `routers/incidents.py`.
-- **월별 기술지원 및 장애처리 이력** (`page-service-history`) = 위 둘을 월 단위로 합쳐 보는 화면 (프론트에서 조합).
+- **서비스 지원 이력** (`page-service-history`) = 점검·기술지원·장애처리를 월 단위로 합쳐 보는 화면 (프론트에서 조합). 검색어를 넣으면 그 해 전체에서 찾는다. 예전 "점검 이력" 화면과 "점검 일정" 메뉴 그룹은 없앴고(`GET /schedules/history` API 는 남아 있음), **점검 일정**(`page-schedule-mgmt`)은 서비스 지원 그룹 맨 위에 있다.
 - **주간보고서** (`page-weekly-report`) = `routers/reports.py`. 주(월~일) 단위로 점검(완료)·기술지원(작업완료)·장애(발생)를 사이트+일자 1행으로 묶어 양식에 채움.
   양식 열: F 정기점검 / G 장애지원 / H~L 은 WorkPlan.support_type(기술지원/납품/유선원격/이전/기타).
 - **구글 캘린더 연동** (`page-gcal`) = `routers/gcal.py`. 엔지니어별 iCal 비공개 주소(`calendar_links.url`, 암호화 저장)를 10분마다 읽어(`app.py`의 `_calendar_loop`)

@@ -148,7 +148,6 @@ document.querySelectorAll('.nav-item').forEach(el=>{
     if(page==='sites')          renderSites();
     if(page==='schedule-mgmt'){ _smYM=_ymd(new Date()).slice(0,7); renderSchedMgmt(); }
     if(page==='projects')       renderProjects();
-    if(page==='sched-history')  renderSchedHistory();
     if(page==='technotes')      renderTechNotes();
     if(page==='work-plan')      renderWorkPlans();
     if(page==='incidents')      renderIncidents();
@@ -328,7 +327,6 @@ async function weekDoneSched(id, el){
     if(el) el.checked = !toDone;
     return;
   }
-  _schedHistory = [];
   _refreshDash();
   if($('page-schedule-mgmt').classList.contains('active')) renderSchedMgmt();
 }
@@ -807,35 +805,46 @@ async function renderSites(){
   catch(e){ $('site-list').innerHTML = '<div class="empty" style="color:#dc2626">사이트 목록을 불러오지 못했습니다</div>'; return; }
   drawSites();
 }
+let _siteFilter = '';      // 요약 칸을 눌러 고른 조건: '' | open_issues | late_sched | checklist_todo | expiring_count
+function siteFilter(k){ _siteFilter = _siteFilter === k ? '' : k; drawSites(); }
 function drawSites(){
   const q = ($('site-search').value || '').trim().toLowerCase();
   const el = $('site-list');
-  const list = _sites.filter(s => !q || [s.name, s.location, s.manager].some(v => (v || '').toLowerCase().includes(q)));
-  if(!list.length){ el.innerHTML = `<div class="empty">${_sites.length ? '검색 결과가 없습니다' : '사이트가 없습니다'}</div>`; return; }
-  el.innerHTML = list.map(s => {
-    const badges = [
-      s.open_issues ? `<span class="badge b-red" title="미해결 이슈">이슈 ${s.open_issues}</span>` : '',
-      s.late_sched ? `<span class="badge b-red" title="날짜가 지난 미완료 점검">점검 지연 ${s.late_sched}</span>` : '',
-      s.checklist_todo ? `<span class="badge b-amber" title="이번 주기에 남은 체크리스트">체크 ${s.checklist_todo}</span>` : '',
-      s.expiring_count ? `<span class="badge b-amber" title="90일 이내 워런티 만료">⚠ 워런티 ${s.expiring_count}</span>` : '',
-    ].filter(Boolean).join('');
-    return `
-    <div class="site-card" id="site-card-${s.id}" onclick="openSiteDetail('${s.id}')">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
-        <div style="min-width:0">
-          <div style="font-size:15px;font-weight:600;margin-bottom:3px">${esc(s.name)}</div>
-          <div style="font-size:12px;color:#888">${esc(s.location||'-')} · 담당: ${esc(s.manager||'-')}${s.contact?' · '+esc(s.contact):''}</div>
-          ${s.memo ? `<div class="site-memo-line" title="${esc(s.memo)}">${esc(s.memo)}</div>` : ''}
-        </div>
-        <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
-          <span class="badge b-blue" id="dev-count-${s.id}">장비 ${s.device_count}대</span>
+  const sum = k => _sites.reduce((a, s) => a + (s[k] || 0), 0);
+  const FILTERS = [['open_issues','미해결 이슈','red'], ['late_sched','점검 지연','red'], ['checklist_todo','체크리스트 남음','amber'], ['expiring_count','워런티 만료 임박','amber']];
+  $('site-summary').innerHTML =
+      `<div class="wr-sum-i"><span>사이트</span><b>${_sites.length}</b></div>`
+    + `<div class="wr-sum-i"><span>장비</span><b>${sum('device_count')}</b></div>`
+    + FILTERS.map(([k, name, cls]) => { const v = sum(k), n = _sites.filter(s => s[k]).length;
+        return `<div class="wr-sum-i st-f ${v ? cls : 'zero'}${_siteFilter === k ? ' on' : ''}" ${v ? `onclick="siteFilter('${k}')" title="눌러서 해당 사이트만 보기 (다시 누르면 해제)"` : ''}>
+          <span>${name}${v ? ` <em>${n}곳</em>` : ''}</span><b>${v}</b></div>`; }).join('');
+  const list = _sites.filter(s => (!q || [s.name, s.location, s.manager, s.contact, s.memo].some(v => (v || '').toLowerCase().includes(q)))
+                               && (!_siteFilter || s[_siteFilter]));
+  const fname = (FILTERS.find(f => f[0] === _siteFilter) || [])[1];
+  $('site-list-sub').innerHTML = `${list.length}곳${fname ? ` · <b>${fname}</b> 있는 사이트만 <a href="#" onclick="siteFilter('');return false">전체 보기</a>` : ''} · 줄을 누르면 상세 화면을 엽니다`;
+  if(!list.length){ el.innerHTML = `<div class="empty">${_sites.length ? '조건에 맞는 사이트가 없습니다' : '사이트가 없습니다. [+ 사이트 추가]로 등록해주세요'}</div>`; return; }
+  const none = '<span class="lab-none">-</span>';
+  el.innerHTML = `<div class="svh-table-wrap"><table class="wr-tbl st-tbl">
+    <thead><tr><th style="width:21%">사이트</th><th>위치</th><th style="width:11%">담당자</th><th style="width:14%">연락처</th>
+      <th class="c" style="width:56px">장비</th><th style="width:21%">확인할 것</th><th style="width:84px"></th></tr></thead>
+    <tbody>${list.map(s => {
+      const badges = [
+        s.open_issues ? `<span class="badge b-red" title="미해결 이슈">이슈 ${s.open_issues}</span>` : '',
+        s.late_sched ? `<span class="badge b-red" title="날짜가 지난 미완료 점검">점검 지연 ${s.late_sched}</span>` : '',
+        s.checklist_todo ? `<span class="badge b-amber" title="이번 주기에 남은 체크리스트">체크 ${s.checklist_todo}</span>` : '',
+        s.expiring_count ? `<span class="badge b-amber" title="90일 이내 워런티 만료">워런티 ${s.expiring_count}</span>` : '',
+      ].filter(Boolean).join(' ');
+      return `<tr id="site-card-${s.id}" onclick="openSiteDetail('${s.id}')">
+        <td><div class="wr-site">${esc(s.name)}</div>${s.memo ? `<div class="st-memo" title="${esc(s.memo)}">${esc(s.memo)}</div>` : ''}</td>
+        <td class="st-loc">${esc(s.location) || none}</td>
+        <td>${esc(s.manager) || none}</td>
+        <td class="st-tel">${esc(s.contact) || none}</td>
+        <td class="c"><b id="dev-count-${s.id}">${s.device_count}</b></td>
+        <td>${badges || '<span class="st-ok">이상 없음</span>'}</td>
+        <td class="lab-act">
           <button class="icon-btn edit" title="정보 수정" onclick="event.stopPropagation();openEditSite('${s.id}')">${ICO_EDIT}</button>
           <button class="icon-btn del" title="삭제" onclick="event.stopPropagation();deleteSite('${s.id}')">${ICO_DEL}</button>
-        </div>
-      </div>
-      ${badges ? `<div class="site-badges">${badges}</div>` : ''}
-    </div>`;
-  }).join('');
+        </td></tr>`; }).join('')}</tbody></table></div>`;
 }
 $('site-search').addEventListener('input', () => { clearTimeout(window._siteT); window._siteT = setTimeout(drawSites, 150); });
 
@@ -1020,7 +1029,7 @@ async function loadDevices(){
   if(sid !== currentSiteId) return;
   _siteDevs = devs;
   const cntEl=$(`dev-count-${sid}`);
-  if(cntEl) cntEl.textContent=`장비 ${devs.length}대`;
+  if(cntEl) cntEl.textContent=devs.length;
   drawDevices();
 }
 function devSetType(t){ _devType = t; drawDevices(); }
@@ -1078,7 +1087,7 @@ async function saveDevice(){
   closeModal('modal-add-device');
   ['d-name','d-model','d-sn','d-os','d-memo','d-purchase','d-warranty'].forEach(id=>$(id).value='');
   const cntEl=$(`dev-count-${currentSiteId}`);
-  if(cntEl&&r.site_device_count!==undefined) cntEl.textContent=`장비 ${r.site_device_count}대`;
+  if(cntEl&&r.site_device_count!==undefined) cntEl.textContent=r.site_device_count;
   loadDevices(); loadOverview(); toast('장비 추가됨');
 }
 function openEditDevice(d){
@@ -1104,7 +1113,7 @@ async function deleteDevice(id){
   if(!confirm('장비를 삭제하시겠습니까?'))return;
   const r=await api.del(`/api/engineers/${ENG_ID}/sites/${currentSiteId}/devices/${id}`);
   const cntEl=$(`dev-count-${currentSiteId}`);
-  if(cntEl&&r.site_device_count!==undefined) cntEl.textContent=`장비 ${r.site_device_count}대`;
+  if(cntEl&&r.site_device_count!==undefined) cntEl.textContent=r.site_device_count;
   loadDevices(); loadOverview(); toast('삭제됨');
 }
 
@@ -1502,150 +1511,112 @@ function _wpImpactBadge(impact){
   return `<span class="badge ${cls}" title="${esc(v)}">영향도 ${esc(lv)}</span>`;
 }
 
-let _wpAllPeriod = false;
-function _wpSyncMonthUI(){
-  $('wp-all-period').classList.toggle('btn-primary', _wpAllPeriod);
-  $('wp-month').style.opacity = _wpAllPeriod ? '.45' : '';
-}
-function wpMoveMonth(delta){
-  if(delta === 0 || !$('wp-month').value){ $('wp-month').value = _ym(new Date()); }
-  else {
-    const [y, m] = $('wp-month').value.split('-').map(Number);
-    $('wp-month').value = _ym(new Date(y, m - 1 + delta, 1));
-  }
-  _wpAllPeriod = false; _wpSyncMonthUI(); drawWorkPlans(1);
-}
-function wpToggleAllPeriod(on = !_wpAllPeriod){
-  _wpAllPeriod = on; _wpSyncMonthUI(); drawWorkPlans(1);
-}
+// 화면 구성은 점검 일정 관리와 같다: 달 이동 → 이 달 요약 → 12개월 띠 → 표(구분 탭·사이트·검색)
+let _wpYM = _ymd(new Date()).slice(0, 7);   // 보고 있는 달 "YYYY-MM"
+let _wpType = '';                            // 구분 탭 ('' = 전체)
+let _wpOnly = '';                            // 요약 카드로 고른 조건 ('' | done | todo | late)
+const WP_TYPES = ['기술지원', '납품', '유선원격', '이전', '기타'];
+const _wpTypes = p => { const t = (p.support_type || '').split(',').filter(Boolean); return t.length ? t : ['기술지원']; };
+function wpMove(delta){ const [y, m] = _wpYM.split('-').map(Number); wpGo(_ymd(new Date(y, m - 1 + delta, 1)).slice(0, 7)); }
+function wpGo(ym){ _wpYM = ym; _wpOnly = ''; drawWorkPlans(); }
+function wpToday(){ wpGo(_ymd(new Date()).slice(0, 7)); }
+function wpSetType(t){ _wpType = t; drawWorkPlans(); }
+function wpSetOnly(k){ _wpOnly = _wpOnly === k ? '' : k; drawWorkPlans(); }
 
 async function renderWorkPlans() {
-  const el = $('wp-list');
-  if(!$('wp-month').value){ $('wp-month').value = _ym(new Date()); _wpSyncMonthUI(); }
   try {
     _allWorkPlans = (await api.get(`/api/engineers/${ENG_ID}/workplans`)).filter(isSupportPlan);
   } catch (e) {
     console.error("Failed to load work plans:", e);
-    el.innerHTML = '<div class="empty" style="color:#dc2626; line-height:1.6;">기술지원 목록을 불러오는 중 오류가 발생했습니다.<br>백엔드 서버가 재시작되었는지 확인해주세요.</div>';
-    $('wp-summary').innerHTML = ''; $('wp-page').innerHTML = '';
+    $('wp-list').innerHTML = '<div class="empty" style="color:#dc2626">기술지원 목록을 불러오지 못했습니다</div>';
     return;
   }
-  _renderWpSummary();
-  drawWorkPlans(_wpPage);
+  drawWorkPlans();
 }
 
-function _renderWpSummary(){
-  const { today, weekEnd } = _wpDates();
-  const plans = _allWorkPlans;
-  const cnt = st => plans.filter(p => p.status === st).length;
-  const active = plans.filter(p => WP_ACTIVE.includes(p.status)).length;
-  const week = plans.filter(p => _wpIsThisWeek(p, today, weekEnd)).length;
-  const overdue = plans.filter(p => _wpIsOverdue(p, today)).length;
-  const card = (view, label, value, sub, color) => `
-    <div class="metric" style="cursor:pointer" title="목록 필터: ${label}" onclick="wpSetView('${view}')">
-      <div class="metric-label">${label}</div>
-      <div class="metric-value" style="${color ? `color:${color}` : ''}">${value}건</div>
-      ${sub ? `<div style="font-size:11px;color:#64748b;margin-top:4px">${sub}</div>` : ''}</div>`;
-  $('wp-summary').innerHTML =
-    card('active', '예정', active, '아직 완료하지 않은 건') +
-    card('완료', '완료', cnt('완료'), '완료 처리한 건') +
-    card('week', '이번 주 예정', week, '오늘 ~ 이번 주 일요일 (미완료)', '') +
-    card('overdue', '일정 경과', overdue, '작업일이 지났지만 미완료', overdue ? '#dc2626' : '');
-}
+function drawWorkPlans() {
+  const year = _wpYM.slice(0, 4), mon = Number(_wpYM.slice(5, 7));
+  const today = _ymd(new Date()), nowYM = today.slice(0, 7);
+  const all = _allWorkPlans;
+  const isLate = p => _wpIsOverdue(p, today);
+  const month = all.filter(p => (p.work_date || '').startsWith(_wpYM));
+  $('wp-label').textContent = `${year}년 ${mon}월`;
+  $('wp-today-btn').style.visibility = _wpYM === nowYM ? 'hidden' : 'visible';
 
-function wpSetView(view){
-  $('wp-view').value = view;
-  if(view === 'week' || view === 'overdue') wpToggleAllPeriod(true);   // 월과 무관한 조건
-  else drawWorkPlans(1);
-}
+  // 이 달 요약 (카드를 누르면 그 조건만 표시)
+  const done = month.filter(p => p.status === '완료').length, late = month.filter(isLate).length;
+  const pct = month.length ? Math.round(done / month.length * 100) : 0;
+  const act = k => _wpOnly === k ? ' active' : '';
+  $('wp-summary').innerHTML = `
+    <div class="metric m-gray${act('')}" onclick="wpSetOnly('')" title="전체 보기"><div class="metric-label">${mon}월 전체</div><div class="metric-value">${month.length}<small>건</small></div></div>
+    <div class="metric m-green${act('done')}" onclick="wpSetOnly('done')" title="완료한 건만 보기"><div class="metric-label">완료</div><div class="metric-value">${done}<small>건 (${pct}%)</small></div>
+      <div class="prog-wrap"><div class="prog-bar" style="width:${pct}%;background:#22c55e"></div></div></div>
+    <div class="metric m-blue${act('todo')}" onclick="wpSetOnly('todo')" title="남은 건만 보기"><div class="metric-label">남음</div><div class="metric-value">${month.length - done}<small>건</small></div></div>
+    <div class="metric m-red${act('late')}" onclick="wpSetOnly('late')" title="작업일이 지났는데 완료하지 않은 건만 보기"><div class="metric-label">지연</div><div class="metric-value" style="${late ? 'color:#dc2626' : ''}">${late}<small>건</small></div></div>`;
 
-function drawWorkPlans(page = 1) {
-  const el = $('wp-list');
-  const { today, weekEnd } = _wpDates();
-  const q = $('wp-search').value.toLowerCase().trim();
-  const view = $('wp-view').value;
-  const ym = _wpAllPeriod ? '' : $('wp-month').value;
-
-  let list = _allWorkPlans.filter(p => {
-    if(q && ![p.title, p.site, p.worker, p.reviewer].some(v => (v || '').toLowerCase().includes(q))) return false;
-    if(ym && !(p.work_date || '').startsWith(ym)) return false;
-    if(view === 'active') return WP_ACTIVE.includes(p.status);
-    if(view === 'week') return _wpIsThisWeek(p, today, weekEnd);
-    if(view === 'overdue') return _wpIsOverdue(p, today);
-    if(view) return p.status === view;
-    return true;
-  });
-
-  // 진행할 건은 가까운 일정 순(날짜 없음은 맨 뒤), 완료/전체는 최신 순
-  const asc = view && view !== '완료';
-  list.sort((a, b) => {
-    const da = a.work_date || '', db = b.work_date || '';
-    if(asc){ if(!da) return 1; if(!db) return -1; return da.localeCompare(db); }
-    return db.localeCompare(da);
-  });
-
-  const totalPages = Math.max(1, Math.ceil(list.length / WP_PAGE_SIZE));
-  _wpPage = Math.min(Math.max(1, page), totalPages);
-  renderPagination('wp-page', list.length, _wpPage, 'drawWorkPlans', WP_PAGE_SIZE);
-
-  if(!list.length) {
-    el.innerHTML = `<div class="empty">${_allWorkPlans.length ? '조건에 맞는 기술지원이 없습니다' : '등록된 기술지원이 없습니다'}</div>`;
-    return;
-  }
-  const rows = list.slice((_wpPage - 1) * WP_PAGE_SIZE, _wpPage * WP_PAGE_SIZE);
-  el.innerHTML = rows.map(p => {
-    const overdue = _wpIsOverdue(p, today);
-    return `
-    <div class="svc-row wp-row" onclick="openEditWorkPlan('${p.id}')">
-      <div style="flex:1;min-width:0">
-        <div style="margin-bottom:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-          <select class="wp-st-sel badge ${WP_ST_CLS[p.status]||'b-gray'}" title="상태 변경"
-            onclick="event.stopPropagation()" onchange="changeWorkPlanStatus('${p.id}', this.value)">
-            ${WP_STATUSES.map(st => `<option ${st===p.status?'selected':''}>${st}</option>`).join('')}
-          </select>
-          ${p.from_schedule ? '<span class="badge b-blue" title="점검 일정에 함께 등록된 건">점검</span>' : ''}
-          ${(p.support_type || '').split(',').filter(t => t && (t !== '기술지원' || p.from_schedule || p.support_type.includes(','))).map(t => `<span class="badge b-purple">${esc(t)}</span>`).join('')}
-          ${_wpImpactBadge(p.impact)}
-          ${overdue ? '<span class="badge b-red">일정 경과</span>' : ''}
-          <span style="font-size:12px;color:${overdue ? '#dc2626' : '#888'}">${esc(fmtDT(p.work_date))}</span>
-        </div>
-        <div style="font-weight:700;font-size:14px;margin-bottom:4px">${esc(p.title)}</div>
-        <div style="font-size:12px;color:#666">사이트: <b>${esc(p.site||'-')}</b> | 작업자: ${esc(p.worker||'-')} | 결재/공유: ${esc(p.reviewer||'-')}</div>
-        ${p.purpose ? `<div class="svc-sub">내용: ${esc(p.purpose)}</div>` : ''}
-      </div>
-      <div style="display:flex;gap:4px;align-items:flex-start" onclick="event.stopPropagation()">
-        ${p.has_plan ? `<button class="btn btn-sm" title="작업계획서 엑셀 다운로드" onclick="downloadWorkPlanExcel('${p.id}')">Excel</button>` : ''}
-        <button class="icon-btn edit" title="수정" onclick="openEditWorkPlan('${p.id}')">${ICO_EDIT}</button>
-        ${p.from_schedule ? '' : `<button class="icon-btn del" title="삭제" onclick="deleteWorkPlan('${p.id}')">${ICO_DEL}</button>`}
-      </div>
-    </div>`;
+  // 12개월 띠
+  $('wp-months').innerHTML = Array.from({length: 12}, (_, i) => {
+    const ym = `${year}-${String(i + 1).padStart(2, '0')}`;
+    const its = all.filter(p => (p.work_date || '').startsWith(ym)), dn = its.filter(p => p.status === '완료').length;
+    const cls = [ym === _wpYM ? 'active' : '', ym === nowYM ? 'cur' : '', !its.length ? 'none' : dn === its.length ? 'full' : its.some(isLate) ? 'late' : ''].join(' ');
+    return `<button class="sm-mon ${cls}" onclick="wpGo('${ym}')" title="${i + 1}월${its.length ? ` · 완료 ${dn}/${its.length}` : ' · 기술지원 없음'}">
+      <span class="sm-mon-name">${i + 1}월</span><span class="sm-mon-cnt">${its.length ? `${dn}/${its.length}` : '-'}</span></button>`;
   }).join('');
+
+  // 구분 탭 · 사이트 선택 · 검색
+  $('wp-types').innerHTML = ['', ...WP_TYPES].map(t =>
+    `<button class="svh-tab ${_wpType === t ? 'active' : ''}" onclick="wpSetType('${t}')">${t || '전체'} ${month.filter(p => !t || _wpTypes(p).includes(t)).length}</button>`).join('');
+  const sel = $('wp-site'), prev = sel.value;
+  const sites = [...new Set(month.map(p => (p.site || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
+  sel.innerHTML = '<option value="">전체 사이트</option>' + sites.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  if(sites.includes(prev)) sel.value = prev;
+  const q = $('wp-search').value.toLowerCase().trim();
+
+  const list = month.filter(p => (!_wpType || _wpTypes(p).includes(_wpType)) && (!sel.value || (p.site || '').trim() === sel.value)
+      && (!q || [p.title, p.site, p.worker, p.reviewer, p.purpose].some(v => (v || '').toLowerCase().includes(q)))
+      && (!_wpOnly || (_wpOnly === 'done' ? p.status === '완료' : _wpOnly === 'late' ? isLate(p) : p.status !== '완료')))
+    .sort((a, b) => (a.work_date || '').localeCompare(b.work_date || '') || (a.site || '').localeCompare(b.site || '', 'ko'));
+
+  const row = p => {
+    const isDone = p.status === '완료', day = _wpDay(p), time = (p.work_date || '').slice(11, 16);
+    const lateDays = isLate(p) ? _daysBetween(day, today) : 0;
+    return `<tr class="${isDone ? 'done' : ''} ${day === today ? 'today' : ''}" onclick="openEditWorkPlan('${p.id}')" style="cursor:pointer">
+      <td class="sm-d">${day ? _smDateLabel(day) : '-'}${time && time !== '00:00' ? ` <span class="wp-time">${time}</span>` : ''}${day === today && !isDone ? '<span class="badge b-blue">오늘</span>' : ''}${lateDays ? `<span class="badge b-red">지연 D+${lateDays}</span>` : ''}</td>
+      <td class="sm-s" title="${esc(p.site)}">${esc(p.site || '-')}</td>
+      <td class="sm-t">${esc(p.title)}${p.from_schedule ? ' <span class="badge b-green" title="점검 일정에 함께 등록된 건">점검과 함께</span>' : ''}${_wpImpactBadge(p.impact) ? ' ' + _wpImpactBadge(p.impact) : ''}
+        ${p.purpose ? `<div class="wp-purpose" title="${esc(p.purpose)}">${esc(p.purpose)}</div>` : ''}</td>
+      <td class="c">${_wpTypes(p).map(t => `<span class="badge b-purple">${esc(t)}</span>`).join(' ')}</td>
+      <td class="wp-worker" title="${esc(p.worker)}">${esc(p.worker || '-')}</td>
+      <td class="c" onclick="event.stopPropagation()"><button class="ds-check-btn ${isDone ? 'checked' : ''}" onclick="changeWorkPlanStatus('${p.id}', '${isDone ? '예정' : '완료'}')" title="${isDone ? '완료 취소' : '완료 처리'}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14" ${isDone ? '' : 'style="opacity:.3"'}><polyline points="20 6 9 17 4 12"/></svg></button></td>
+      <td class="c cl-act" onclick="event.stopPropagation()">${p.has_plan ? `<button class="btn btn-sm sm-xls" title="작업계획서 엑셀 내려받기" onclick="downloadWorkPlanExcel('${p.id}')">Excel</button>` : ''}<button class="icon-btn edit" title="수정" onclick="openEditWorkPlan('${p.id}')">${ICO_EDIT}</button>${p.from_schedule ? '' : `<button class="icon-btn del" title="삭제" onclick="deleteWorkPlan('${p.id}')">${ICO_DEL}</button>`}</td>
+    </tr>`;
+  };
+  const emptyMsg = !month.length ? `${mon}월에 등록된 기술지원이 없습니다` : '조건에 맞는 기술지원이 없습니다';
+  const cols = '<colgroup><col style="width:205px"><col style="width:18%"><col><col style="width:110px"><col style="width:12%"><col style="width:64px"><col style="width:140px"></colgroup>';
+  $('wp-panel-title').textContent = `${mon}월 기술지원`;
+  $('wp-panel-info').innerHTML = (list.length !== month.length ? `<span class="sh-mon-note">${list.length}건 표시 중</span>` : '')
+    + (late ? `<span class="sh-mon-cnt late">지연 ${late}건</span>` : '')
+    + (month.length ? `<span class="sh-mon-cnt">${done}/${month.length} 완료</span>` : '');
+  $('wp-list').innerHTML = `<table class="cl-table sm-table sh-table sh-inhead">${cols}
+    <thead><tr><th>작업일</th><th>사이트</th><th>제목</th><th class="c">구분</th><th>작업자</th><th class="c">완료</th><th class="c">관리</th></tr></thead>
+    <tbody>${list.length ? list.map(row).join('') : `<tr class="cl-msg"><td colspan="7">${emptyMsg}</td></tr>`}</tbody></table>`;
 }
 async function changeWorkPlanStatus(id, status){
   const p = _allWorkPlans.find(x => x.id === id);
   if(!p) return;
-  const prev = p.status;
   try {
     // 점검 일정에 함께 등록된 건은 점검 일정의 상태를 바꾼다
-    const r = await fetch(`/api/engineers/${ENG_ID}/${p.from_schedule ? 'schedules' : 'workplans'}/${id}`, {
-      method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status }) });
-    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    await _apiSend('PATCH', `/api/engineers/${ENG_ID}/${p.from_schedule ? 'schedules' : 'workplans'}/${id}`, { status });
     p.status = status;
-    toast(`상태 변경: ${prev} → ${status}`);
+    toast(status === '완료' ? '완료 처리됨' : '완료 취소됨');
   } catch(e) {
-    console.error('기술지원 상태 변경 실패:', e);
-    toast('상태 변경 실패: 서버 오류가 발생했습니다.');
+    toast('변경 실패: ' + e.message);
   }
-  _renderWpSummary();
-  drawWorkPlans(_wpPage);   // 필터에서 빠지는 경우 목록에서 사라짐
-  _refreshSvcHistory();
+  drawWorkPlans();
+  _refreshSvcHistory(); _refreshDash();
 }
-$('wp-search').addEventListener('input', () => { clearTimeout(window._wpT); window._wpT = setTimeout(() => drawWorkPlans(1), 200); });
-$('wp-view').addEventListener('change', () => drawWorkPlans(1));
-$('wp-month').addEventListener('change', () => {
-  if(!$('wp-month').value) $('wp-month').value = _ym(new Date());
-  _wpAllPeriod = false; _wpSyncMonthUI(); drawWorkPlans(1);
-});
+$('wp-search').addEventListener('input', () => { clearTimeout(window._wpT); window._wpT = setTimeout(drawWorkPlans, 200); });
 
 // ── 일정 공통 입력 창 (점검 · 기술지원) ─────────
 // 구분 체크박스에 '점검'이 있으면 점검 일정으로, 없으면 기술지원으로 저장된다 (routers/entries.py)
@@ -1722,7 +1693,6 @@ async function _entrySave(){
 async function _entryRefresh(){
   await loadSchedWorkPlans(true);
   if($('page-schedule-mgmt').classList.contains('active')) renderSchedMgmt();
-  if($('page-sched-history').classList.contains('active')) renderSchedHistory();
   if($('page-work-plan').classList.contains('active')) renderWorkPlans();
   _refreshSvcHistory();
 }
@@ -1770,7 +1740,7 @@ function fmtDuration(min){
 }
 function _svcMetric(d){
   const a = d.monthly_support_count ?? 0, b = d.monthly_incident_count ?? 0;
-  return `<div class="metric m-violet" style="cursor:pointer" title="월별 기술지원 및 장애처리 이력으로 이동"
+  return `<div class="metric m-violet" style="cursor:pointer" title="서비스 지원 이력으로 이동"
       onclick="document.querySelector('.nav-item[data-page=\\'service-history\\']').click()">
     <div class="dm-text"><div class="metric-label">이번 달 기술지원 · 장애</div>
       <div class="dm-sub">기술지원 ${a} · 장애처리 ${b}</div></div>
@@ -1786,45 +1756,101 @@ const INC_SEV_CLS = {'긴급':'b-red', '높음':'b-amber', '보통':'b-blue', '�
 const INC_ST_CLS  = {'접수':'b-purple', '처리중':'b-amber', '완료':'b-green'};
 let _allIncidents = [];
 
+// 화면 구성은 점검 일정·기술지원과 같다: 달 이동 → 이 달 요약 → 12개월 띠 → 표(상태 탭·사이트·검색)
+let _incYM = _ymd(new Date()).slice(0, 7);   // 보고 있는 달 "YYYY-MM" (발생 일시 기준)
+let _incSt = '';                              // 상태 탭 ('' = 전체)
+let _incOnly = '';                            // 요약 카드로 고른 조건 ('' | done | open | high)
+function incMove(delta){ const [y, m] = _incYM.split('-').map(Number); incGo(_ymd(new Date(y, m - 1 + delta, 1)).slice(0, 7)); }
+function incGo(ym){ _incYM = ym; _incOnly = ''; drawIncidents(); }
+function incToday(){ incGo(_ymd(new Date()).slice(0, 7)); }
+function incSetSt(t){ _incSt = t; drawIncidents(); }
+function incSetOnly(k){ _incOnly = _incOnly === k ? '' : k; drawIncidents(); }
+
 async function renderIncidents(){
-  const el = $('inc-list');
-  const q = $('inc-search').value.trim(), st = $('inc-status-filter').value;
-  const params = new URLSearchParams();
-  if(q) params.set('q', q);
-  if(st) params.set('status', st);
-  let list;
   try {
-    const r = await fetch(`/api/engineers/${ENG_ID}/incidents?${params}`);
-    if(!r.ok) throw new Error(`HTTP ${r.status}`);
-    list = await r.json();
+    _allIncidents = await api.get(`/api/engineers/${ENG_ID}/incidents`);
   } catch(e) {
     console.error('장애 목록 조회 실패:', e);
-    el.innerHTML = '<div class="empty" style="color:#dc2626">장애 목록을 불러오지 못했습니다.</div>';
+    $('inc-list').innerHTML = '<div class="empty" style="color:#dc2626">장애 목록을 불러오지 못했습니다.</div>';
     return;
   }
-  _allIncidents = list;
-  if(!list.length){ el.innerHTML = '<div class="empty">등록된 장애가 없습니다</div>'; return; }
-  el.innerHTML = list.map(i => `
-    <div class="svc-row">
-      <div style="flex:1;min-width:0;cursor:pointer" onclick="openEditIncident('${i.id}')">
-        <div style="margin-bottom:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-          <span class="badge ${INC_SEV_CLS[i.severity]||'b-gray'}">${esc(i.severity)}</span>
-          <span class="badge ${INC_ST_CLS[i.status]||'b-gray'}">${esc(i.status)}</span>
-          <span style="font-size:12px;color:#888">발생 ${esc(fmtDT(i.occurred_at))}${i.recovered_at ? ` → 복구 ${esc(fmtDT(i.recovered_at))}` : ''}</span>
-          ${i.downtime_min !== null ? `<span style="font-size:12px;color:#dc2626;font-weight:600">장애 ${fmtDuration(i.downtime_min)}</span>` : ''}
-        </div>
-        <div style="font-weight:700;font-size:14px;margin-bottom:4px">${esc(i.title)}</div>
-        <div style="font-size:12px;color:#666">사이트: <b>${esc(i.site||'-')}</b> | 장비: ${esc(i.device||'-')} | 처리자: ${esc(i.worker||'-')}</div>
-        ${i.cause ? `<div class="svc-sub">원인: ${esc(i.cause)}</div>` : ''}
-      </div>
-      <div style="display:flex;gap:4px;align-items:flex-start">
-        <button class="icon-btn edit" title="수정" onclick="openEditIncident('${i.id}')">${ICO_EDIT}</button>
-        <button class="icon-btn del" title="삭제" onclick="deleteIncident('${i.id}')">${ICO_DEL}</button>
-      </div>
-    </div>`).join('');
+  drawIncidents();
 }
-$('inc-search').addEventListener('input', () => { clearTimeout(window._incT); window._incT = setTimeout(renderIncidents, 250); });
-$('inc-status-filter').addEventListener('change', renderIncidents);
+
+function drawIncidents(){
+  const year = _incYM.slice(0, 4), mon = Number(_incYM.slice(5, 7));
+  const nowYM = _ymd(new Date()).slice(0, 7);
+  const all = _allIncidents;
+  const isOpen = i => i.status !== '완료', isHigh = i => i.severity === '긴급' || i.severity === '높음';
+  const month = all.filter(i => (i.occurred_at || '').startsWith(_incYM));
+  $('inc-label').textContent = `${year}년 ${mon}월`;
+  $('inc-today-btn').style.visibility = _incYM === nowYM ? 'hidden' : 'visible';
+
+  // 다른 달에 남아 있는 미완료 장애 (가장 오래된 달로 이동)
+  const others = all.filter(i => isOpen(i) && i.occurred_at && !i.occurred_at.startsWith(_incYM)).sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
+  $('inc-others').innerHTML = others.length
+    ? `<button class="btn btn-sm inc-others" onclick="incGo('${others[0].occurred_at.slice(0, 7)}')" title="가장 오래된 미완료 장애가 있는 달로 이동">다른 달 미완료 ${others.length}건 →</button>` : '';
+
+  // 이 달 요약 (카드를 누르면 그 조건만 표시)
+  const done = month.filter(i => !isOpen(i)).length, open = month.length - done, high = month.filter(isHigh).length;
+  const pct = month.length ? Math.round(done / month.length * 100) : 0;
+  const downSum = month.reduce((a, i) => a + (i.downtime_min || 0), 0);
+  const act = k => _incOnly === k ? ' active' : '';
+  $('inc-summary').innerHTML = `
+    <div class="metric m-gray${act('')}" onclick="incSetOnly('')" title="전체 보기"><div class="metric-label">${mon}월 전체</div><div class="metric-value">${month.length}<small>건</small></div></div>
+    <div class="metric m-green${act('done')}" onclick="incSetOnly('done')" title="처리를 끝낸 건만 보기"><div class="metric-label">완료</div><div class="metric-value">${done}<small>건 (${pct}%)</small></div>
+      <div class="prog-wrap"><div class="prog-bar" style="width:${pct}%;background:#22c55e"></div></div></div>
+    <div class="metric m-blue${act('open')}" onclick="incSetOnly('open')" title="접수·처리중인 건만 보기"><div class="metric-label">미완료 (접수·처리중)</div><div class="metric-value" style="${open ? 'color:#d97706' : ''}">${open}<small>건</small></div></div>
+    <div class="metric m-red${act('high')}" onclick="incSetOnly('high')" title="등급이 긴급·높음인 건만 보기"><div class="metric-label">긴급·높음</div><div class="metric-value" style="${high ? 'color:#dc2626' : ''}">${high}<small>건</small></div></div>`;
+
+  // 12개월 띠
+  $('inc-months').innerHTML = Array.from({length: 12}, (_, n) => {
+    const ym = `${year}-${String(n + 1).padStart(2, '0')}`;
+    const its = all.filter(i => (i.occurred_at || '').startsWith(ym)), dn = its.filter(i => !isOpen(i)).length;
+    const cls = [ym === _incYM ? 'active' : '', ym === nowYM ? 'cur' : '', !its.length ? 'none' : dn === its.length ? 'full' : 'late'].join(' ');
+    return `<button class="sm-mon ${cls}" onclick="incGo('${ym}')" title="${n + 1}월${its.length ? ` · 완료 ${dn}/${its.length}` : ' · 장애 없음'}">
+      <span class="sm-mon-name">${n + 1}월</span><span class="sm-mon-cnt">${its.length ? `${dn}/${its.length}` : '-'}</span></button>`;
+  }).join('');
+
+  // 상태 탭 · 사이트 선택 · 검색
+  $('inc-sts').innerHTML = ['', '접수', '처리중', '완료'].map(t =>
+    `<button class="svh-tab ${_incSt === t ? 'active' : ''}" onclick="incSetSt('${t}')">${t || '전체'} ${month.filter(i => !t || i.status === t).length}</button>`).join('');
+  const sel = $('inc-site-filter'), prev = sel.value;
+  const sites = [...new Set(month.map(i => (i.site || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
+  sel.innerHTML = '<option value="">전체 사이트</option>' + sites.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  if(sites.includes(prev)) sel.value = prev;
+  const q = $('inc-search').value.toLowerCase().trim();
+
+  const list = month.filter(i => (!_incSt || i.status === _incSt) && (!sel.value || (i.site || '').trim() === sel.value)
+      && (!q || [i.title, i.site, i.device, i.worker, i.symptom, i.cause, i.action].some(v => (v || '').toLowerCase().includes(q)))
+      && (!_incOnly || (_incOnly === 'done' ? !isOpen(i) : _incOnly === 'open' ? isOpen(i) : isHigh(i))))
+    .sort((a, b) => (b.occurred_at || '').localeCompare(a.occurred_at || ''));
+
+  const row = i => {
+    const day = (i.occurred_at || '').slice(0, 10), time = (i.occurred_at || '').slice(11, 16);
+    const sub = [i.device ? `장비: ${i.device}` : '', i.cause ? `원인: ${i.cause}` : ''].filter(Boolean).join(' · ');
+    return `<tr class="${isOpen(i) ? '' : 'done'}" onclick="openEditIncident('${i.id}')" style="cursor:pointer">
+      <td class="sm-d">${day ? _smDateLabel(day) : '-'}${time ? ` <span class="wp-time">${time}</span>` : ''}</td>
+      <td class="sm-s" title="${esc(i.site)}">${esc(i.site || '-')}</td>
+      <td class="sm-t">${esc(i.title)}${sub ? `<div class="wp-purpose" title="${esc(sub)}">${esc(sub)}</div>` : ''}</td>
+      <td class="c"><span class="badge ${INC_SEV_CLS[i.severity] || 'b-gray'}">${esc(i.severity)}</span></td>
+      <td class="wp-worker" title="${esc(i.worker)}">${esc(i.worker || '-')}</td>
+      <td class="inc-down" title="${i.recovered_at ? `복구 ${esc(fmtDT(i.recovered_at))}` : '복구 일시가 아직 없습니다'}">${i.downtime_min !== null && i.downtime_min !== undefined ? fmtDuration(i.downtime_min) : '<span class="inc-nodown">복구 전</span>'}</td>
+      <td class="c"><span class="badge ${INC_ST_CLS[i.status] || 'b-gray'}">${esc(i.status)}</span></td>
+      <td class="c cl-act" onclick="event.stopPropagation()"><button class="icon-btn edit" title="수정" onclick="openEditIncident('${i.id}')">${ICO_EDIT}</button><button class="icon-btn del" title="삭제" onclick="deleteIncident('${i.id}')">${ICO_DEL}</button></td>
+    </tr>`;
+  };
+  const emptyMsg = !month.length ? `${mon}월에 발생한 장애가 없습니다` : '조건에 맞는 장애가 없습니다';
+  const cols = '<colgroup><col style="width:160px"><col style="width:18%"><col><col style="width:76px"><col style="width:11%"><col style="width:110px"><col style="width:88px"><col style="width:96px"></colgroup>';
+  $('inc-panel-title').textContent = `${mon}월 장애처리`;
+  $('inc-panel-info').innerHTML = (list.length !== month.length ? `<span class="sh-mon-note">${list.length}건 표시 중</span>` : '')
+    + (downSum ? `<span class="sh-mon-cnt late">장애 시간 ${fmtDuration(downSum)}</span>` : '')
+    + (month.length ? `<span class="sh-mon-cnt">${done}/${month.length} 완료</span>` : '');
+  $('inc-list').innerHTML = `<table class="cl-table sm-table sh-table sh-inhead">${cols}
+    <thead><tr><th>발생 일시</th><th>사이트</th><th>장애명</th><th class="c">등급</th><th>처리자</th><th>장애 시간</th><th class="c">상태</th><th class="c">관리</th></tr></thead>
+    <tbody>${list.length ? list.map(row).join('') : `<tr class="cl-msg"><td colspan="8">${emptyMsg}</td></tr>`}</tbody></table>`;
+}
+$('inc-search').addEventListener('input', () => { clearTimeout(window._incT); window._incT = setTimeout(drawIncidents, 200); });
 
 async function _fillIncSiteSel(selected=''){
   try {
@@ -1916,7 +1942,7 @@ async function deleteIncident(id){
   renderIncidents(); _refreshSvcHistory(); toast('삭제됨');
 }
 
-// ── 월별 기술지원 및 장애처리 이력 ─────────────
+// ── 서비스 지원 이력 (점검·기술지원·장애처리를 월 단위로, 검색은 그 해 전체) ─────────────
 let _svhTab = 'all';
 
 function _ym(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
@@ -1930,6 +1956,9 @@ function svhMove(delta){
   renderServiceHistory();
 }
 $('svh-month').addEventListener('change', renderServiceHistory);
+// 제목 옆 "2026년 11월"을 누르면 달 고르는 창을 연다. 달 고르기를 지원하지 않는 브라우저(Firefox)에서는 ◀ ▶ 로만 이동
+if($('svh-month').type !== 'month') $('svh-month').style.display = 'none';
+else $('svh-month').addEventListener('click', () => { try { $('svh-month').showPicker(); } catch(e){} });
 // 월별 이력의 탭만 대상으로 한다 (.svh-tab 모양은 대시보드·체크리스트 등 다른 화면의 탭도 같이 쓴다)
 document.querySelectorAll('.svh-tab[data-svh]').forEach(t => t.addEventListener('click', () => {
   document.querySelectorAll('.svh-tab[data-svh]').forEach(x => x.classList.toggle('active', x === t));
@@ -1937,78 +1966,115 @@ document.querySelectorAll('.svh-tab[data-svh]').forEach(t => t.addEventListener(
   renderServiceHistory();
 }));
 
-async function renderServiceHistory(){
+let _svhCache = null;       // 마지막으로 불러온 자료 (검색어를 칠 때는 다시 불러오지 않는다)
+$('svh-q').addEventListener('input', () => { clearTimeout(window._svhT); window._svhT = setTimeout(() => renderServiceHistory(true), 200); });
+async function renderServiceHistory(reuse){
   if(!$('svh-month').value) $('svh-month').value = _ym(new Date());
   const ym = $('svh-month').value;
+  const [ty, tm] = ym.split('-');
+  const isNow = ym === _ym(new Date());
+  $('svh-label').innerHTML = `${ty}년 ${Number(tm)}월${isNow ? ' <span class="wr-now">이번 달</span>' : ''}`;
+  $('svh-today').disabled = isNow;
   const el = $('svh-list');
   let plans, incs, sites, scheds;
-  try {
-    [plans, incs, sites, scheds] = await Promise.all([
-      api.get(`/api/engineers/${ENG_ID}/workplans`),
-      api.get(`/api/engineers/${ENG_ID}/incidents`),
-      api.get(`/api/engineers/${ENG_ID}/sites`).catch(() => []),
-      api.get(`/api/engineers/${ENG_ID}/schedules/all?year=${ym.slice(0, 4)}`).catch(() => []),
-    ]);
-  } catch(e) {
-    console.error('월별 이력 조회 실패:', e);
-    el.innerHTML = '<div class="empty" style="color:#dc2626">이력을 불러오지 못했습니다.</div>';
-    return;
+  if(reuse === true && _svhCache && _svhCache.year === ty && _svhCache.eng === ENG_ID) ({plans, incs, sites, scheds} = _svhCache);
+  else {
+    try {
+      [plans, incs, sites, scheds] = await Promise.all([
+        api.get(`/api/engineers/${ENG_ID}/workplans`),
+        api.get(`/api/engineers/${ENG_ID}/incidents`),
+        api.get(`/api/engineers/${ENG_ID}/sites`).catch(() => []),
+        api.get(`/api/engineers/${ENG_ID}/schedules/all?year=${ty}`).catch(() => []),
+      ]);
+    } catch(e) {
+      console.error('서비스 지원 이력 조회 실패:', e);
+      el.innerHTML = '<div class="empty" style="color:#dc2626">이력을 불러오지 못했습니다.</div>';
+      return;
+    }
+    _svhCache = {year: ty, eng: ENG_ID, plans, incs, sites, scheds};
   }
   plans = plans.filter(isSupportPlan);
+  scheds = Array.isArray(scheds) ? scheds : [];
   _allWorkPlans = plans;
   _allIncidents = incs;
-  renderSvhSiteStats(plans, incs, Array.isArray(scheds) ? scheds : [], ym, (sites || []).map(x => (x.name || '').trim()).filter(Boolean));
+  renderSvhSiteStats(plans, incs, scheds, ym, (sites || []).map(x => (x.name || '').trim()).filter(Boolean));
+  // 검색어가 있으면 목록은 그 해 전체에서 찾는다 (요약 줄은 계속 고른 달 기준)
+  const q = $('svh-q').value.trim().toLowerCase();
+  const hit = (...v) => q.split(/\s+/).every(w => v.some(x => String(x || '').toLowerCase().includes(w)));
+  const yIncs = incs.filter(i => (i.occurred_at || '').startsWith(ty)), yPlans = plans.filter(p => (p.work_date || '').startsWith(ty));
+  const fChk = q ? scheds.filter(c => hit(c.site_name, c.title, c.memo)) : null;
+  const fSup = q ? yPlans.filter(p => hit(p.site, p.title, p.purpose, p.worker)) : null;
+  const fInc = q ? yIncs.filter(i => hit(i.site, i.title, i.symptom, i.cause, i.action, i.worker)) : null;
   incs = incs.filter(i => (i.occurred_at || '').startsWith(ym));
   const sup = plans.filter(p => (p.work_date || '').startsWith(ym));
+  const chk = scheds.filter(x => (x.sched_date || '').startsWith(ym));
 
   const downMin = incs.reduce((a, i) => a + (i.downtime_min || 0), 0);
   const openInc = incs.filter(i => i.status !== '완료').length;
-  const supDone = sup.filter(p => p.status === '완료').length;
-  $('svh-summary').innerHTML = `
-    <div class="metric"><div class="metric-label">기술지원</div><div class="metric-value">${sup.length}건</div>
-      <div style="font-size:11px;color:#64748b;margin-top:4px">완료 ${supDone}건</div></div>
-    <div class="metric"><div class="metric-label">장애처리</div><div class="metric-value">${incs.length}건</div>
-      <div style="font-size:11px;color:#64748b;margin-top:4px">긴급·높음 ${incs.filter(i => i.severity==='긴급'||i.severity==='높음').length}건</div></div>
-    <div class="metric"><div class="metric-label">미완료 장애</div><div class="metric-value" style="${openInc?'color:#dc2626':''}">${openInc}건</div></div>
-    <div class="metric"><div class="metric-label">누적 장애 시간</div><div class="metric-value" style="font-size:20px">${downMin ? fmtDuration(downMin) : '-'}</div></div>`;
+  const done = list => list.filter(x => x.status === '완료').length;
+  const item = (name, val, sub, cls) => `<div class="wr-sum-i ${cls || ''}"><span>${name}${sub ? ` <em>${sub}</em>` : ''}</span><b>${val}</b></div>`;
+  $('svh-summary').innerHTML =
+      item('점검', chk.length, chk.length ? `완료 ${done(chk)}` : '', chk.length ? '' : 'zero')
+    + item('기술지원', sup.length, sup.length ? `완료 ${done(sup)}` : '', sup.length ? '' : 'zero')
+    + item('장애처리', incs.length, incs.length ? `긴급·높음 ${incs.filter(i => i.severity==='긴급'||i.severity==='높음').length}` : '', incs.length ? '' : 'zero')
+    + item('미완료 장애', openInc, '', openInc ? 'red' : 'zero')
+    + item('장애 시간 합계', downMin ? fmtDuration(downMin) : '-', '', downMin ? 'sm' : 'zero sm')
+    + item('합계', `${chk.length + sup.length + incs.length}건`, '', 'total');
 
-  const [ty, tm] = ym.split('-');
-  $('svh-list-title').textContent = `${ty}년 ${Number(tm)}월 ${{all:'기술지원 / 장애처리', support:'기술지원', incident:'장애처리'}[_svhTab]} 이력`;
+  const tabName = {all:'전체', check:'점검', support:'기술지원', incident:'장애처리'}[_svhTab];
+  $('svh-list-title').textContent = q ? `${ty}년 ${tabName} 검색 결과` : `${Number(tm)}월 ${tabName} 이력`;
 
   const rows = [];
-  if(_svhTab !== 'incident') sup.forEach(p => rows.push({
-    kind:'support', date:p.work_date, site:p.site, title:p.title, worker:p.worker,
-    status:p.status, stCls:WP_ST_CLS[p.status]||'b-gray',
-    extra:'', open:`openEditWorkPlan('${p.id}')`,
+  const withChk = _svhTab === 'all' || _svhTab === 'check';
+  if(withChk) (fChk || chk).forEach(c => rows.push({
+    kind:'check', date:c.sched_date, site:c.site_name, title:c.title, worker:'',
+    status:c.status, stCls:WP_ST_CLS[c.status]||'b-gray',
+    extra:(Array.isArray(c.extra_types) ? c.extra_types : String(c.extra_types || '').split(',')).filter(Boolean).map(t => `<span class="badge b-blue" title="점검과 함께 한 지원">+${esc(t)}</span>`).join(' '),
+    open:`openEditSched('${c.id}')`,
   }));
-  if(_svhTab !== 'support') incs.forEach(i => rows.push({
+  if(_svhTab === 'all' || _svhTab === 'support') (fSup || sup).forEach(p => {
+    if(p.from_schedule && _svhTab === 'all') return;        // 전체 보기에서는 점검 줄에 "+기술지원"으로 이미 표시됨
+    rows.push({
+      kind:'support', date:p.work_date, site:p.site, title:p.title, worker:p.worker,
+      status:p.status, stCls:WP_ST_CLS[p.status]||'b-gray',
+      extra:p.from_schedule ? '<span class="badge b-green" title="점검 일정에 함께 등록된 건">점검과 함께</span>' : '',
+      open:`openEditWorkPlan('${p.id}')`,
+    });
+  });
+  if(_svhTab === 'all' || _svhTab === 'incident') (fInc || incs).forEach(i => rows.push({
     kind:'incident', date:i.occurred_at, site:i.site, title:i.title, worker:i.worker,
     status:i.status, stCls:INC_ST_CLS[i.status]||'b-gray',
-    extra:`<span class="badge ${INC_SEV_CLS[i.severity]||'b-gray'}">${esc(i.severity)}</span>${i.downtime_min!==null?` <span style="font-size:11px;color:#dc2626">${fmtDuration(i.downtime_min)}</span>`:''}`,
+    extra:`<span class="badge ${INC_SEV_CLS[i.severity]||'b-gray'}">${esc(i.severity)}</span>${i.downtime_min!==null?` <span class="sv-down">장애 ${fmtDuration(i.downtime_min)}</span>`:''}`,
     open:`openEditIncident('${i.id}')`,
   }));
-  rows.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  rows.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  $('svh-list-sub').textContent = rows.length ? `${rows.length}건${q ? ` · ${ty}년 전체에서 찾음` : ''} · 줄을 누르면 내용을 열어 봅니다` : '';
 
-  if(!rows.length){ el.innerHTML = `<div class="empty">${ym} 이력이 없습니다</div>`; return; }
-  el.innerHTML = `<div class="svh-table-wrap"><table class="svh-table">
-    <thead><tr><th style="width:84px">구분</th><th style="width:130px">일시</th><th style="width:150px">사이트</th><th>제목</th><th style="width:110px">처리자</th><th style="width:170px">상태</th></tr></thead>
+  if(!rows.length){ el.innerHTML = `<div class="empty">${q ? `${ty}년에 "${esc($('svh-q').value.trim())}"(으)로 찾은 이력이 없습니다` : `${ty}년 ${Number(tm)}월에 등록된 ${{all:'', check:'점검 ', support:'기술지원 ', incident:'장애처리 '}[_svhTab]}이력이 없습니다`}</div>`; return; }
+  const KIND = {check:['점검','chk'], support:['기술지원','sup'], incident:['장애처리','inc']};
+  const day = v => { const d = String(v || ''); if(d.length < 10) return '-';
+    const w = '일월화수목금토'[new Date(Number(d.slice(0,4)), Number(d.slice(5,7)) - 1, Number(d.slice(8,10))).getDay()];
+    const t = d.length >= 16 ? d.slice(11, 16) : '';
+    return `${Number(d.slice(5,7))}/${Number(d.slice(8,10))} (${w})${t && t !== '00:00' ? ` <span class="sv-time">${t}</span>` : ''}`; };
+  el.innerHTML = `<div class="svh-table-wrap"><table class="wr-tbl sv-list">
+    <thead><tr><th style="width:92px">구분</th><th style="width:128px">일자</th><th style="width:20%">사이트</th><th>제목</th><th style="width:100px">처리자</th><th style="width:210px">상태</th></tr></thead>
     <tbody>${rows.map(r => `<tr onclick="${r.open}">
-      <td><span class="badge ${r.kind==='support'?'b-blue':'b-red'}">${r.kind==='support'?'기술지원':'장애처리'}</span></td>
-      <td style="color:#666">${esc(fmtDT(r.date))}</td>
-      <td>${esc(r.site||'-')}</td>
-      <td style="font-weight:600">${esc(r.title)}</td>
+      <td><span class="sv-kind ${KIND[r.kind][1]}">${KIND[r.kind][0]}</span></td>
+      <td class="wr-date">${day(r.date)}</td>
+      <td class="wr-site">${esc(r.site||'-')}</td>
+      <td>${esc(r.title)}</td>
       <td>${esc(r.worker||'-')}</td>
       <td><span class="badge ${r.stCls}">${esc(r.status)}</span> ${r.extra}</td>
     </tr>`).join('')}</tbody></table></div>`;
 }
 
-// 사이트별 월별/연간 점검·기술지원·장애처리 투입 횟수 (선택 월의 연도 기준, "점검 / 기술지원 / 장애처리" 형식)
-// 점검 = 완료된 점검일정(Schedule) 건수, 기술지원 = WorkPlan(wp-*), 장애처리 = Incident
+// 사이트별 월별/연간 점검·기술지원·장애처리 투입 횟수 (선택 월의 연도 기준)
+// 점검 = 완료된 점검일정(Schedule) 건수, 기술지원 = WorkPlan(wp-*)+점검과 함께 한 지원, 장애처리 = Incident
 function renderSvhSiteStats(plans, incs, scheds, ym, siteNames){
   const year = ym.slice(0, 4);
   const selM = Number(ym.slice(5, 7));
   const months = Array.from({ length: 12 }, (_, i) => i + 1);
-  const showChk = _svhTab === 'all', showSup = _svhTab !== 'incident', showInc = _svhTab !== 'support';
+  const showChk = _svhTab === 'all' || _svhTab === 'check', showSup = _svhTab === 'all' || _svhTab === 'support', showInc = _svhTab === 'all' || _svhTab === 'incident';
   const blank = () => ({ chk: Array(13).fill(0), sup: Array(13).fill(0), inc: Array(13).fill(0) });
 
   // { site: { chk:[연간,1월..12월], sup:[...], inc:[...] } }
@@ -2031,29 +2097,29 @@ function renderSvhSiteStats(plans, incs, scheds, ym, siteNames){
   const sites = [...siteNames];
   Object.keys(by).sort((a, b) => a.localeCompare(b, 'ko')).forEach(n => { if(!sites.includes(n)) sites.push(n); });
 
-  const n = (v, cls) => v ? `<b class="svh-cnt ${cls}">${v}</b>` : '<span class="svh-zero">0</span>';
-  const cell = (r, i) => [showChk ? n(r.chk[i], 'chk') : null, showSup ? n(r.sup[i], 'sup') : null, showInc ? n(r.inc[i], 'inc') : null]
-    .filter(Boolean).join('<span class="svh-slash"> / </span>');
+  // 0 은 비우고, 있는 것만 색 숫자로 (초록 점검 · 파랑 기술지원 · 빨강 장애)
+  const kinds = [showChk && 'chk', showSup && 'sup', showInc && 'inc'].filter(Boolean);
+  const TIP = {chk:'점검', sup:'기술지원', inc:'장애처리'};
+  const cell = (r, i) => kinds.map(k => r[k][i] ? `<b class="sv-n ${k}" title="${TIP[k]} ${r[k][i]}건">${r[k][i]}</b>` : '').join('');
   const sel = m => m === selM ? ' svh-sel' : '';
-  const legend = [showChk ? '<b class="svh-cnt chk">점검</b>' : null, showSup ? '<b class="svh-cnt sup">기술지원</b>' : null, showInc ? '<b class="svh-cnt inc">장애처리</b>' : null]
-    .filter(Boolean).join('<span class="svh-slash"> / </span>');
   const empty = blank();
+  const active = r => kinds.some(k => r[k][0]);
 
-  $('svh-site-stats').innerHTML = `<div class="card">
-    <div class="svh-stat-head">
-      <div class="card-title" style="margin:0">${year}년 사이트 월별/연간 투입 횟수</div>
-      <div style="font-size:12px;color:#64748b">표시: ${legend} &nbsp;|&nbsp; ${year}년 합계 ${cell(tot, 0)}</div>
+  $('svh-site-stats').innerHTML = `<div class="wr-box">
+    <div class="wr-box-head"><span>${year}년 사이트별 투입 횟수</span>
+      <span class="wr-box-sub">달 이름을 누르면 그 달 이력으로 이동합니다</span>
+      <span class="sv-legend">${kinds.map(k => `<b class="sv-n ${k}">${tot[k][0]}</b>${TIP[k]}${k === 'chk' ? '(완료)' : ''}`).join('')}</span>
     </div>
-    <div class="svh-table-wrap"><table class="svh-table svh-stat">
-      <thead><tr><th class="svh-site">사이트</th>${months.map(m =>
-        `<th class="svh-m${sel(m)}" title="${m}월 이력 보기" onclick="svhGoMonth(${year},${m})">${m}월</th>`).join('')}<th class="svh-year">연간</th></tr></thead>
-      <tbody>${sites.map(site => { const r = by[site] || empty; return `<tr>
-        <td class="svh-site" title="${esc(site)}">${esc(site)}</td>
+    <div class="svh-table-wrap"><table class="wr-tbl sv-stat">
+      <thead><tr><th class="sv-site">사이트</th>${months.map(m =>
+        `<th class="sv-m${sel(m)}" title="${m}월 이력 보기" onclick="svhGoMonth(${year},${m})">${m}월</th>`).join('')}<th class="sv-year">연간</th></tr></thead>
+      <tbody>${sites.map(site => { const r = by[site] || empty; return `<tr class="${active(r) ? '' : 'sv-idle'}">
+        <td class="sv-site" title="${esc(site)}">${esc(site)}</td>
         ${months.map(m => `<td class="${sel(m)}">${cell(r, m)}</td>`).join('')}
-        <td class="svh-year">${cell(r, 0)}</td></tr>`; }).join('')}</tbody>
-      <tfoot><tr><td class="svh-site">합계</td>
+        <td class="sv-year">${cell(r, 0)}</td></tr>`; }).join('')}</tbody>
+      <tfoot><tr><td class="sv-site">합계</td>
         ${months.map(m => `<td class="${sel(m)}">${cell(tot, m)}</td>`).join('')}
-        <td class="svh-year">${cell(tot, 0)}</td></tr></tfoot>
+        <td class="sv-year">${cell(tot, 0)}</td></tr></tfoot>
     </table></div></div>`;
 }
 
@@ -2292,7 +2358,6 @@ async function toggleSchedStatusMgmt(id){
   const next = s.status === '완료' ? '예정' : '완료';
   try { await _apiSend('PATCH', `${_schedBase()}/${id}`, {status: next}); }
   catch(e){ toast('변경 실패: ' + e.message); return; }
-  _schedHistory = [];
   await renderSchedMgmt();
   _refreshDash();
   toast(next === '완료' ? '완료 처리됨' : '완료 취소됨');
@@ -2829,72 +2894,6 @@ async function deleteTask(tid) {
   catch(e){ toast('삭제 실패: ' + e.message); return; }
   await _reloadProj();
   toast('삭제됨');
-}
-
-// ── SCHED HISTORY ─────────────────────────────
-let _schedHistory = [];
-let _shPage = 1;
-const SH_PAGE_SIZE = 20;
-
-async function renderSchedHistory(){
-  try {
-    _schedHistory = await _apiSend('GET', `${_schedBase()}/history`);
-    await loadSchedWorkPlans();
-  } catch(e){
-    $('sh-list').innerHTML = `<div class="empty">점검 이력을 불러오지 못했습니다: ${esc(e.message)}</div>`;
-    return;
-  }
-  _schedHistory.forEach(s => { _schedById[s.id] = s; });
-  // 연도 선택 채우기 (고른 값은 유지, 처음에는 올해)
-  const ySel = $('sh-year'), py = ySel.value, first = !ySel.options.length;
-  const years = [...new Set(_schedHistory.map(s => s.sched_date.slice(0, 4)))].sort().reverse();
-  ySel.innerHTML = '<option value="">전체 연도</option>' + years.map(y => `<option value="${y}">${y}년</option>`).join('');
-  const thisYear = String(new Date().getFullYear());
-  ySel.value = first ? (years.includes(thisYear) ? thisYear : '') : (years.includes(py) ? py : '');
-  drawSchedHistory(1);
-}
-
-function drawSchedHistory(page){
-  if(page) _shPage = page;
-  const year = $('sh-year').value, q = $('sh-search').value.toLowerCase().trim();
-  const base = _schedHistory.filter(s => (!year || s.sched_date.startsWith(year))
-    && (!q || (s.site_name || '').toLowerCase().includes(q) || (s.title || '').toLowerCase().includes(q) || (s.memo || '').toLowerCase().includes(q)));
-
-  // 사이트 선택: 이름 옆에 완료 횟수 표시 (고른 값은 유지)
-  const sSel = $('sh-site'), ps = sSel.value;
-  const cnt = new Map();
-  base.forEach(s => cnt.set(s.site_id, {name: s.site_name, n: (cnt.get(s.site_id)?.n || 0) + 1}));
-  const sites = [...cnt.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name, 'ko'));
-  sSel.innerHTML = `<option value="">전체 사이트 (${base.length})</option>` + sites.map(([id, v]) => `<option value="${id}">${esc(v.name)} (${v.n})</option>`).join('');
-  if(cnt.has(ps)) sSel.value = ps;
-  const site = sSel.value;
-
-  const list = base.filter(s => !site || s.site_id === site);
-  $('sh-count').textContent = `완료 ${list.length}건`;
-
-  const pages = Math.max(1, Math.ceil(list.length / SH_PAGE_SIZE));
-  if(_shPage > pages) _shPage = pages;
-  const rows = list.slice((_shPage - 1) * SH_PAGE_SIZE, _shPage * SH_PAGE_SIZE);
-
-  const cols = '<colgroup><col style="width:124px"><col style="width:28%"><col><col style="width:74px"><col style="width:124px"></colgroup>';
-  const row = s => {
-    const hasPlan = _schedWorkPlans.some(p => p.id === s.id);
-    return `<tr>
-      <td class="sm-d">${_smDateLabel(s.sched_date)}</td>
-      <td class="sm-s" title="${esc(s.site_name)}">${esc(s.site_name)}</td>
-      <td class="sm-t">${esc(s.title)}${(s.extra_types || []).map(t => ` <span class="badge b-purple">${esc(t)}</span>`).join('')}${s.memo ? `<div class="sh-memo">${esc(s.memo)}</div>` : ''}</td>
-      <td class="c"><span class="badge ${SCHED_TYPE_CLS[s.sched_type] || 'b-gray'}">${esc(s.sched_type || '-')}</span></td>
-      <td class="c cl-act">${hasPlan ? `<button class="btn btn-sm sm-xls" title="작업계획서 엑셀 내려받기" onclick="downloadWorkPlanExcel('${s.id}')">Excel</button>` : ''}<button class="icon-btn edit" title="수정 (상태를 예정으로 되돌릴 때도 여기서)" onclick="openEditSched('${s.id}')">${ICO_EDIT}</button></td>
-    </tr>`;
-  };
-  // 표 상자 하나: 위쪽 줄(필터) → 열 제목 → 달 구분 줄 + 그 달의 점검 (최근 달이 위)
-  const months = [...new Set(rows.map(s => s.sched_date.slice(0, 7)))];
-  const body = months.map(ym => `<tr class="sh-grp"><td colspan="5"><span class="sh-month-name">${ym.slice(0, 4)}년 ${Number(ym.slice(5, 7))}월</span><span class="sh-grp-cnt">${list.filter(x => x.sched_date.startsWith(ym)).length}건 완료</span></td></tr>`
-    + rows.filter(s => s.sched_date.startsWith(ym)).map(row).join('')).join('');
-  $('sh-list').innerHTML = `<table class="cl-table sm-table sh-table sh-inhead">${cols}
-    <thead><tr><th>점검일</th><th>사이트</th><th>제목 / 메모</th><th class="c">유형</th><th class="c">관리</th></tr></thead>
-    <tbody>${body || `<tr class="cl-msg"><td colspan="5">${_schedHistory.length ? '조건에 맞는 점검 이력이 없습니다' : '완료된 점검 이력이 없습니다'}</td></tr>`}</tbody></table>`;
-  renderPagination('sh-page', list.length, _shPage, 'drawSchedHistory', SH_PAGE_SIZE);
 }
 
 // ── TECH NOTES ──────────────────────────────
