@@ -61,7 +61,8 @@ uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `
   종류·사이트를 못 정하면 '확인 대기'. 의존 패키지: `httpx`, `icalendar`, `recurring-ical-events`.
 - **사내 테스트서버** (`page-lab`, 시스템 메뉴) = `routers/lab.py` (`/api/engineers/{eng_id}/lab`). 서버(`lab_servers`: 분류·이름·OS·주소·메모) 1대에 계정(`lab_accounts`) 여러 개.
   비밀번호는 `secure_store`로 암호화 저장, 목록에는 내려주지 않고 `GET /lab/accounts/{id}/password`로만 돌려준다. 수정(PUT)은 계정 목록 통째로 교체(비밀번호 생략 = 기존 유지). **접속 정보는 DB에만 두고 코드·git에 넣지 말 것.**
-- **문서 양식** (`page-docs`, 지식 창고 메뉴) = 탭 3개: 휴가원 / 차량 운행 일지 / 개인 경비 (개인 경비는 아직 "준비 중"). **양식 파일은 화면에서 올리지 않고 서버의 `data/doc_templates/`에 직접 둔다** (실명이 들어 있어 git 제외).
+- **결재 문서 관리** (`page-docs`, 사이드바 '결재 문서' 그룹 — 서비스 지원 아래) = 한 페이지에 문서 종류마다 탭 1개: 휴가원 / 차량 운행 일지 / 법인차량 점검 품의서. **문서 종류가 늘면 메뉴를 늘리지 말고 탭(`doc-tabs` 버튼 + `doc-pane-<키>` + `app.js`의 `DOC_TABS`)을 추가한다.** **양식 파일은 화면에서 올리지 않고 서버의 `data/doc_templates/`에 직접 둔다** (실명이 들어 있어 git 제외).
+  - **법인차량 점검 품의서** = `routers/carrepair.py` (`/api/engineers/{eng_id}/carrepairs`, 연도별 `?year=`). 저장 1건 = 정비 이력 1건(`car_repairs`, 품목은 `items` JSON: 품명·단가(부가세 별도)·수량). `GET /{id}/document`가 `data/doc_templates/car_repair.xlsx`에 채워 내려준다(칸 위치는 모듈 docstring, 대금지급조건·입고(예정)일은 기입하지 않음, 품목 16~21행 6줄, 특기사항 25~33행, 금액·소계·계·매입금액은 양식 수식). 담당 칸의 부서·직급·성명은 휴가원 내 정보(`leave_profiles`)를 쓴다. `car_repair.xlsx`는 사용자가 올린 `법인차량 점검_품의서.xlsx`에서 입력 칸을 비우고 G16~G21·D10을 수식으로 바꿔 만든 것.
   - **휴가원** = `routers/leaves.py` (`/api/engineers/{eng_id}/leaves`). 화면에서 종류·기간·일수·사유·신청일만 받아 `leave_records`에 저장 → 연차 사용 내역 목록 → `GET /{id}/document`가 `data/doc_templates/leave.docx`에 값을 채워 내려준다.
     채우기는 `build_leave_doc()`: 양식에 적힌 글자(부서·직위·성명·사유 칸, "부터"/"까지"/"일간", `종류( )`)로 자리를 찾으므로 **양식을 바꾸면 이 함수도 확인할 것.** `doc_fill.py`가 워드 XML의 글자만 고쳐 서식을 그대로 둔다(`lxml` 필요).
     leave_type: 연차/월차/생리휴가/경조휴가/공가/병가/조퇴/결근/대체휴무/기타 (양식의 번호 순). **연차·월차만 연차에서 뺀다.** `leave_quotas` = 연도별 총 연차(없으면 15일), `leave_profiles` = 휴가원에 넣을 부서·직위·성명(비면 양식 그대로, 성명은 로그인 이름). 연도는 기간 시작일 기준. 일수는 평일 수로 자동 계산(공휴일 모름).
@@ -108,7 +109,8 @@ uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `
   - `/api/auth/*` 외 모든 라우터는 `app.py`에서 `dependencies=[Depends(require_login)]`로 등록 — 로그인 필수 + 주소의 `eng_id`가 로그인한 본인이어야 함(아니면 403). **새 라우터도 같은 방식으로 등록할 것.**
   - **관리자:** `users.is_admin`(없으면 `init_db()`의 `_ensure_admin`이 가장 먼저 가입한 계정을 관리자로). `/api/auth/me`·로그인 응답에 `is_admin`. 관리자 전용 API는 `Depends(require_admin)`(현재 `/api/dev/*` 개발 체크리스트), 화면은 `data-admin` 속성이 붙은 메뉴·페이지를 `initApp()`이 숨긴다. 다른 계정을 관리자로 만들려면 DB에서 `UPDATE users SET is_admin=1`.
   - 세션은 마지막 사용 후 30일(`SESSION_DAYS`)에 만료, 사용 중이면 하루 한 번 연장. 만료/미로그인 응답은 401 → 프론트가 로그인 화면으로 전환.
-  - 회원 가입(`POST /api/auth/register`)은 아이디·비밀번호·엔지니어 이름에 더해 **부서·직급·이메일**이 필수(`users.dept/position/email`). 부서·직급은 휴가원용 `leave_profiles`에도 같이 넣어 둔다.
+  - 회원 가입(`POST /api/auth/register`)은 아이디·비밀번호·엔지니어 이름에 더해 **부서·직급·이메일**이 필수(`users.dept/position/email`). 부서·직급은 휴가원용 `leave_profiles`에도 같이 넣어 둔다. 가입 후에는 계정 메뉴 '내 정보 수정'(`modal-profile`, `GET/PUT /api/auth/profile`)에서 고친다(아이디·이름은 변경 불가).
+  - **가입 승인:** 회원가입한 계정은 `users.approved = False`(승인 대기)라 로그인할 수 없고(403), 관리자가 **계정 관리**(`page-users`, `data-admin`; `GET /api/auth/users`, `POST /users/{id}/approve|suspend`, `DELETE /users/{id}`)에서 승인해야 한다. 상태는 `approved`+`approved_at`으로 구분: 승인 대기(False, 빈 값) / 사용 중(True) / 사용 중지(False, 값 있음 — 세션도 끊김, 데이터 유지). 삭제는 승인 대기만 가능. 계정이 하나도 없을 때의 첫 가입자는 바로 승인 + 관리자.
   - 비밀번호는 PBKDF2-SHA256(`hash_pw`/`verify_pw`). 예전 SHA-256 저장분은 로그인 성공 시 자동 교체. 최소 8자.
   - 로그인 5회 연속 실패 시 5분 잠금(메모리 보관, 재시작 시 초기화). 비밀번호 변경은 `POST /api/auth/password`(다른 세션 모두 종료).
   - `init_db()`의 `_ensure_column`이 `sessions.expires_at` 열을 자동 추가한다(`incidents.entry_id` 등 나중에 붙인 열도 같은 방식).

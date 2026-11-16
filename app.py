@@ -5,7 +5,7 @@ from fastapi.requests import Request
 from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 from database import init_db
-from routers import auth, sites, logs, dashboard, schedules, issues, site_checklist, projects, technotes, development, incidents, reports, gcal, entries, lab, remote, leaves, carlog
+from routers import auth, sites, logs, dashboard, schedules, issues, site_checklist, projects, technotes, development, incidents, reports, gcal, entries, lab, remote, leaves, carlog, carrepair
 from routers.auth import require_login, require_admin
 import os, asyncio
 
@@ -58,6 +58,7 @@ app.include_router(entries.router, dependencies=_LOGIN)
 app.include_router(lab.router, dependencies=_LOGIN)
 app.include_router(leaves.router, dependencies=_LOGIN)
 app.include_router(carlog.router, dependencies=_LOGIN)
+app.include_router(carrepair.router, dependencies=_LOGIN)
 # 원격 접속(WebSocket)은 require_login 을 쓸 수 없어 라우터 안에서 세션 쿠키를 직접 확인한다
 app.include_router(remote.router)
 

@@ -52,6 +52,8 @@ class User(Base):
     dept        = Column(String, default="")       # 부서 (회원 가입 때 입력)
     position    = Column(String, default="")       # 직급
     email       = Column(String, default="")
+    approved    = Column(Boolean, default=True)    # 관리자 승인 여부. 가입 직후는 False(승인 대기) → 로그인 불가
+    approved_at = Column(String, default="")       # 승인한 때 "YYYY-MM-DD HH:MM". 비어 있고 approved=False 면 승인 대기, 값이 있으면 사용 중지
     engineer    = relationship("Engineer")
 
 # ── 엔지니어 ──────────────────────────────────
@@ -306,6 +308,22 @@ class CarProfile(Base):
     car_no      = Column(String, default="")
     start_place = Column(String, default="회사")
 
+class CarRepair(Base):
+    """법인차량 점검 품의서 = 정비 이력 1건 (routers/carrepair.py)."""
+    __tablename__ = "car_repairs"
+    id          = Column(String, primary_key=True)
+    engineer_id = Column(String, ForeignKey("engineers.id"), nullable=False, index=True)
+    doc_date    = Column(String, default="")       # 작성일 "YYYY-MM-DD"
+    car_no      = Column(String, default="")
+    title       = Column(String, default="")       # 거래내역
+    vendor      = Column(String, default="")       # 정비처
+    pay_terms   = Column(String, default="")       # (쓰지 않음) 대금지급조건 — 품의서에 기입하지 않는다
+    due_date    = Column(String, default="")       # (쓰지 않음) 입고(예정)일
+    odometer    = Column(Integer, nullable=True)   # 정비 때 주행거리 km
+    note        = Column(Text, default="")         # 특기사항
+    items       = Column(Text, default="[]")       # 품목 JSON [{name, price(부가세 별도 단가), qty}]
+    created_at  = Column(String, default="")
+
 class CarMonth(Base):
     """운행 일지 한 달: 그 달 첫 출발 때의 계기판 km. 각 운행의 출발·도착 km 는 여기서부터 거리를 이어 붙여 계산한다."""
     __tablename__ = "car_months"
@@ -445,8 +463,9 @@ def init_db():
     _ensure_column("leave_records", "apply_date", "VARCHAR DEFAULT ''")
     _ensure_column("users", "is_admin", "BOOLEAN DEFAULT 0")
     _ensure_column("incidents", "entry_id", "VARCHAR DEFAULT ''")
-    for col in ("dept", "position", "email"):
+    for col in ("dept", "position", "email", "approved_at"):
         _ensure_column("users", col, "VARCHAR DEFAULT ''")
+    _ensure_column("users", "approved", "BOOLEAN DEFAULT 1")     # 기존 계정은 승인된 것으로 둔다
     _ensure_admin()
     _unify_workplan_status()
     _encrypt_access_passwords()

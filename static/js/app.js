@@ -95,6 +95,65 @@ function toggleUserMenu(e){ if(e) e.stopPropagation(); $('sb-user').classList.to
 function closeUserMenu(){ $('sb-user').classList.remove('open'); }
 document.addEventListener('click', e => { const u=$('sb-user'); if(u && !u.contains(e.target)) u.classList.remove('open'); });
 document.addEventListener('keydown', e => { if(e.key==='Escape') closeUserMenu(); });
+// ── 계정 관리 (관리자 전용): 가입 승인 · 사용 중지 ─────────
+const USER_ST_CLS = {'승인 대기':'b-amber', '사용 중':'b-green', '사용 중지':'b-gray'};
+function _usersBadgeSet(n){ const b = $('users-badge'); b.textContent = n; b.style.display = n ? '' : 'none'; }
+async function _usersBadge(){
+  try { _usersBadgeSet((await api.get('/api/auth/users')).filter(u => u.state === '승인 대기').length); } catch(e) {}
+}
+async function renderUsers(){
+  let list;
+  try { list = await _apiSend('GET', '/api/auth/users'); }
+  catch(e){ $('users-list').innerHTML = `<div class="empty" style="color:#dc2626">계정 목록을 불러오지 못했습니다: ${esc(e.message)}</div>`; return; }
+  const wait = list.filter(u => u.state === '승인 대기').length;
+  _usersBadgeSet(wait);
+  $('users-info').innerHTML = (wait ? `<span class="sh-mon-cnt late">승인 대기 ${wait}건</span>` : '') + `<span class="sh-mon-cnt">전체 ${list.length}명</span>`;
+  const act = u => u.me ? '<span class="en-hint" style="margin:0">본인</span>'
+    : u.state === '승인 대기' ? `<button class="btn btn-sm btn-primary" onclick="userAct('${u.id}','approve')">승인</button> <button class="btn btn-sm" style="color:#dc2626" onclick="userAct('${u.id}','delete')">삭제</button>`
+    : u.state === '사용 중지' ? `<button class="btn btn-sm" onclick="userAct('${u.id}','approve')">다시 사용</button>`
+    : u.is_admin ? '' : `<button class="btn btn-sm" onclick="userAct('${u.id}','suspend')">사용 중지</button>`;
+  const row = u => `<tr class="${u.state === '사용 중지' ? 'done' : ''}">
+    <td class="c"><span class="badge ${USER_ST_CLS[u.state]}">${u.state}</span></td>
+    <td>${esc(u.name)}${u.is_admin ? ' <span class="badge b-blue">관리자</span>' : ''}</td>
+    <td>${esc(u.username)}</td><td>${esc(u.dept || '-')}</td><td>${esc(u.position || '-')}</td>
+    <td title="${esc(u.email)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(u.email || '-')}</td>
+    <td>${esc(u.created_at || '-')}</td><td class="c">${act(u)}</td></tr>`;
+  $('users-list').innerHTML = `<table class="cl-table sm-table sh-table sh-inhead">
+    <colgroup><col style="width:96px"><col style="width:15%"><col style="width:13%"><col style="width:13%"><col style="width:10%"><col><col style="width:140px"><col style="width:150px"></colgroup>
+    <thead><tr><th class="c">상태</th><th>이름</th><th>아이디</th><th>부서</th><th>직급</th><th>이메일</th><th>가입 신청</th><th class="c">관리</th></tr></thead>
+    <tbody>${list.map(row).join('')}</tbody></table>`;
+}
+async function userAct(id, what){
+  const msg = {suspend:'이 계정의 사용을 중지할까요? 로그인이 막히고 지금 로그인된 화면도 끊깁니다. 데이터는 그대로 남습니다.',
+               delete:'이 가입 신청을 삭제할까요?'}[what];
+  if(msg && !confirm(msg)) return;
+  try {
+    if(what === 'delete') await _apiSend('DELETE', `/api/auth/users/${id}`);
+    else await _apiSend('POST', `/api/auth/users/${id}/${what}`);
+    toast({approve:'승인했습니다', suspend:'사용 중지했습니다', delete:'삭제했습니다'}[what]);
+  } catch(e){ toast('처리 실패: ' + e.message); }
+  renderUsers();
+}
+
+// 내 정보 수정 (부서·직급·이메일)
+async function openProfile(){
+  let p;
+  try { p = await _apiSend('GET', '/api/auth/profile'); } catch(e){ toast('내 정보를 불러오지 못했습니다'); return; }
+  $('pf-user').value = p.username; $('pf-name').value = p.engineer_name;
+  $('pf-dept').value = p.dept; $('pf-position').value = p.position; $('pf-email').value = p.email;
+  $('pf-err').textContent = '';
+  openModal('modal-profile');
+  $('pf-dept').focus();
+}
+async function saveProfile(){
+  const dept=$('pf-dept').value.trim(), position=$('pf-position').value.trim(), email=$('pf-email').value.trim(), err=$('pf-err');
+  if(!dept||!position||!email){err.textContent='부서, 직급, 이메일을 모두 입력해주세요';return}
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){err.textContent='이메일 형식이 올바르지 않습니다';return}
+  try { await _apiSend('PUT','/api/auth/profile',{dept,position,email}); }
+  catch(e){ err.textContent=e.message; return }
+  closeModal('modal-profile');
+  toast('내 정보를 저장했습니다');
+}
 function openChangePw(){
   ['cp-cur','cp-new','cp-new2'].forEach(i=>$(i).value='');
   $('cp-err').textContent='';
@@ -133,6 +192,7 @@ function initApp(){
   // 관리자 전용 메뉴(개발 체크리스트)는 관리자에게만 보인다. 서버도 관리자가 아니면 거절한다
   document.querySelectorAll('.nav-item[data-admin]').forEach(n => n.style.display = IS_ADMIN ? '' : 'none');
   if(!IS_ADMIN && document.querySelector('.page.active[data-admin]')){ const n = document.querySelector('.nav-item[data-page="dashboard"]'); if(n) n.click(); }
+  if(IS_ADMIN) _usersBadge();
   _dashHead();
   renderDashboard();
 }
@@ -156,6 +216,7 @@ document.querySelectorAll('.nav-item').forEach(el=>{
     if(page==='service-history') renderServiceHistory();
     if(page==='weekly-report')  renderWeeklyReport();
     if(page==='dev-checklist')  loadDevChecklist();
+    if(page==='users')          renderUsers();
     if(page==='gcal')           renderGcal();
     if(page==='lab')            renderLab();
     if(page==='docs')           renderDocs();
@@ -3538,11 +3599,12 @@ async function deleteLab(id){
 }
 
 // ── 문서 양식: 휴가원 · 차량 운행 일지 · 개인 경비 (양식 파일은 서버의 data/doc_templates/ 에 둔다) ─────────────
+
+const DOC_TABS = {leave: () => renderLeaves(), car: () => renderCarLog(), repair: () => renderCarRepairs()};   // 문서 종류가 늘면 여기에 탭을 추가
 function docTab(k){
   document.querySelectorAll('#doc-tabs .svh-tab').forEach(t => t.classList.toggle('active', t.dataset.doc === k));
-  ['leave', 'car', 'expense'].forEach(x => { $('doc-pane-' + x).style.display = x === k ? '' : 'none'; });
-  if(k === 'leave') renderLeaves();
-  if(k === 'car') renderCarLog();
+  Object.keys(DOC_TABS).forEach(x => { $('doc-pane-' + x).style.display = x === k ? '' : 'none'; });
+  DOC_TABS[k]();
 }
 function renderDocs(){ docTab((document.querySelector('#doc-tabs .svh-tab.active') || {dataset: {doc: 'leave'}}).dataset.doc); }
 
@@ -3734,4 +3796,125 @@ function carDownload(){
   if(!_carData.profile.car_model || !_carData.profile.car_no){ toast('차종과 차량번호를 먼저 넣어주세요'); return; }
   if(_carData.empty_count && !confirm(`거리를 넣지 않은 운행이 ${_carData.empty_count}건 있습니다. 그 줄은 km 가 빈 채로 내려받습니다. 계속할까요?`)) return;
   location.href = `${_carBase()}/download?month=${_carYM}`;
+}
+
+// ── 법인차량 점검 품의서: 정비 내용 입력 → 정비 이력에 기록 → 목록에서 품의서(엑셀) 내려받기 (routers/carrepair.py) ─────────
+let _crYear = String(new Date().getFullYear()), _crData = null;
+const _crBase = () => `/api/engineers/${ENG_ID}/carrepairs`;
+const _won = n => Number(n || 0).toLocaleString('ko-KR');
+function crMove(d){ _crYear = String(Number(_crYear) + d); renderCarRepairs(); }
+
+async function renderCarRepairs(){
+  $('cr-year').textContent = `${_crYear}년`;
+  try { _crData = await _apiSend('GET', `${_crBase()}?year=${_crYear}`); }
+  catch(e) { $('cr-list').innerHTML = `<div class="empty" style="color:#dc2626">정비 이력을 불러오지 못했습니다 (${esc(e.message)})</div>`; return; }
+  const d = _crData, last = d.records[0];
+  const item = (label, val, sub, cls) => `<div class="wr-sum-i ${cls}"><span>${label}${sub ? `<em>${sub}</em>` : ''}</span><b>${val}</b></div>`;
+  $('cr-summary').innerHTML = item('정비', `${d.count}건`, `${_crYear}년`, d.count ? '' : 'zero')
+    + item('최근 정비', last ? esc(last.doc_date) : '-', last ? esc(last.vendor) : '', last ? 'sm' : 'zero')
+    + item('최근 주행거리', last && last.odometer != null ? `${_won(last.odometer)} km` : '-', '', last && last.odometer != null ? 'sm' : 'zero')
+    + item('정비 금액 합계', `${_won(d.total)}원`, '부가세 포함', 'total');
+  $('cr-sub').innerHTML = (d.count ? `${d.count}건 · 작성일이 ${_crYear}년인 품의서` : '')
+    + (d.has_template ? '' : ' <span class="doc-warn">품의서 양식 파일이 서버에 없어 문서를 내려받을 수 없습니다</span>');
+  $('cr-list').innerHTML = !d.count ? `<div class="empty">${_crYear}년 정비 이력이 없습니다. <b>+ 품의서 작성</b>을 눌러 주세요.</div>`
+    : `<table class="wr-tbl doc-tbl lv-tbl"><colgroup><col style="width:112px"><col style="width:120px"><col style="width:17%"><col><col style="width:110px"><col style="width:120px"><col style="width:200px"></colgroup>
+      <thead><tr><th>작성일</th><th>차량번호</th><th>정비처</th><th>정비 내용</th><th>주행거리</th><th>금액(부가세 포함)</th><th>관리</th></tr></thead><tbody>${d.records.map(r => `
+      <tr onclick="openEditCarRepair('${r.id}')" title="눌러서 수정">
+        <td class="wr-date">${esc(r.doc_date)}</td>
+        <td>${esc(r.car_no || '-')}</td>
+        <td>${esc(r.vendor)}</td>
+        <td class="lv-reason">${r.items.map(i => esc(i.name) + (i.qty !== 1 ? ` ×${i.qty}` : '')).join(', ')}</td>
+        <td class="cr-amt">${r.odometer != null ? _won(r.odometer) + ' km' : '-'}</td>
+        <td class="cr-amt"><b>${_won(r.total)}</b>원</td>
+        <td class="doc-act" onclick="event.stopPropagation()"><button class="btn btn-sm sm-xls" title="이 내용이 채워진 품의서(엑셀) 내려받기" onclick="downloadCarRepairDoc('${r.id}')">품의서 받기</button><button class="icon-btn edit" title="수정" onclick="openEditCarRepair('${r.id}')">${ICO_EDIT}</button><button class="icon-btn del" title="삭제" onclick="deleteCarRepair('${r.id}')">${ICO_DEL}</button></td>
+      </tr>`).join('')}</tbody></table>`;
+}
+function downloadCarRepairDoc(id){ location.href = `${_crBase()}/${id}/document`; }
+
+// 품목 줄
+function _crItemRow(it = {}){
+  return `<tr><td class="c cr-no"></td>
+    <td><input type="text" class="cr-name" value="${esc(it.name || '')}" placeholder="예: 엔진오일 교체"></td>
+    <td><input type="number" class="cr-price" min="0" step="100" value="${it.price ?? ''}" oninput="crCalc()"></td>
+    <td><input type="number" class="cr-qty" min="0" step="1" value="${it.qty ?? 1}" oninput="crCalc()"></td>
+    <td class="cr-amt cr-line">0</td>
+    <td class="c"><button class="icon-btn del" title="이 줄 삭제" onclick="crDelItem(this)">${ICO_DEL}</button></td></tr>`;
+}
+function crAddItem(it){
+  const max = (_crData && _crData.max_items) || 6;
+  if($('cr-items').children.length >= max){ toast(`품목은 양식에 ${max}줄까지 들어갑니다`); return; }
+  $('cr-items').insertAdjacentHTML('beforeend', _crItemRow(it));
+  crCalc();
+}
+function crDelItem(btn){
+  btn.closest('tr').remove();
+  if(!$('cr-items').children.length) crAddItem();
+  crCalc();
+}
+function _crItems(){
+  return [...$('cr-items').children].map(tr => ({ name: tr.querySelector('.cr-name').value.trim(),
+    price: Number(tr.querySelector('.cr-price').value || 0), qty: Number(tr.querySelector('.cr-qty').value || 0) }));
+}
+function crCalc(){
+  let sub = 0;
+  [...$('cr-items').children].forEach((tr, n) => {
+    const p = Number(tr.querySelector('.cr-price').value || 0), q = Number(tr.querySelector('.cr-qty').value || 0);
+    tr.querySelector('.cr-no').textContent = n + 1;
+    tr.querySelector('.cr-line').textContent = _won(p * q);
+    sub += p * q;
+  });
+  $('cr-subtotal').textContent = _won(sub);
+  $('cr-total').textContent = _won(Math.round(sub * 1.1)) + '원';
+  $('cr-add-item').style.display = $('cr-items').children.length >= ((_crData && _crData.max_items) || 6) ? 'none' : '';
+}
+// 거래내역·특기사항 칸에 "비우면 이렇게 들어갑니다"를 보여 준다
+function crAutoText(){
+  const no = $('cr-carno').value.trim();
+  $('cr-title').placeholder = no ? `법인차량(${no}) 정비` : '법인차량 정비';
+  $('cr-note').placeholder = no ? `법인차량(${no}) 점검.정비` : '법인차량 점검.정비';
+}
+function _crOpen(r){
+  const df = (_crData && _crData.defaults) || {}, p = (_crData && _crData.profile) || {};
+  $('cr-modal-title').textContent = r ? '법인차량 점검 품의서 수정' : '법인차량 점검 품의서 작성';
+  $('cr-id').value = r ? r.id : '';
+  $('cr-date').value = r ? r.doc_date : _ymd(new Date());
+  $('cr-carno').value = r ? r.car_no : (df.car_no || '');
+  $('cr-odo').value = r && r.odometer != null ? r.odometer : '';
+  $('cr-vendor').value = r ? r.vendor : (df.vendor || '');
+  $('cr-title').value = r && r.title !== `법인차량(${r.car_no}) 정비` && r.title !== '법인차량 정비' ? r.title : '';   // 자동으로 들어간 값은 비워 두어 차량번호를 따라가게
+  $('cr-note').value = r ? r.note : '';
+  $('cr-items').innerHTML = (r && r.items.length ? r.items : [{}]).map(_crItemRow).join('');
+  $('cr-modal-hint').innerHTML = `품의서의 담당 칸에는 <b>${esc([p.dept, p.position, p.name].filter(Boolean).join(' · ') || '(내 정보 없음)')}</b> 이(가) 들어갑니다. 바꾸려면 휴가원 탭의 <b>내 정보</b>에서 고칩니다.`
+    + (_crData && !_crData.has_template ? ' <span class="doc-warn">양식 파일이 서버에 없어 저장만 됩니다</span>' : '');
+  $('cr-save-dl').style.display = _crData && _crData.has_template ? '' : 'none';
+  crAutoText(); crCalc();
+  openModal('modal-car-repair');
+}
+function openAddCarRepair(){ _crOpen(null); }
+function openEditCarRepair(id){ const r = _crData && _crData.records.find(x => x.id === id); if(r) _crOpen(r); }
+
+async function saveCarRepair(download){
+  const no = $('cr-carno').value.trim();
+  const body = { doc_date: $('cr-date').value, car_no: no, title: $('cr-title').value.trim(), vendor: $('cr-vendor').value.trim(),
+    odometer: $('cr-odo').value === '' ? null : Number($('cr-odo').value),
+    note: $('cr-note').value.trim() || (no ? `법인차량(${no}) 점검.정비` : '법인차량 점검.정비'),
+    items: _crItems().filter(i => i.name) };
+  if(!body.doc_date){ toast('작성일을 입력해주세요'); return; }
+  if(!body.vendor){ toast('정비처를 입력해주세요'); return; }
+  if(!body.items.length){ toast('정비 품목을 하나 이상 입력해주세요'); return; }
+  if(body.items.some(i => !(i.qty > 0))){ toast('수량을 확인해주세요'); return; }
+  const id = $('cr-id').value;
+  let r;
+  try { r = await _apiSend(id ? 'PUT' : 'POST', `${_crBase()}${id ? '/' + id : ''}`, body); }
+  catch(e) { toast('저장 실패: ' + e.message); return; }
+  closeModal('modal-car-repair');
+  _crYear = body.doc_date.slice(0, 4);
+  await renderCarRepairs();
+  toast(id ? '정비 이력을 수정했습니다' : '정비 이력에 기록했습니다');
+  if(download) downloadCarRepairDoc(r.id);
+}
+async function deleteCarRepair(id){
+  if(!confirm('이 정비 이력(품의서)을 삭제할까요?')) return;
+  try { await api.del(`${_crBase()}/${id}`); } catch(e) { toast('삭제 실패'); }
+  renderCarRepairs(); toast('삭제됨');
 }

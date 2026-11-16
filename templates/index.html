@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=52">
+<link rel="stylesheet" href="/static/css/style.css?v=54">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -59,7 +59,7 @@
       </div>
       <span class="sidebar-logo-text">SE Portal</span>
     </div>
-    <!-- 사용자: 누르면 계정 메뉴(비밀번호 변경 · 로그아웃) -->
+    <!-- 사용자: 누르면 계정 메뉴(내 정보 수정 · 비밀번호 변경 · 로그아웃) -->
     <div class="sb-user" id="sb-user">
       <button type="button" class="sb-user-card" onclick="toggleUserMenu(event)" title="계정 메뉴">
         <span class="sb-avatar" id="sidebar-avatar">?</span>
@@ -70,6 +70,10 @@
         <svg class="sb-user-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="sb-user-menu" id="sb-user-menu">
+        <button type="button" onclick="closeUserMenu();openProfile()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          내 정보 수정
+        </button>
         <button type="button" onclick="closeUserMenu();openChangePw()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>비밀번호 변경
         </button>
@@ -120,14 +124,17 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>주간보고서
       </div>
     </div>
-    <!-- 지식 창고 그룹 -->
+    <!-- 결재 문서 그룹 -->
+    <div class="nav-group">
+      <div class="nav-group-label">결재 문서</div>
+      <div class="nav-item" data-page="docs">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="13" y2="17"></line></svg>결재 문서 관리
+      </div>
+    </div>
     <div class="nav-group">
       <div class="nav-group-label">지식 창고</div>
       <div class="nav-item" data-page="technotes">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>기술 노트
-      </div>
-      <div class="nav-item" data-page="docs">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="13" y2="17"></line></svg>문서 양식
       </div>
     </div>
     <!-- 시스템 관리 그룹 -->
@@ -138,6 +145,9 @@
       </div>
       <div class="nav-item" data-page="gcal">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="8 16 11 19 16 13"/></svg>구글 캘린더 연동
+      </div>
+      <div class="nav-item" data-page="users" data-admin style="display:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>계정 관리<span class="nav-badge" id="users-badge" style="display:none"></span>
       </div>
       <div class="nav-item" data-page="dev-checklist" data-admin style="display:none">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>개발 체크리스트
@@ -453,14 +463,15 @@
       <div id="lab-content"></div>
     </div>
 
-    <!-- 문서 양식 (휴가원 · 차량 운행 일지 · 개인 경비) -->
+    
+    <!-- 결재 문서 관리: 문서 종류마다 탭 1개 (휴가원 / 차량 운행 일지). 종류가 늘면 탭(doc-tabs)과 doc-pane-* 를 추가한다 -->
     <div class="page" id="page-docs">
       <div class="wr-top">
-        <div class="page-title">문서 양식</div>
+        <div class="page-title">결재 문서 관리</div>
         <div class="svh-tabs" id="doc-tabs">
           <button class="svh-tab active" data-doc="leave" onclick="docTab('leave')">휴가원</button>
           <button class="svh-tab" data-doc="car" onclick="docTab('car')">차량 운행 일지</button>
-          <button class="svh-tab" data-doc="expense" onclick="docTab('expense')">개인 경비</button>
+          <button class="svh-tab" data-doc="repair" onclick="docTab('repair')">법인차량 점검 품의서</button>
         </div>
       </div>
 
@@ -512,7 +523,22 @@
           <div id="car-list"></div>
         </div>
       </div>
-      <div id="doc-pane-expense" style="display:none"><div class="wr-box"><div class="empty doc-empty">개인 경비는 준비 중입니다.</div></div></div>
+      <div id="doc-pane-repair" style="display:none">
+        <div class="wr-top">
+          <div class="wr-nav">
+            <button class="btn btn-sm" onclick="crMove(-1)" title="이전 해">◀</button>
+            <span id="cr-year" class="lv-year"></span>
+            <button class="btn btn-sm" onclick="crMove(1)" title="다음 해">▶</button>
+          </div>
+          <span style="flex:1"></span>
+          <button class="btn btn-primary" onclick="openAddCarRepair()">+ 품의서 작성</button>
+        </div>
+        <div class="wr-sum" id="cr-summary"></div>
+        <div class="wr-box">
+          <div class="wr-box-head"><span>정비 이력</span><span class="wr-box-sub" id="cr-sub"></span></div>
+          <div id="cr-list"></div>
+        </div>
+      </div>
     </div>
 
     <!-- GOOGLE CALENDAR -->
@@ -522,6 +548,19 @@
     </div>
 
     <!-- DEVELOPMENT CHECKLIST -->
+    <div class="page" id="page-users" data-admin>
+      <div class="page-title">계정 관리</div>
+      <div class="sh-month sm-panel">
+        <div class="sm-panel-head">
+          <span class="sm-panel-title">가입 계정</span>
+          <span class="sm-panel-info" id="users-info"></span>
+          <span style="flex:1"></span>
+          <span class="en-hint">회원가입한 계정은 여기서 승인해야 로그인할 수 있습니다</span>
+        </div>
+        <div id="users-list"></div>
+      </div>
+    </div>
+
     <div class="page" id="page-dev-checklist" data-admin>
       <div class="dv-top">
         <div class="page-title">개발 체크리스트</div>
@@ -735,6 +774,45 @@
     <div class="form-actions">
       <button class="btn" onclick="closeModal('modal-leave')">취소</button>
       <button class="btn btn-primary" onclick="saveLeave()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 법인차량 점검 품의서 작성/수정 (routers/carrepair.py) -->
+<div class="overlay" id="modal-car-repair">
+  <div class="modal modal-lg">
+    <div class="modal-head"><div class="modal-title" id="cr-modal-title">법인차량 점검 품의서 작성</div><button class="btn btn-sm" onclick="closeModal('modal-car-repair')">✕</button></div>
+    <input type="hidden" id="cr-id">
+    <div class="form-section">
+      <div class="grid3">
+        <div class="form-row"><label>작성일 *</label><input type="date" id="cr-date"></div>
+        <div class="form-row"><label>차량번호</label><input type="text" id="cr-carno" placeholder="예: 193호9581" oninput="crAutoText()"></div>
+        <div class="form-row"><label>정비 때 주행거리 km <span class="en-hint">이력용</span></label><input type="number" id="cr-odo" min="0" placeholder="예: 85300"></div>
+      </div>
+      <div class="grid2" style="margin-bottom:0">
+        <div class="form-row" style="margin-bottom:0"><label>정비처 (대표자) *</label><input type="text" id="cr-vendor" placeholder="예: OO자동차정비"></div>
+        <div class="form-row" style="margin-bottom:0"><label>거래내역 <span class="en-hint">비우면 "법인차량(차량번호) 정비"</span></label><input type="text" id="cr-title"></div>
+      </div>
+    </div>
+    <div class="form-section">
+      <div class="form-section-title">정비 품목 <span class="en-hint">단가는 부가세 별도 · 양식에 6줄까지 들어갑니다</span></div>
+      <table class="wr-tbl doc-tbl cr-items">
+        <colgroup><col style="width:44px"><col><col style="width:150px"><col style="width:90px"><col style="width:150px"><col style="width:50px"></colgroup>
+        <thead><tr><th>No.</th><th>품 명</th><th>단 가</th><th>수량</th><th>금 액</th><th></th></tr></thead>
+        <tbody id="cr-items"></tbody>
+        <tfoot>
+          <tr><td colspan="4" class="cr-sum-l">소계</td><td class="cr-amt" id="cr-subtotal">0</td><td></td></tr>
+          <tr><td colspan="4" class="cr-sum-l"><b>계 (부가세 포함) = 매입금액</b></td><td class="cr-amt"><b id="cr-total">0</b></td><td></td></tr>
+        </tfoot>
+      </table>
+      <button class="btn btn-sm" id="cr-add-item" style="margin-top:8px" onclick="crAddItem()">+ 품목 추가</button>
+    </div>
+    <div class="form-row"><label>특기사항 <span class="en-hint">줄마다 한 항목 · 비우면 "법인차량(차량번호) 점검.정비"</span></label><textarea id="cr-note" style="min-height:60px"></textarea></div>
+    <div class="doc-hint" id="cr-modal-hint"></div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-car-repair')">취소</button>
+      <button class="btn" id="cr-save-dl" style="color:#16a34a;border-color:#16a34a" onclick="saveCarRepair(true)">저장하고 품의서 받기</button>
+      <button class="btn btn-primary" onclick="saveCarRepair(false)">저장</button>
     </div>
   </div>
 </div>
@@ -1014,6 +1092,28 @@
   </div>
 </div>
 
+<!-- 내 정보 수정 (부서·직급·이메일) -->
+<div class="overlay" id="modal-profile">
+  <div class="modal" style="width:420px">
+    <div class="modal-head"><div class="modal-title">내 정보 수정</div><button class="btn btn-sm" onclick="closeModal('modal-profile')">✕</button></div>
+    <div class="grid2">
+      <div class="form-row"><label>아이디</label><input type="text" id="pf-user" disabled style="background:#f1f5f9;color:#64748b"></div>
+      <div class="form-row"><label>이름</label><input type="text" id="pf-name" disabled style="background:#f1f5f9;color:#64748b"></div>
+    </div>
+    <div class="grid2">
+      <div class="form-row"><label>부서 *</label><input type="text" id="pf-dept" placeholder="예: 기술지원팀"></div>
+      <div class="form-row"><label>직급 *</label><input type="text" id="pf-position" placeholder="예: 과장"></div>
+    </div>
+    <div class="form-row"><label>이메일 *</label><input type="email" id="pf-email" placeholder="예: name@company.com" autocomplete="email" onkeydown="if(event.key==='Enter')saveProfile()"></div>
+    <div class="auth-err" id="pf-err"></div>
+    <div class="cp-note">아이디와 이름은 바꿀 수 없습니다. 부서·직급은 휴가원 양식에도 반영됩니다.</div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-profile')">취소</button>
+      <button class="btn btn-primary" onclick="saveProfile()">저장</button>
+    </div>
+  </div>
+</div>
+
 <!-- 비밀번호 변경 -->
 <div class="overlay" id="modal-change-pw">
   <div class="modal" style="width:420px">
@@ -1081,6 +1181,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=85"></script>
+<script src="/static/js/app.js?v=92"></script>
 </body>
 </html>
