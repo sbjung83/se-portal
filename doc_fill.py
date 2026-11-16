@@ -272,6 +272,13 @@ def _xlsx_apply(zf: zipfile.ZipFile, edits: dict) -> bytes:
         root = _parse(zf.read(parts[name]))
         for ref, val in cells.items():
             _xlsx_set(root, ref, val)
+        # 수식 칸에 남아 있는 예전 계산값(양식 예시로 계산된 합계 등)을 지운다.
+        # 다시 계산하지 않는 뷰어(미리보기·보호된 보기·모바일)가 옛 숫자를 보여 주지 않게 하기 위함.
+        for c in root.iter(S + "c"):
+            if c.find(S + "f") is not None:
+                for v in c.findall(S + "v"):
+                    c.remove(v)
+                c.attrib.pop("t", None)
         changed[parts[name]] = _dump(root)
     if changed:                                   # 열 때 수식을 다시 계산하게 한다
         wb = _parse(zf.read("xl/workbook.xml"))

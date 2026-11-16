@@ -307,6 +307,38 @@ class CarProfile(Base):
     car_model   = Column(String, default="")
     car_no      = Column(String, default="")
     start_place = Column(String, default="회사")
+    driver_name = Column(String, default="")       # 성명 기본값 (비면 로그인 이름)
+    biz_no      = Column(String, default="")       # 사업자등록번호 (양식 E3)
+
+class ExpenseProfile(Base):
+    """개인 경비 기본값 (엔지니어당 1건): 마지막으로 저장한 신청자·법인카드 번호 (routers/expenses.py)."""
+    __tablename__ = "expense_profiles"
+    engineer_id = Column(String, primary_key=True)
+    applicant   = Column(String, default="")
+    card_no     = Column(String, default="")       # secure_store 로 암호화 (enc:v1:)
+
+class ExpenseReport(Base):
+    """개인 경비 정산 내역서 1장 = 엔지니어별 한 달."""
+    __tablename__ = "expense_reports"
+    id          = Column(String, primary_key=True)
+    engineer_id = Column(String, ForeignKey("engineers.id"), nullable=False, index=True)
+    month       = Column(String, nullable=False)   # "YYYY-MM"
+    title       = Column(String, default="")
+    applicant   = Column(String, default="")
+    card_no     = Column(String, default="")       # secure_store 로 암호화
+
+class ExpenseItem(Base):
+    __tablename__ = "expense_items"
+    id          = Column(String, primary_key=True)
+    report_id   = Column(String, ForeignKey("expense_reports.id"), nullable=False, index=True)
+    engineer_id = Column(String, ForeignKey("engineers.id"), nullable=False, index=True)
+    spend_date  = Column(String, default="")       # "YYYY-MM-DD"
+    vendor      = Column(String, default="")       # 거래처
+    content     = Column(String, default="")       # 지출내용
+    card_amount = Column(Integer, default=0)       # 법인카드
+    cash_amount = Column(Integer, default=0)       # 현금(개인카드)
+    note        = Column(String, default="")       # 비고
+    order_idx   = Column(Integer, default=0)
 
 class CarRepair(Base):
     """법인차량 점검 품의서 = 정비 이력 1건 (routers/carrepair.py)."""
@@ -343,6 +375,7 @@ class CarTrip(Base):
     purpose     = Column(String, default="")       # 운행목적(거래처명)
     km          = Column(Integer, default=0)       # 이 운행의 주행 거리
     note        = Column(String, default="")
+    driver      = Column(String, default="")       # 이 줄만 다른 성명 (비면 기본 성명)
     src         = Column(String, default="")       # 일정에서 가져온 건: "sched:<id>" / "wp:<id>"
     created_at  = Column(String, default="")       # "YYYY-MM-DD HH:MM:SS" (같은 날 안에서의 순서)
 
@@ -463,6 +496,9 @@ def init_db():
     _ensure_column("leave_records", "apply_date", "VARCHAR DEFAULT ''")
     _ensure_column("users", "is_admin", "BOOLEAN DEFAULT 0")
     _ensure_column("incidents", "entry_id", "VARCHAR DEFAULT ''")
+    _ensure_column("car_profiles", "driver_name", "VARCHAR DEFAULT ''")
+    _ensure_column("car_profiles", "biz_no", "VARCHAR DEFAULT ''")
+    _ensure_column("car_trips", "driver", "VARCHAR DEFAULT ''")
     for col in ("dept", "position", "email", "approved_at"):
         _ensure_column("users", col, "VARCHAR DEFAULT ''")
     _ensure_column("users", "approved", "BOOLEAN DEFAULT 1")     # 기존 계정은 승인된 것으로 둔다

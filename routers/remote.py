@@ -7,10 +7,19 @@
 접속 대상·계정은 사내 테스트서버(routers/lab.py)의 LabConn/LabAccount 를 쓰고,
 비밀번호는 서버 안에서만 풀어 쓴다(브라우저로 보내지 않음). 접속할 때마다 LabAccessLog 에 기록한다.
 WebSocket 은 app.py 의 require_login 이 적용되지 않으므로 여기서 세션 쿠키와 Origin 을 직접 확인한다.
+
+접속 중 감시(_watch): 1분마다 포털 로그인이 살아 있는지 다시 확인해(로그아웃·비밀번호 변경·사용 중지 시 끊김)
+무효면 끊고, 키보드·마우스 입력이 30분 없으면 끊는다.
+접속 대상 제한(blocked_target): 서버 안에서만 열린 서비스(guacd·포털 내부 포트)에 닿는 주소 — 루프백(127.x)·
+컨테이너 내부망(podman 등) — 과 링크 로컬·멀티캐스트 주소로는 접속하지 않는다. 서버의 LAN IP 로 SSH 하는 것은 허용.
 """
 import asyncio
+import ipaddress
 import json
 import os
+import socket
+import subprocess
+import time
 import uuid
 from datetime import datetime
 from urllib.parse import urlparse
@@ -34,6 +43,58 @@ LOGIN_TIMEOUT = 60        # SSH 로그인 완료까지(초)
 PASTE_CHUNK = 256          # 붙여넣기를 나눠 보내는 크기(바이트)
 PASTE_GAP = 0.02           # 나눠 보내는 사이 간격(초) — 약 12KB/초
 DEFAULT_PORT = {"SSH": 22, "RDP": 3389}
+IDLE_LIMIT = 30 * 60       # 입력이 없으면 끊는 시간(초)
+CHECK_EVERY = 60           # 로그인 상태를 다시 확인하는 간격(초)
+MSG_IDLE = "30분 동안 입력이 없어 접속을 종료했습니다. 다시 접속하려면 [다시 연결]을 눌러주세요."
+MSG_LOGOUT = "포털 로그인이 끊겨(로그아웃·비밀번호 변경·사용 중지) 접속을 종료했습니다."
+
+
+# ── 접속 대상 제한 ─────────────────────────────────────────────
+_INNER_NETS = None
+_INNER_IFACES = ("podman", "cni", "docker", "virbr", "br-", "veth")
+
+
+def _inner_nets() -> list:
+    """이 서버의 컨테이너·가상 내부망 대역 (podman0 10.88.0.0/16 등, 처음 한 번만 읽는다)."""
+    global _INNER_NETS
+    if _INNER_NETS is None:
+        nets = []
+        try:
+            out = subprocess.run(["ip", "-o", "addr"], capture_output=True, text=True, timeout=5).stdout
+            for line in out.splitlines():
+                parts = line.split()
+                if len(parts) > 3 and parts[2] in ("inet", "inet6") and parts[1].startswith(_INNER_IFACES):
+                    nets.append(ipaddress.ip_network(parts[3], strict=False))
+        except Exception:
+            pass
+        _INNER_NETS = nets
+    return _INNER_NETS
+
+
+def _bad_ip(ip) -> bool:
+    return (ip.is_loopback or ip.is_unspecified or ip.is_link_local or ip.is_multicast
+            or any(ip.version == n.version and ip in n for n in _inner_nets()))
+
+
+def blocked_target(host: str, resolve: bool = True):
+    """막아야 하는 접속 대상이면 사유를, 괜찮으면 None. resolve=True 면 이름을 풀어 실제 IP 까지 본다."""
+    h = (host or "").strip().strip("[]").lower()
+    if h in ("localhost", "localhost.localdomain") or h.endswith(".localhost"):
+        return "포털 서버 자신(localhost)으로는 접속할 수 없습니다"
+    try:
+        if _bad_ip(ipaddress.ip_address(h)):
+            return "서버 내부 주소(127.x·컨테이너 내부망)나 특수 주소(169.254.x 등)로는 접속할 수 없습니다"
+        return None
+    except ValueError:
+        pass
+    if resolve:
+        try:
+            for a in socket.getaddrinfo(h, None):
+                if _bad_ip(ipaddress.ip_address(a[4][0].split("%")[0])):
+                    return f"'{host}' 이(가) 서버 내부 주소나 특수 주소를 가리켜 접속할 수 없습니다"
+        except socket.gaierror:
+            pass                                    # 이름을 못 풀면 실제 접속 단계에서 실패로 알린다
+    return None
 
 # 오래된 장비(네트워크 장비·구형 OS)도 붙도록 기본 알고리즘 뒤에 예전 방식을 덧붙인다.
 _LEGACY = dict(
@@ -69,10 +130,7 @@ def _prepare(ws: WebSocket, conn_id: str, kind: str):
     db = database.SessionLocal()
     try:
         sess = db.query(SessionToken).filter(SessionToken.id == sid).first() if sid else None
-        if not sess or _expiry(sess) <= datetime.utcnow():
-            return None, "로그인이 필요합니다"
-        if not db.query(User).filter(User.id == sess.user_id).first() or \
-           not db.query(Engineer).filter(Engineer.id == sess.engineer_id).first():
+        if not _session_valid(db, sess):
             return None, "로그인이 필요합니다"
         row = (db.query(LabConn, LabServer).join(LabServer, LabConn.server_id == LabServer.id)
                .filter(LabConn.id == conn_id, LabServer.engineer_id == sess.engineer_id).first())
@@ -81,6 +139,9 @@ def _prepare(ws: WebSocket, conn_id: str, kind: str):
         conn, srv = row
         if conn.kind != kind:
             return None, "접속 방식이 맞지 않습니다"
+        why = blocked_target(conn.host)
+        if why:
+            return None, why
         acc = (db.query(LabAccount).filter(LabAccount.id == conn.account_id, LabAccount.server_id == srv.id).first()
                if conn.account_id else None)
         if not acc:
@@ -96,9 +157,45 @@ def _prepare(ws: WebSocket, conn_id: str, kind: str):
                            started_at=_now(), result="접속 중")
         db.add(log); db.commit()
         return {"host": conn.host, "port": port, "username": acc.username, "password": password,
-                "log_id": log.id}, ""
+                "log_id": log.id, "sid": sess.id}, ""
     finally:
         db.close()
+
+
+def _session_valid(db, sess) -> bool:
+    """세션이 살아 있고, 계정이 승인된 상태이며, 엔지니어 정보가 있는지."""
+    if not sess or _expiry(sess) <= datetime.utcnow():
+        return False
+    user = db.query(User).filter(User.id == sess.user_id).first()
+    if not user or user.approved is False:
+        return False
+    return db.query(Engineer).filter(Engineer.id == sess.engineer_id).first() is not None
+
+
+def _still_logged_in(sid: str) -> bool:
+    db = database.SessionLocal()
+    try:
+        return _session_valid(db, db.query(SessionToken).filter(SessionToken.id == sid).first())
+    except Exception:
+        return True                                 # DB 일시 오류로 작업 중인 창을 끊지는 않는다
+    finally:
+        db.close()
+
+
+async def _watch(sid: str, state: dict) -> str:
+    """접속을 끊어야 할 사유가 생기면 그 사유(기록용)를 돌려준다. state["last"] = 마지막 입력 시각."""
+    next_check = time.monotonic() + CHECK_EVERY
+    while True:
+        await asyncio.sleep(5)
+        now = time.monotonic()
+        if now - state["last"] >= IDLE_LIMIT:
+            state["kick"] = MSG_IDLE
+            return "종료 (30분 무입력)"
+        if now >= next_check:
+            next_check = now + CHECK_EVERY
+            if not await asyncio.to_thread(_still_logged_in, sid):
+                state["kick"] = MSG_LOGOUT
+                return "종료 (포털 로그인 끊김)"
 
 
 def _finish(log_id: str, result: str):
@@ -181,6 +278,7 @@ async def ssh_ws(ws: WebSocket, conn_id: str, cols: int = 120, rows: int = 32):
             await ws.send_text(json.dumps({"t": "error", "msg": _ssh_error(e)}, ensure_ascii=False))
             return
         await ws.send_text(json.dumps({"t": "ready"}))
+        state = {"last": time.monotonic(), "kick": ""}
 
         async def pump_out():
             while True:
@@ -193,6 +291,7 @@ async def ssh_ws(ws: WebSocket, conn_id: str, cols: int = 120, rows: int = 32):
             while True:
                 m = json.loads(await ws.receive_text())
                 if m.get("t") == "i":
+                    state["last"] = time.monotonic()
                     data = str(m.get("d", "")).encode("utf-8")
                     # 긴 붙여넣기를 한꺼번에 보내면 AIX 등은 터미널 입력 버퍼가 넘쳐 뒷부분을 버린다.
                     # 조금씩 나눠 사이를 두고 보낸다 (키 입력처럼 짧은 것은 그대로 바로 보냄).
@@ -203,17 +302,21 @@ async def ssh_ws(ws: WebSocket, conn_id: str, cols: int = 120, rows: int = 32):
                 elif m.get("t") == "r":
                     proc.change_terminal_size(max(20, min(int(m["c"]), 500)), max(5, min(int(m["r"]), 200)))
 
-        tasks = [asyncio.create_task(pump_out()), asyncio.create_task(pump_in())]
+        watcher = asyncio.create_task(_watch(info["sid"], state))
+        tasks = [asyncio.create_task(pump_out()), asyncio.create_task(pump_in()), watcher]
         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         for t in pending:
             t.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
         for t in done:
             e = t.exception()
-            if e and not isinstance(e, WebSocketDisconnect):
+            if t is watcher and not e:
+                result = t.result()
+            elif e and not isinstance(e, WebSocketDisconnect):
                 result = f"종료 ({type(e).__name__})"
         try:
-            await ws.send_text(json.dumps({"t": "closed"}))
+            await ws.send_text(json.dumps({"t": "kicked", "msg": state["kick"]} if state["kick"] else {"t": "closed"},
+                                          ensure_ascii=False))
         except Exception:
             pass
     finally:
@@ -358,7 +461,7 @@ async def rdp_ws(ws: WebSocket, conn_id: str, w: int = 1280, h: int = 720, dpi: 
         await writer.drain()
         await ws.send_text(_ins("", str(uuid.uuid4())))      # 터널 식별자 (브라우저 라이브러리가 기다림)
 
-        state = {"error": ""}
+        state = {"error": "", "last": time.monotonic(), "kick": ""}
 
         async def pump_out():
             while True:
@@ -375,20 +478,30 @@ async def rdp_ws(ws: WebSocket, conn_id: str, w: int = 1280, h: int = 720, dpi: 
                 if msg.startswith("0.,"):                     # 터널 내부 명령(ping)은 그대로 돌려준다
                     await ws.send_text(msg)
                     continue
+                if "3.key," in msg or "5.mouse," in msg:      # 화면 갱신 응답(sync)은 입력으로 치지 않는다
+                    state["last"] = time.monotonic()
                 writer.write(msg.encode("utf-8"))
                 await writer.drain()
 
-        tasks = [asyncio.create_task(pump_out()), asyncio.create_task(pump_in())]
+        watcher = asyncio.create_task(_watch(info["sid"], state))
+        tasks = [asyncio.create_task(pump_out()), asyncio.create_task(pump_in()), watcher]
         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         for t in pending:
             t.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
         for t in done:
             e = t.exception()
-            if e and not isinstance(e, WebSocketDisconnect):
+            if t is watcher and not e:
+                result = t.result()
+            elif e and not isinstance(e, WebSocketDisconnect):
                 result = f"종료 ({type(e).__name__})"
         if state["error"]:
             result = "실패: " + state["error"]
+        elif state["kick"]:
+            try:
+                await ws.send_text(_ins("error", state["kick"], "522"))
+            except Exception:
+                pass
     finally:
         if writer:
             try:

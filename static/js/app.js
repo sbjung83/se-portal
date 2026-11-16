@@ -3437,7 +3437,7 @@ function drawLab(){
       </tr>`).join('')}`).join('')}
     </tbody></table>
     <details class="lab-logs" id="lab-logs" ontoggle="if(this.open) labLoadLogs()">
-      <summary>원격 접속 기록 <span>최근 50건</span></summary><div id="lab-logs-body"></div>
+      <summary>접속·비밀번호 보기 기록 <span id="lab-logs-span">최근 100건</span></summary><div id="lab-logs-body"></div>
     </details>`;
 }
 // 원격 접속: SSH·RDP 는 새 탭의 접속 화면(/remote)에서 포털이 대신 접속한다
@@ -3449,17 +3449,22 @@ function labConnect(srvId, connId){
                                  t: `${c.host}:${c.port || (c.kind === 'RDP' ? 3389 : 22)}`});
   window.open('/remote?' + q.toString(), '_blank');
 }
+let _labLogAll = false;     // 관리자: 모든 엔지니어 기록 보기
+function labLogAll(on){ _labLogAll = on; labLoadLogs(); }
 async function labLoadLogs(){
   const el = $('lab-logs-body');
   let rows;
-  try { rows = await _apiSend('GET', `/api/engineers/${ENG_ID}/lab/logs`); }
+  try { rows = await _apiSend('GET', `/api/engineers/${ENG_ID}/lab/logs${IS_ADMIN && _labLogAll ? '/all' : ''}`); }
   catch(e){ el.innerHTML = `<div class="empty" style="color:#dc2626">${esc(e.message)}</div>`; return; }
-  if(!rows.length){ el.innerHTML = '<div class="empty">접속 기록이 없습니다</div>'; return; }
-  el.innerHTML = `<table class="lab-tbl lab-log-tbl">
-    <thead><tr><th>시작</th><th>종료</th><th>서버</th><th>방식</th><th>대상</th><th>계정</th><th>접속한 PC</th><th>결과</th></tr></thead>
+  const all = IS_ADMIN && _labLogAll;
+  $('lab-logs-span').textContent = all ? '모든 엔지니어 · 최근 300건' : '최근 100건';
+  const bar = IS_ADMIN ? `<label class="lab-log-all"><input type="checkbox" ${all ? 'checked' : ''} onchange="labLogAll(this.checked)"> 모든 엔지니어의 기록 보기 (관리자)</label>` : '';
+  if(!rows.length){ el.innerHTML = bar + '<div class="empty">기록이 없습니다</div>'; return; }
+  el.innerHTML = bar + `<table class="lab-tbl lab-log-tbl">
+    <thead><tr><th>시작</th><th>종료</th>${all ? '<th>엔지니어</th>' : ''}<th>서버</th><th>방식</th><th>대상</th><th>계정</th><th>접속한 PC</th><th>결과</th></tr></thead>
     <tbody>${rows.map(r => `<tr>
-      <td class="mono">${esc(r.started_at)}</td><td class="mono">${esc(r.ended_at ? r.ended_at.slice(11) : '-')}</td>
-      <td class="lab-name">${esc(r.server_name)}</td><td>${esc(r.kind)}</td><td class="mono">${esc(r.target)}</td>
+      <td class="mono">${esc(r.started_at)}</td><td class="mono">${esc(r.ended_at ? r.ended_at.slice(11) : '-')}</td>${all ? `<td>${esc(r.engineer)}</td>` : ''}
+      <td class="lab-name">${esc(r.server_name)}</td><td>${r.kind === '비밀번호 보기' ? '<span class="badge b-amber">비밀번호 보기</span>' : esc(r.kind)}</td><td class="mono">${esc(r.target)}</td>
       <td class="mono">${esc(r.username)}</td><td class="mono">${esc(r.client_ip || '-')}</td>
       <td class="${r.result.startsWith('실패') ? 'lab-log-bad' : r.result === '접속 중' ? 'lab-log-on' : ''}">${esc(r.result)}</td>
     </tr>`).join('')}</tbody></table>`;
@@ -3600,7 +3605,7 @@ async function deleteLab(id){
 
 // ── 문서 양식: 휴가원 · 차량 운행 일지 · 개인 경비 (양식 파일은 서버의 data/doc_templates/ 에 둔다) ─────────────
 
-const DOC_TABS = {leave: () => renderLeaves(), car: () => renderCarLog(), repair: () => renderCarRepairs()};   // 문서 종류가 늘면 여기에 탭을 추가
+const DOC_TABS = {leave: () => renderLeaves(), car: () => renderCarLog(), repair: () => renderCarRepairs(), expense: () => renderExpenses()};   // 문서 종류가 늘면 여기에 탭을 추가
 function docTab(k){
   document.querySelectorAll('#doc-tabs .svh-tab').forEach(t => t.classList.toggle('active', t.dataset.doc === k));
   Object.keys(DOC_TABS).forEach(x => { $('doc-pane-' + x).style.display = x === k ? '' : 'none'; });
@@ -3725,6 +3730,8 @@ function drawCarLog(){
   if(document.activeElement !== $('car-model')) $('car-model').value = d.profile.car_model;
   if(document.activeElement !== $('car-no')) $('car-no').value = d.profile.car_no;
   if(document.activeElement !== $('car-place')) $('car-place').value = d.profile.start_place;
+  if(document.activeElement !== $('car-driver')) $('car-driver').value = d.profile.driver_name || d.login_name;
+  if(document.activeElement !== $('car-biz')) $('car-biz').value = d.profile.biz_no;
   const item = (label, val, sub, cls) => `<div class="wr-sum-i ${cls}"><span>${label}${sub ? `<em>${sub}</em>` : ''}</span><b>${val}</b></div>`;
   $('car-summary').innerHTML =
       item('운행', `${d.trips.length}건`, d.empty_count ? `거리 미입력 ${d.empty_count}건` : '', d.trips.length ? (d.empty_count ? 'amber' : '') : 'zero')
@@ -3742,7 +3749,7 @@ function drawCarLog(){
       <thead><tr><th>일자</th><th>성명</th><th>출발지명</th><th class="r">출발시 주행km</th><th>운행목적(거래처명)</th><th class="r">거리 km</th><th class="r">도착시 주행km</th><th>비고</th><th></th></tr></thead><tbody>${d.trips.map(t => `
       <tr data-id="${t.id}">
         <td><input type="date" value="${esc(t.trip_date)}" onchange="carEdit('${t.id}', 'trip_date', this.value)"></td>
-        <td class="car-ro">${esc(d.name)}</td>
+        <td><input type="text" value="${esc(t.driver || d.name)}"${t.driver && t.driver !== d.name ? ' class="car-diff"' : ''} title="이 줄만 다른 사람이 운전했으면 고칩니다 (비우면 기본 성명)" onchange="carEdit('${t.id}', 'driver', this.value.trim() === _carData.name ? '' : this.value)"></td>
         <td><input type="text" value="${esc(t.start_place)}" onchange="carEdit('${t.id}', 'start_place', this.value)"></td>
         <td class="r car-ro">${_carKm(t.start_km)}</td>
         <td><input type="text" value="${esc(t.purpose)}" onchange="carEdit('${t.id}', 'purpose', this.value)"${t.from_schedule ? ' title="일정에서 가져온 운행"' : ''}></td>
@@ -3753,7 +3760,8 @@ function drawCarLog(){
       </tr>`).join('')}</tbody></table>`;
 }
 async function carSaveProfile(){
-  try { await _apiSend('PUT', `${_carBase()}/profile`, {car_model: $('car-model').value, car_no: $('car-no').value, start_place: $('car-place').value || '회사'}); toast('차량 정보를 저장했습니다 (다음부터 그대로 씁니다)'); }
+  try { await _apiSend('PUT', `${_carBase()}/profile`, {car_model: $('car-model').value, car_no: $('car-no').value, start_place: $('car-place').value || '회사',
+      driver_name: $('car-driver').value.trim() === (_carData && _carData.login_name) ? '' : $('car-driver').value, biz_no: $('car-biz').value}); toast('기본 정보를 저장했습니다 (다음부터 그대로 씁니다)'); }
   catch(e) { toast('저장 실패: ' + e.message); }
   renderCarLog();
 }
@@ -3917,4 +3925,70 @@ async function deleteCarRepair(id){
   if(!confirm('이 정비 이력(품의서)을 삭제할까요?')) return;
   try { await api.del(`${_crBase()}/${id}`); } catch(e) { toast('삭제 실패'); }
   renderCarRepairs(); toast('삭제됨');
+}
+
+// ── 개인 경비 정산 내역서 (월 단위, routers/expenses.py): 칸을 고치면 바로 저장 → 엑셀 내려받기 ─────────
+let _exYM = _ymd(new Date()).slice(0, 7), _exData = null;
+const _exBase = () => `/api/engineers/${ENG_ID}/expenses`;
+function exMove(delta){ const [y, m] = _exYM.split('-').map(Number); _exYM = _ymd(new Date(y, m - 1 + delta, 1)).slice(0, 7); renderExpenses(); }
+
+async function renderExpenses(){
+  try { _exData = await _apiSend('GET', `${_exBase()}?month=${_exYM}`); }
+  catch(e) { $('ex-list').innerHTML = `<div class="empty" style="color:#dc2626">개인 경비를 불러오지 못했습니다 (${esc(e.message)})</div>`; return; }
+  drawExpenses();
+}
+function drawExpenses(){
+  const d = _exData, [y, m] = d.month.split('-');
+  $('ex-month').textContent = `${y}년 ${Number(m)}월`;
+  [['ex-title', d.title], ['ex-applicant', d.applicant], ['ex-card', d.card_no]].forEach(([id, v]) => { if(document.activeElement !== $(id)) $(id).value = v; });
+  const item = (label, val, sub, cls) => `<div class="wr-sum-i ${cls}"><span>${label}${sub ? `<em>${sub}</em>` : ''}</span><b>${val}</b></div>`;
+  $('ex-summary').innerHTML = item('지출', `${d.items.length}건`, `최대 ${d.max_rows}줄`, d.items.length ? '' : 'zero')
+    + item('법인카드', `${_won(d.card_total)}원`, '', d.card_total ? 'sm' : 'zero sm')
+    + item('현금(개인카드)', `${_won(d.cash_total)}원`, '', d.cash_total ? 'sm' : 'zero sm')
+    + item('총계', `${_won(d.total)}원`, '', 'total');
+  $('ex-box-title').textContent = `${Number(m)}월 지출 내역`;
+  $('ex-sub').innerHTML = (d.items.length ? '칸을 고치면 바로 저장됩니다 · 날짜순으로 정렬됩니다' : '')
+    + (d.has_template ? '' : ' <span class="doc-warn">양식 파일이 서버에 없어 엑셀을 내려받을 수 없습니다</span>');
+  $('ex-list').innerHTML = !d.items.length ? `<div class="empty doc-empty">${Number(m)}월 지출 내역이 없습니다.<br><b>+ 지출 추가</b>를 눌러 주세요.</div>`
+    : `<table class="wr-tbl doc-tbl car-tbl"><colgroup><col style="width:150px"><col style="width:22%"><col style="width:15%"><col style="width:120px"><col style="width:120px"><col><col style="width:50px"></colgroup>
+      <thead><tr><th>날짜</th><th>거래처</th><th>지출내용</th><th class="r">법인카드</th><th class="r">현금(개인카드)</th><th>비고</th><th></th></tr></thead><tbody>${d.items.map(t => `
+      <tr>
+        <td><input type="date" value="${esc(t.spend_date)}" min="${d.month}-01" max="${d.month}-31" onchange="exEdit('${t.id}', 'spend_date', this.value)"></td>
+        <td><input type="text" value="${esc(t.vendor)}" placeholder="가게 이름" onchange="exEdit('${t.id}', 'vendor', this.value)"></td>
+        <td><input type="text" value="${esc(t.content)}" list="ex-contents" placeholder="식대 외 2명" onchange="exEdit('${t.id}', 'content', this.value)"></td>
+        <td><input type="number" class="r" min="0" step="100" value="${t.card_amount || ''}" onchange="exEdit('${t.id}', 'card_amount', this.value)"></td>
+        <td><input type="number" class="r" min="0" step="100" value="${t.cash_amount || ''}" onchange="exEdit('${t.id}', 'cash_amount', this.value)"></td>
+        <td><input type="text" value="${esc(t.note)}" placeholder="작업 사이트 · 함께한 사람" onchange="exEdit('${t.id}', 'note', this.value)"></td>
+        <td class="c"><button class="icon-btn del" title="이 줄 삭제" onclick="exDel('${t.id}')">${ICO_DEL}</button></td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr class="ex-foot"><td colspan="3" style="text-align:right">합계</td><td class="r">${_won(d.card_total)}</td><td class="r">${_won(d.cash_total)}</td><td colspan="2">총계 <b>${_won(d.total)}</b>원</td></tr></tfoot></table>`;
+}
+async function _exCall(method, url, body){
+  try { _exData = await _apiSend(method, url, body); drawExpenses(); return true; }
+  catch(e) { toast('저장 실패: ' + e.message); renderExpenses(); return false; }
+}
+function exSaveHeader(){
+  _exCall('PUT', `${_exBase()}/header`, {month: _exYM, title: $('ex-title').value, applicant: $('ex-applicant').value, card_no: $('ex-card').value})
+    .then(ok => ok && toast('저장됨'));
+}
+async function exAdd(){
+  if(await _exCall('POST', `${_exBase()}/items`, {month: _exYM})){
+    const rows = $('ex-list').querySelectorAll('tbody tr');
+    const last = [...rows].find(tr => !tr.querySelector('input[type=text]').value) || rows[rows.length - 1];
+    if(last) last.querySelector('input[type=text]').focus();
+  }
+}
+function exEdit(id, field, value){
+  const v = (field === 'card_amount' || field === 'cash_amount') ? Math.max(0, Math.round(Number(value) || 0)) : value;
+  _exCall('PATCH', `${_exBase()}/items/${id}`, {[field]: v});
+}
+function exDel(id){
+  if(!confirm('이 지출 줄을 삭제할까요?')) return;
+  _exCall('DELETE', `${_exBase()}/items/${id}`);
+}
+function exDownload(){
+  if(_exData && !_exData.has_template){ toast('양식 파일이 서버에 없습니다'); return; }
+  // 고치던 칸이 있으면 먼저 저장되도록 포커스를 뺀 뒤 내려받는다
+  if(document.activeElement) document.activeElement.blur();
+  setTimeout(() => { location.href = `${_exBase()}/download?month=${_exYM}`; }, 300);
 }

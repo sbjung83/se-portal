@@ -87,6 +87,7 @@ function startSSH(){
     if(m.t === 'ready'){ ready = true; setState('연결됨', 'ok'); send({t: 'r', c: term.cols, r: term.rows}); }
     else if(m.t === 'error'){ failed = true; setState('접속 실패', 'bad'); showMsg('접속하지 못했습니다', m.msg); }
     else if(m.t === 'closed'){ failed = true; setState('종료됨', 'bad'); term.write('\r\n\x1b[33m[접속이 종료되었습니다]\x1b[0m\r\n'); }
+    else if(m.t === 'kicked'){ failed = true; setState('종료됨', 'bad'); term.write('\r\n\x1b[33m[' + m.msg + ']\x1b[0m\r\n'); showMsg('접속을 종료했습니다', m.msg); }
   };
   sock.onclose = () => {
     if(failed) return;
@@ -121,7 +122,8 @@ function startRDP(){
   };
   display.onresize = rescale;
   let failed = false;
-  client.onerror = st => { failed = true; setState('접속 실패', 'bad'); showMsg('접속하지 못했습니다', rdpError(st)); };
+  client.onerror = st => { failed = true; setState(st && st.code === 522 ? '종료됨' : '접속 실패', 'bad');
+    showMsg(st && st.code === 522 && /[가-힣]/.test(st.message || '') ? '접속을 종료했습니다' : '접속하지 못했습니다', rdpError(st)); };
   client.onstatechange = s => {
     if(s === 3){ setState('연결됨', 'ok'); hideMsg(); }
     else if(s === 5 && !failed){ setState('끊김', 'bad'); showMsg('연결이 끊겼습니다', '원격 서버에서 로그아웃했거나 연결이 종료되었습니다.'); }

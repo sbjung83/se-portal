@@ -7,12 +7,16 @@
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import secure_store
-from database import LabAccessLog, LabAccount, LabConn, LabServer, get_db
+from database import Engineer, LabAccessLog, LabAccount, LabConn, LabServer, get_db
+from routers.auth import require_admin
+from routers.remote import blocked_target
 
 router = APIRouter(prefix="/api/engineers/{eng_id}/lab", tags=["lab"])
 
@@ -106,6 +110,9 @@ def _apply(s: LabServer, data: ServerIn):
             raise HTTPException(status_code=400, detail="웹 접속 주소는 http:// 또는 https:// 로 시작해야 합니다")
         if c.kind != "웹" and (" " in host or "/" in host):
             raise HTTPException(status_code=400, detail=f"{c.kind} 접속 주소에는 IP 또는 호스트 이름만 적어주세요")
+        why = blocked_target(host, resolve=False) if c.kind != "웹" else None
+        if why:
+            raise HTTPException(status_code=400, detail=why)
         if c.port is not None and not (1 <= c.port <= 65535):
             raise HTTPException(status_code=400, detail="포트는 1~65535 사이여야 합니다")
         conn = old_c.get(c.id) if c.id else None
@@ -137,12 +144,28 @@ def create_server(eng_id: str, data: ServerIn, db: Session = Depends(get_db)):
     return _server_dict(s)
 
 
+def _log_dict(r: LabAccessLog, names: dict = None):
+    d = {"id": r.id, "server_name": r.server_name, "kind": r.kind, "target": r.target, "username": r.username,
+         "client_ip": r.client_ip, "started_at": r.started_at, "ended_at": r.ended_at, "result": r.result}
+    if names is not None:
+        d["engineer"] = names.get(r.engineer_id, "")
+    return d
+
+
 @router.get("/logs")
 def list_logs(eng_id: str, db: Session = Depends(get_db)):
+    """내 접속·비밀번호 보기 기록 최근 100건."""
     rows = (db.query(LabAccessLog).filter(LabAccessLog.engineer_id == eng_id)
-            .order_by(LabAccessLog.started_at.desc()).limit(50).all())
-    return [{"id": r.id, "server_name": r.server_name, "kind": r.kind, "target": r.target, "username": r.username,
-             "client_ip": r.client_ip, "started_at": r.started_at, "ended_at": r.ended_at, "result": r.result} for r in rows]
+            .order_by(LabAccessLog.started_at.desc()).limit(100).all())
+    return [_log_dict(r) for r in rows]
+
+
+@router.get("/logs/all")
+def list_all_logs(eng_id: str, admin=Depends(require_admin), db: Session = Depends(get_db)):
+    """관리자 전용: 모든 엔지니어의 기록 최근 300건."""
+    names = {e.id: e.name for e in db.query(Engineer).all()}
+    rows = db.query(LabAccessLog).order_by(LabAccessLog.started_at.desc()).limit(300).all()
+    return [_log_dict(r, names) for r in rows]
 
 
 @router.put("/{srv_id}")
@@ -161,11 +184,19 @@ def delete_server(eng_id: str, srv_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/accounts/{acc_id}/password")
-def get_password(eng_id: str, acc_id: str, db: Session = Depends(get_db)):
+def get_password(eng_id: str, acc_id: str, request: Request, db: Session = Depends(get_db)):
+    """비밀번호 보기·복사. 볼 때마다 접속 기록(lab_access_logs)에 '비밀번호 보기'로 남긴다."""
     acc = (db.query(LabAccount).join(LabServer)
            .filter(LabAccount.id == acc_id, LabServer.engineer_id == eng_id).first())
     if not acc:
         raise HTTPException(status_code=404, detail="계정을 찾을 수 없습니다")
+    ip = request.headers.get("x-real-ip") or (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \
+        or (request.client.host if request.client else "")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    db.add(LabAccessLog(id=str(uuid.uuid4()), engineer_id=eng_id, server_name=acc.server.name, kind="비밀번호 보기",
+                        target=acc.label or "", username=acc.username or "", client_ip=ip,
+                        started_at=now, ended_at=now, result="조회"))
+    db.commit()
     try:
         return {"password": secure_store.decrypt(acc.password)}
     except ValueError:

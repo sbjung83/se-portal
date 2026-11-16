@@ -33,6 +33,8 @@ class ProfileIn(BaseModel):
     car_model: str = ""
     car_no: str = ""
     start_place: str = "회사"
+    driver_name: str = ""      # 비우면 로그인 이름
+    biz_no: str = ""
 
 
 class MonthIn(BaseModel):
@@ -50,6 +52,7 @@ class TripIn(BaseModel):
 
 class TripUpdate(BaseModel):
     trip_date: Optional[str] = None
+    driver: Optional[str] = None            # 이 줄만 다른 성명 ("" = 기본 성명)
     start_place: Optional[str] = None
     purpose: Optional[str] = None
     km: Optional[int] = None
@@ -150,11 +153,13 @@ def _state(eng_id: str, ym: str, db: Session, imported: int = 0) -> dict:
         e = cur + km if s is not None else None
         if e is not None:
             cur = e
-        rows.append({"id": t.id, "trip_date": t.trip_date, "start_place": t.start_place, "purpose": t.purpose,
+        rows.append({"id": t.id, "trip_date": t.trip_date, "driver": t.driver or "", "start_place": t.start_place, "purpose": t.purpose,
                      "km": km, "note": t.note, "from_schedule": bool(t.src), "start_km": s, "end_km": e})
     total = sum(r["km"] for r in rows)
-    return {"month": ym, "name": eng.name if eng else "",
-            "profile": {"car_model": p.car_model, "car_no": p.car_no, "start_place": p.start_place or "회사"},
+    login_name = eng.name if eng else ""
+    return {"month": ym, "name": (p.driver_name or "").strip() or login_name, "login_name": login_name,
+            "profile": {"car_model": p.car_model, "car_no": p.car_no, "start_place": p.start_place or "회사",
+                        "driver_name": p.driver_name or "", "biz_no": p.biz_no or ""},
             "start_km": start, "start_km_is_carried": m.start_km is None and prev_end is not None,
             "end_km": (start + total) if start is not None else None, "total_km": total,
             "empty_count": sum(1 for r in rows if not r["km"]), "imported": imported,
@@ -185,6 +190,7 @@ def set_profile(eng_id: str, data: ProfileIn, db: Session = Depends(get_db)):
     p = _profile(eng_id, db)
     p.car_model, p.car_no = data.car_model.strip()[:40], data.car_no.strip()[:30]
     p.start_place = data.start_place.strip()[:40] or "회사"
+    p.driver_name, p.biz_no = data.driver_name.strip()[:30], data.biz_no.strip()[:30]
     db.commit()
     return {"ok": True}
 
@@ -205,6 +211,7 @@ def _check_trip(t: CarTrip):
     t.start_place = (t.start_place or "").strip()[:40]
     t.purpose = (t.purpose or "").strip()[:80]
     t.note = (t.note or "").strip()[:100]
+    t.driver = (t.driver or "").strip()[:30]
     if t.km is None or not (0 <= t.km <= 5000):
         raise HTTPException(400, detail="운행 거리는 0~5000km 사이로 넣어주세요")
 
@@ -302,14 +309,15 @@ def download(eng_id: str, month: Optional[str] = None, db: Session = Depends(get
     except Exception:
         raise HTTPException(400, detail="운행 일지 양식을 읽지 못했습니다")
     year, mon = ym.split("-")
-    edits = {f"{sheet}!E5": f"{mon}월 차 량 운 행 일 지", f"{sheet}!A8": st["profile"]["car_model"], f"{sheet}!D8": st["profile"]["car_no"]}
+    edits = {f"{sheet}!E5": f"{mon}월 차 량 운 행 일 지", f"{sheet}!A8": st["profile"]["car_model"], f"{sheet}!D8": st["profile"]["car_no"],
+             f"{sheet}!E3": st["profile"]["biz_no"]}
     clear_to = max(FIRST_ROW + len(st["trips"]), 40)      # 양식에 예시로 적혀 있던 줄을 지운다
     for row in range(FIRST_ROW, clear_to + 1):
         for col in "ABCDEFGHI":
             edits[f"{sheet}!{col}{row}"] = ""              # 수식이 든 칸(F35~)은 doc_fill 이 그대로 둔다
     for i, t in enumerate(st["trips"]):
         row, d = FIRST_ROW + i, t["trip_date"]
-        vals = {"A": str(int(d[:4])), "B": str(int(d[5:7])), "C": str(int(d[8:10])), "D": st["name"], "E": t["start_place"],
+        vals = {"A": str(int(d[:4])), "B": str(int(d[5:7])), "C": str(int(d[8:10])), "D": t["driver"] or st["name"], "E": t["start_place"],
                 "F": "" if t["start_km"] is None else str(t["start_km"]), "G": t["purpose"],
                 "H": "" if t["end_km"] is None else str(t["end_km"]), "I": t["note"]}
         for col, v in vals.items():
