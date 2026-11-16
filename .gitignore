@@ -32,3 +32,6 @@ uploads/
 .vscode/
 *.sublime-project
 *.sublime-workspace
+
+# 회사 문서 양식 (실명 포함)
+data/doc_templates/

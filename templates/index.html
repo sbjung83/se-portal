@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=46">
+<link rel="stylesheet" href="/static/css/style.css?v=52">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -39,6 +39,11 @@
       <div class="form-row"><label>아이디</label><input type="text" id="reg-user" placeholder="영문/숫자 조합"></div>
       <div class="form-row"><label>비밀번호</label><input type="password" id="reg-pw" placeholder="8자 이상" autocomplete="new-password"></div>
       <div class="form-row"><label>엔지니어 이름</label><input type="text" id="reg-eng" placeholder="본인 이름 (폴더명으로 사용)"></div>
+      <div class="grid2">
+        <div class="form-row"><label>부서</label><input type="text" id="reg-dept" placeholder="예: 기술지원팀"></div>
+        <div class="form-row"><label>직급</label><input type="text" id="reg-position" placeholder="예: 과장"></div>
+      </div>
+      <div class="form-row"><label>이메일</label><input type="email" id="reg-email" placeholder="예: name@company.com" autocomplete="email"></div>
       <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:4px" onclick="doRegister()">가입하기</button>
       <div class="auth-err" id="reg-err"></div>
     </div>
@@ -120,6 +125,9 @@
       <div class="nav-group-label">지식 창고</div>
       <div class="nav-item" data-page="technotes">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>기술 노트
+      </div>
+      <div class="nav-item" data-page="docs">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="13" y2="17"></line></svg>문서 양식
       </div>
     </div>
     <!-- 시스템 관리 그룹 -->
@@ -307,7 +315,7 @@
         <div class="sm-panel-head">
           <span class="sm-panel-title" id="wp-panel-title"></span>
           <div class="svh-tabs" id="wp-types"></div>
-          <select id="wp-site" class="filter-select" onchange="drawWorkPlans()"><option value="">전체 사이트</option></select>
+          <select id="wp-site-filter" class="filter-select" onchange="drawWorkPlans()"><option value="">전체 사이트</option></select>
           <input type="text" id="wp-search" class="pj-search" placeholder="제목 · 작업자 · 내용 검색">
           <span style="flex:1"></span>
           <span id="wp-panel-info" class="sm-panel-info"></span>
@@ -443,6 +451,68 @@
       </div>
       <div class="search-bar"><input type="text" id="lab-q" placeholder="이름 · IP · 계정 · OS · 메모 검색" oninput="drawLab()"></div>
       <div id="lab-content"></div>
+    </div>
+
+    <!-- 문서 양식 (휴가원 · 차량 운행 일지 · 개인 경비) -->
+    <div class="page" id="page-docs">
+      <div class="wr-top">
+        <div class="page-title">문서 양식</div>
+        <div class="svh-tabs" id="doc-tabs">
+          <button class="svh-tab active" data-doc="leave" onclick="docTab('leave')">휴가원</button>
+          <button class="svh-tab" data-doc="car" onclick="docTab('car')">차량 운행 일지</button>
+          <button class="svh-tab" data-doc="expense" onclick="docTab('expense')">개인 경비</button>
+        </div>
+      </div>
+
+      <div id="doc-pane-leave">
+        <div class="wr-top">
+          <div class="wr-nav">
+            <button class="btn btn-sm" onclick="lvMove(-1)" title="이전 해">◀</button>
+            <span id="lv-year" class="lv-year"></span>
+            <button class="btn btn-sm" onclick="lvMove(1)" title="다음 해">▶</button>
+          </div>
+          <span style="flex:1"></span>
+          <button class="btn" onclick="openLeaveProfile()" title="휴가원에 들어가는 부서 · 직위 · 성명">내 정보</button>
+          <button class="btn btn-primary" onclick="openAddLeave()">+ 휴가원 작성</button>
+        </div>
+        <div class="wr-sum" id="lv-summary"></div>
+        <div class="wr-box">
+          <div class="wr-box-head"><span>연차 사용 내역</span><span class="wr-box-sub" id="lv-sub"></span></div>
+          <div id="lv-list"></div>
+        </div>
+      </div>
+      <div id="doc-pane-car" style="display:none">
+        <div class="wr-top">
+          <div class="wr-nav">
+            <button class="btn btn-sm" onclick="carMove(-1)" title="이전 달">◀</button>
+            <span id="car-month" class="lv-year" style="min-width:110px"></span>
+            <button class="btn btn-sm" onclick="carMove(1)" title="다음 달">▶</button>
+          </div>
+          <div class="car-prof">
+            <label>차종 <input type="text" id="car-model" onchange="carSaveProfile()" placeholder="스포티지"></label>
+            <label>차량번호 <input type="text" id="car-no" onchange="carSaveProfile()" placeholder="00가 0000"></label>
+            <label>출발지 <input type="text" id="car-place" onchange="carSaveProfile()" style="width:90px"></label>
+          </div>
+          <span style="flex:1"></span>
+          <button class="btn" onclick="carImport()" title="이 달의 점검 일정 · 기술지원에서 빠진 운행을 가져옵니다">일정에서 가져오기</button>
+          <button class="btn" onclick="carAdd()">+ 운행 추가</button>
+          <button class="btn btn-primary" onclick="carDownload()">엑셀 내려받기</button>
+        </div>
+        <div class="wr-sum" id="car-summary"></div>
+        <div class="car-calc">
+          <b>주행 km 자동 계산</b>
+          <label>이 달 첫 출발 때 km <input type="number" id="car-start" min="0"></label>
+          <label>마지막 도착 때 km <input type="number" id="car-end" min="0"></label>
+          <label class="car-keep"><input type="checkbox" id="car-keep"> 넣어 둔 거리는 그대로 두고 빈 줄만 채우기</label>
+          <button class="btn btn-sm btn-primary" onclick="carDistribute()">자동 계산</button>
+          <span class="doc-hint" style="margin:0">두 값만 넣으면 그 사이 거리를 거래처별 평소 거리 비율로 나눠 줄마다 채웁니다. 거리는 줄에서 직접 고칠 수 있습니다.</span>
+        </div>
+        <div class="wr-box">
+          <div class="wr-box-head"><span id="car-title">운행 내역</span><span class="wr-box-sub" id="car-sub"></span></div>
+          <div id="car-list"></div>
+        </div>
+      </div>
+      <div id="doc-pane-expense" style="display:none"><div class="wr-box"><div class="empty doc-empty">개인 경비는 준비 중입니다.</div></div></div>
     </div>
 
     <!-- GOOGLE CALENDAR -->
@@ -646,6 +716,43 @@
   </div>
 </div>
 
+<!-- 휴가원 작성 · 수정 -->
+<div class="overlay" id="modal-leave">
+  <div class="modal" style="width:min(500px,93vw)">
+    <div class="modal-head"><div class="modal-title" id="lv-modal-title">휴가원 작성</div><button class="btn btn-sm" onclick="closeModal('modal-leave')">✕</button></div>
+    <input type="hidden" id="lv-id">
+    <div class="grid2">
+      <div class="form-row"><label>휴가의 종류 *</label><select id="lv-type"></select></div>
+      <div class="form-row"><label>신청일</label><input type="date" id="lv-apply"></div>
+    </div>
+    <div class="grid2">
+      <div class="form-row"><label>기간 — 시작일 *</label><input type="date" id="lv-start" onchange="lvAutoDays()"></div>
+      <div class="form-row"><label>기간 — 종료일</label><input type="date" id="lv-end" onchange="lvAutoDays()"></div>
+    </div>
+    <div class="form-row"><label>일수 (평일 수로 자동 계산 · 반일은 0.5 · 공휴일이 끼면 직접 고치세요)</label><input type="number" id="lv-days" step="0.5" min="0.5"></div>
+    <div class="form-row"><label>사유</label><textarea id="lv-reason" style="min-height:60px" placeholder="개인 사정"></textarea></div>
+    <div class="doc-hint" id="lv-modal-hint"></div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-leave')">취소</button>
+      <button class="btn btn-primary" onclick="saveLeave()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 휴가원: 내 정보 -->
+<div class="overlay" id="modal-leave-profile">
+  <div class="modal" style="width:min(420px,93vw)">
+    <div class="modal-head"><div class="modal-title">휴가원에 들어가는 내 정보</div><button class="btn btn-sm" onclick="closeModal('modal-leave-profile')">✕</button></div>
+    <div class="form-row"><label>부서 (비우면 양식에 적힌 그대로)</label><input type="text" id="lp-dept"></div>
+    <div class="form-row"><label>직위 (비우면 양식에 적힌 그대로)</label><input type="text" id="lp-position"></div>
+    <div class="form-row"><label>성명 (비우면 로그인 이름)</label><input type="text" id="lp-name"></div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-leave-profile')">취소</button>
+      <button class="btn btn-primary" onclick="saveLeaveProfile()">저장</button>
+    </div>
+  </div>
+</div>
+
 <!-- 특이사항 추가 -->
 <div class="overlay" id="modal-add-note">
   <div class="modal">
@@ -804,45 +911,6 @@
   </div>
 </div>
 
-<!-- 장애처리 등록/수정 -->
-<div class="overlay" id="modal-add-incident">
-  <div class="modal modal-lg">
-    <div class="modal-head"><div class="modal-title" id="inc-modal-title">장애 등록</div><button class="btn btn-sm" onclick="closeModal('modal-add-incident')">✕</button></div>
-    <input type="hidden" id="inc-id">
-
-    <div class="form-section">
-      <div class="form-section-title">1. 기본 정보</div>
-      <div class="form-row"><label>장애명 *</label><input type="text" id="inc-title" placeholder="예: DB 서버 디스크 장애로 서비스 지연"></div>
-      <div class="grid2">
-        <div class="form-row"><label>사이트</label><select id="inc-site"></select></div>
-        <div class="form-row"><label>장애 장비/시스템</label><input type="text" id="inc-device" placeholder="예: DB01 (Dell R750)"></div>
-      </div>
-      <div class="grid2">
-        <div class="form-row"><label>발생 일시 *</label><input type="datetime-local" id="inc-occurred"></div>
-        <div class="form-row"><label>복구 일시</label><input type="datetime-local" id="inc-recovered"></div>
-      </div>
-      <div class="grid2">
-        <div class="form-row"><label>심각도</label><select id="inc-severity"><option>긴급</option><option>높음</option><option selected>보통</option><option>낮음</option></select></div>
-        <div class="form-row"><label>상태</label><select id="inc-status"><option>접수</option><option>처리중</option><option>완료</option></select></div>
-      </div>
-      <div class="form-row"><label>처리자</label><input type="text" id="inc-worker" placeholder="예: 홍길동"></div>
-    </div>
-
-    <div class="form-section">
-      <div class="form-section-title">2. 장애 내용</div>
-      <div class="form-row"><label>장애 증상</label><textarea id="inc-symptom" style="min-height:70px" placeholder="장애 현상, 영향 범위, 인지 경로 등을 기재합니다."></textarea></div>
-      <div class="form-row"><label>원인</label><textarea id="inc-cause" style="min-height:70px" placeholder="확인된 장애 원인을 기재합니다."></textarea></div>
-      <div class="form-row"><label>조치 내용</label><textarea id="inc-action" style="min-height:90px" placeholder="복구를 위해 수행한 조치를 순서대로 기재합니다."></textarea></div>
-      <div class="form-row"><label>재발 방지 대책</label><textarea id="inc-prevention" style="min-height:60px" placeholder="재발 방지를 위한 후속 조치를 기재합니다."></textarea></div>
-    </div>
-
-    <div class="form-actions">
-      <button class="btn" onclick="closeModal('modal-add-incident')">취소</button>
-      <button class="btn btn-primary" onclick="saveIncident()">저장</button>
-    </div>
-  </div>
-</div>
-
 <!-- 점검 일정 · 기술지원 공통 입력 창 (routers/entries.py) -->
 <div class="overlay" id="modal-add-workplan">
   <div class="modal modal-lg">
@@ -855,6 +923,7 @@
         <div class="en-types" id="wp-types">
           <label class="en-type"><input type="checkbox" value="점검" onchange="entryTypesChanged()"><span>점검</span></label>
           <label class="en-type"><input type="checkbox" value="기술지원" onchange="entryTypesChanged()"><span>기술지원</span></label>
+          <label class="en-type en-type-inc"><input type="checkbox" value="장애처리" onchange="entryTypesChanged()"><span>장애처리</span></label>
           <label class="en-type"><input type="checkbox" value="납품" onchange="entryTypesChanged()"><span>납품</span></label>
           <label class="en-type"><input type="checkbox" value="유선원격" onchange="entryTypesChanged()"><span>유선원격</span></label>
           <label class="en-type"><input type="checkbox" value="이전" onchange="entryTypesChanged()"><span>이전</span></label>
@@ -862,25 +931,30 @@
         </div>
       </div>
       <div class="grid2">
-        <div class="form-row"><label>사이트 <span id="wp-site-req">*</span></label><select id="wp-site"></select></div>
+        <div class="form-row"><label>사이트 <span id="wp-site-req">*</span></label><select id="wp-site" onchange="entrySiteChanged()"></select>
+          <input type="text" id="wp-site-manual" style="display:none;margin-top:6px" placeholder="고객사 / 사이트 이름을 직접 입력 (예: 다른 엔지니어 담당 사이트)"></div>
         <div class="form-row"><label>제목 *</label><input type="text" id="wp-title" placeholder="예: PM, vCenter 통합 작업"></div>
       </div>
       <div class="grid3">
-        <div class="form-row"><label>날짜 *</label><input type="date" id="wp-day"></div>
-        <div class="form-row"><label>시간 <span class="en-hint">선택</span></label><input type="time" id="wp-time"></div>
-        <div class="form-row"><label>상태</label><select id="wp-status"><option>예정</option><option>완료</option></select></div>
+        <div class="form-row"><label>날짜 *</label><input type="date" id="wp-day" onchange="entrySyncOccurred()"></div>
+        <div class="form-row"><label>시간 <span class="en-hint">선택</span></label><input type="time" id="wp-time" onchange="entrySyncOccurred()"></div>
+        <div class="form-row" id="wp-status-row"><label>상태</label><select id="wp-status"><option>예정</option><option>완료</option></select></div>
       </div>
       <div class="grid3">
         <div class="form-row"><label>작업자</label><input type="text" id="wp-worker" placeholder="예: 홍길동, 이순신"></div>
-        <div class="form-row"><label>결재자/공유자</label><input type="text" id="wp-reviewer" placeholder="예: 김팀장"></div>
+        <div class="form-row" id="wp-reviewer-row"><label>결재자/공유자</label><input type="text" id="wp-reviewer" placeholder="예: 김팀장"></div>
         <div class="form-row" id="wp-sched-type-row"><label>점검 유형</label><select id="wp-sched-type"><option>월간</option><option>분기</option><option>특별</option></select></div>
       </div>
-      <div class="form-row" style="margin-bottom:0"><label>작업 내용 / 메모 <span class="en-hint">구글 캘린더의 설명이 들어오는 칸</span></label><textarea id="wp-purpose" style="min-height:64px" placeholder="무슨 작업을 하는지 적습니다. 여러 줄이면 줄마다 한 항목으로 봅니다."></textarea></div>
+      <div class="form-row" id="wp-purpose-row" style="margin-bottom:0"><label>작업 내용 / 메모 <span class="en-hint">구글 캘린더의 설명이 들어오는 칸</span></label><textarea id="wp-purpose" style="min-height:64px" placeholder="무슨 작업을 하는지 적습니다. 여러 줄이면 줄마다 한 항목으로 봅니다."></textarea></div>
     </div>
 
-    <details class="en-plan" id="wp-plan" ontoggle="this.querySelectorAll('.mop-grid textarea').forEach(mopGrow)">
-      <summary>세부 작업계획 <span class="en-hint">영향도 · 사전 준비 · 상세 절차(MOP) · 확인사항 · 비상 계획 — 필요할 때만 작성</span></summary>
-      <div class="en-plan-body">
+    <div class="en-plan" id="wp-plan">
+      <div class="en-tabs">
+        <button type="button" class="en-tab" id="wp-tab-plan" onclick="entryTab('plan')">세부 작업계획<i class="en-dot" title="작성된 내용 있음"></i></button>
+        <button type="button" class="en-tab en-tab-inc" id="wp-tab-report" onclick="entryTab('report')">장애처리 보고서<i class="en-dot" title="작성된 내용 있음"></i></button>
+        <span class="en-hint" id="wp-tab-hint"></span>
+      </div>
+      <div class="en-plan-body" id="wp-pane-plan" style="display:none">
         <div class="grid2">
           <div class="form-row"><label>작업 영향도</label>
             <select id="wp-impact">
@@ -898,7 +972,25 @@
         <div class="form-row"><label>작업 후 확인사항</label><textarea id="wp-verification" style="min-height:60px" placeholder="작업 완료 후 정상 상태를 확인하기 위한 절차를 기재합니다."></textarea></div>
         <div class="form-row" style="margin-bottom:0"><label>비상 계획 (Rollback Plan)</label><textarea id="wp-rollback" style="min-height:60px" placeholder="문제 발생 시 작업을 원복하기 위한 절차를 기재합니다."></textarea></div>
       </div>
-    </details>
+      <div class="en-plan-body" id="wp-pane-report" style="display:none">
+        <div class="grid2">
+          <div class="form-row" id="inc-title-row"><label>장애명 <span class="en-hint">비우면 위의 제목과 같게 저장</span></label><input type="text" id="inc-title" placeholder="예: DB 서버 디스크 장애로 서비스 지연"></div>
+          <div class="form-row"><label>장애 장비/시스템</label><input type="text" id="inc-device" placeholder="예: DB01 (Dell R750)"></div>
+        </div>
+        <div class="grid2">
+          <div class="form-row"><label>발생 일시 <span class="en-hint">비우면 위의 날짜·시간</span></label><input type="datetime-local" id="inc-occurred" onchange="_entryOccAuto = !this.value"></div>
+          <div class="form-row"><label>복구 일시</label><input type="datetime-local" id="inc-recovered"></div>
+        </div>
+        <div class="grid2">
+          <div class="form-row"><label>장애 등급</label><select id="inc-severity"><option>긴급</option><option>높음</option><option selected>보통</option><option>낮음</option></select></div>
+          <div class="form-row"><label>처리 상태</label><select id="inc-status"><option>접수</option><option>처리중</option><option>완료</option></select></div>
+        </div>
+        <div class="form-row"><label>장애 증상</label><textarea id="inc-symptom" style="min-height:70px" placeholder="장애 현상, 영향 범위, 인지 경로 등을 기재합니다."></textarea></div>
+        <div class="form-row"><label>원인</label><textarea id="inc-cause" style="min-height:70px" placeholder="확인된 장애 원인을 기재합니다."></textarea></div>
+        <div class="form-row"><label>조치 내용</label><textarea id="inc-action" style="min-height:90px" placeholder="복구를 위해 수행한 조치를 순서대로 기재합니다."></textarea></div>
+        <div class="form-row" style="margin-bottom:0"><label>재발 방지 대책</label><textarea id="inc-prevention" style="min-height:60px" placeholder="재발 방지를 위한 후속 조치를 기재합니다."></textarea></div>
+      </div>
+    </div>
 
     <div class="form-actions">
       <button class="btn" onclick="closeModal('modal-add-workplan')">취소</button>
@@ -989,6 +1081,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=76"></script>
+<script src="/static/js/app.js?v=85"></script>
 </body>
 </html>

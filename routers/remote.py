@@ -31,6 +31,8 @@ GUACD_HOST = os.environ.get("GUACD_HOST", "127.0.0.1")
 GUACD_PORT = int(os.environ.get("GUACD_PORT", "4822"))
 CONNECT_TIMEOUT = 10      # 포트 응답 대기(초)
 LOGIN_TIMEOUT = 60        # SSH 로그인 완료까지(초)
+PASTE_CHUNK = 256          # 붙여넣기를 나눠 보내는 크기(바이트)
+PASTE_GAP = 0.02           # 나눠 보내는 사이 간격(초) — 약 12KB/초
 DEFAULT_PORT = {"SSH": 22, "RDP": 3389}
 
 # 오래된 장비(네트워크 장비·구형 OS)도 붙도록 기본 알고리즘 뒤에 예전 방식을 덧붙인다.
@@ -169,7 +171,10 @@ async def ssh_ws(ws: WebSocket, conn_id: str, cols: int = 120, rows: int = 32):
                 known_hosts=None, client_keys=None, agent_path=None, config=None,
                 connect_timeout=CONNECT_TIMEOUT, login_timeout=LOGIN_TIMEOUT,
                 keepalive_interval=30, **_LEGACY), CONNECT_TIMEOUT + LOGIN_TIMEOUT + 5)
+            # 브라우저 터미널의 백스페이스는 DEL(0x7f)을 보낸다. AIX 등은 지우기 키 기본값이 ^H 라서
+            # 접속할 때 지우기 키를 DEL 로 맞춰 달라고 함께 요청한다 (PuTTY·OpenSSH 와 같은 방식)
             proc = await conn.create_process(term_type="xterm-256color", term_size=(cols, rows),
+                                             term_modes={asyncssh.PTY_VERASE: 0x7f},
                                              encoding=None, stderr=asyncssh.STDOUT)
         except Exception as e:
             result = "실패: " + _ssh_error(e)
@@ -188,7 +193,13 @@ async def ssh_ws(ws: WebSocket, conn_id: str, cols: int = 120, rows: int = 32):
             while True:
                 m = json.loads(await ws.receive_text())
                 if m.get("t") == "i":
-                    proc.stdin.write(str(m.get("d", "")).encode("utf-8"))
+                    data = str(m.get("d", "")).encode("utf-8")
+                    # 긴 붙여넣기를 한꺼번에 보내면 AIX 등은 터미널 입력 버퍼가 넘쳐 뒷부분을 버린다.
+                    # 조금씩 나눠 사이를 두고 보낸다 (키 입력처럼 짧은 것은 그대로 바로 보냄).
+                    for k in range(0, len(data), PASTE_CHUNK):
+                        if k:
+                            await asyncio.sleep(PASTE_GAP)
+                        proc.stdin.write(data[k:k + PASTE_CHUNK])
                 elif m.get("t") == "r":
                     proc.change_terminal_size(max(20, min(int(m["c"]), 500)), max(5, min(int(m["r"]), 200)))
 

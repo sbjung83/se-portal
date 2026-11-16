@@ -28,7 +28,7 @@ journalctl -u se-portal -f
 app.py               FastAPI 진입점: 라우터 등록, /static 마운트, "/" → templates/index.html
 database.py          SQLAlchemy 엔진/세션(get_db), 전체 ORM 모델, init_db()
 routers/<도메인>.py   도메인별 APIRouter (auth, dashboard, sites, projects, logs,
-                     schedules, issues, site_checklist, technotes, development, incidents, reports, gcal, entries, lab, remote)
+                     schedules, issues, site_checklist, technotes, development, incidents, reports, gcal, entries, lab, remote, leaves, carlog)
 templates/index.html SPA 전체 마크업 (모든 page-* 섹션과 modal-* 오버레이)
 static/js/app.js     프론트 로직 전체 (바닐라 JS, 프레임워크 없음)
 static/css/style.css 공통 스타일
@@ -44,11 +44,14 @@ uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `
 - **기술지원** (`page-work-plan`) = WorkPlan(작업계획서/MOP, 엑셀 다운로드). URL·테이블명은 `workplans` 그대로.
   - 기술지원 화면 등록분은 id `wp-*`. 점검일정 모달이 만드는 작업자/결재자/MOP 보관 레코드는 `id = Schedule.id` 이며
     기술지원 실적(목록·월별 이력·대시보드)에서 제외. `GET /workplans?scope=support(기본)|schedule|all`, 백엔드는 `support_only()` 사용.
-- **점검 일정·기술지원 공통 입력 창** (`modal-add-workplan`, `openEntry`/`saveEntry`) = `routers/entries.py` (`/api/engineers/{eng_id}/entries`).
-  구분 체크박스(점검/기술지원/납품/유선원격/이전/기타, 여러 개 가능). '점검'이 있으면 Schedule(+함께 한 지원은 `Schedule.extra_types`, 작업자·세부 작업계획은 id가 같은 WorkPlan 연동 레코드),
+- **점검 일정·기술지원·장애처리 공통 입력 창** (`modal-add-workplan`, `openEntry`/`saveEntry`) = `routers/entries.py` (`/api/engineers/{eng_id}/entries`).
+  구분 체크박스(점검/기술지원/장애처리/납품/유선원격/이전/기타, 여러 개 가능). '점검'이 있으면 Schedule(+함께 한 지원은 `Schedule.extra_types`, 작업자·세부 작업계획은 id가 같은 WorkPlan 연동 레코드),
   없으면 WorkPlan(`wp-*`). 수정 중 '점검' 체크가 바뀌면 다른 표로 옮김. 주간보고서는 체크한 구분마다 해당 열에 1건.
   `GET /workplans`(scope=support)는 `extra_types`가 있는 점검 일정도 `from_schedule: true`로 함께 돌려준다.
-- **장애처리** (`page-incidents`) = Incident 모델, `routers/incidents.py`.
+  - 구분 **'장애처리'**를 체크하면 창 아래 탭(`세부 작업계획` / `장애처리 보고서`, `entryTab()`)에 보고서 탭이 생기고 Incident 가 함께 저장된다.
+    점검/기술지원과 같이 고르면 `Incident.entry_id` = 그 일정 id, 장애처리만 고르면 Incident 1건만(일정 id = 장애 id, `kind: "incident"`).
+    `GET /entries/{id}`는 장애 id 를 줘도 연결된 일정을 찾아 준다. 체크를 풀고 저장하면 보고서(Incident)는 삭제. 일정만 지우면 장애 기록은 단독으로 남는다.
+- **장애처리** (`page-incidents`) = Incident 모델, `routers/incidents.py`. 등록·수정 창은 따로 없고 공통 입력 창을 쓴다(`openAddIncident`/`openEditIncident` → `openEntry`). 목록·삭제·주간보고서 집계는 `incidents` 표 그대로.
 - **서비스 지원 이력** (`page-service-history`) = 점검·기술지원·장애처리를 월 단위로 합쳐 보는 화면 (프론트에서 조합). 검색어를 넣으면 그 해 전체에서 찾는다. 예전 "점검 이력" 화면과 "점검 일정" 메뉴 그룹은 없앴고(`GET /schedules/history` API 는 남아 있음), **점검 일정**(`page-schedule-mgmt`)은 서비스 지원 그룹 맨 위에 있다.
 - **주간보고서** (`page-weekly-report`) = `routers/reports.py`. 주(월~일) 단위로 점검(완료)·기술지원(작업완료)·장애(발생)를 사이트+일자 1행으로 묶어 양식에 채움.
   양식 열: F 정기점검 / G 장애지원 / H~L 은 WorkPlan.support_type(기술지원/납품/유선원격/이전/기타).
@@ -58,6 +61,12 @@ uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `
   종류·사이트를 못 정하면 '확인 대기'. 의존 패키지: `httpx`, `icalendar`, `recurring-ical-events`.
 - **사내 테스트서버** (`page-lab`, 시스템 메뉴) = `routers/lab.py` (`/api/engineers/{eng_id}/lab`). 서버(`lab_servers`: 분류·이름·OS·주소·메모) 1대에 계정(`lab_accounts`) 여러 개.
   비밀번호는 `secure_store`로 암호화 저장, 목록에는 내려주지 않고 `GET /lab/accounts/{id}/password`로만 돌려준다. 수정(PUT)은 계정 목록 통째로 교체(비밀번호 생략 = 기존 유지). **접속 정보는 DB에만 두고 코드·git에 넣지 말 것.**
+- **문서 양식** (`page-docs`, 지식 창고 메뉴) = 탭 3개: 휴가원 / 차량 운행 일지 / 개인 경비 (개인 경비는 아직 "준비 중"). **양식 파일은 화면에서 올리지 않고 서버의 `data/doc_templates/`에 직접 둔다** (실명이 들어 있어 git 제외).
+  - **휴가원** = `routers/leaves.py` (`/api/engineers/{eng_id}/leaves`). 화면에서 종류·기간·일수·사유·신청일만 받아 `leave_records`에 저장 → 연차 사용 내역 목록 → `GET /{id}/document`가 `data/doc_templates/leave.docx`에 값을 채워 내려준다.
+    채우기는 `build_leave_doc()`: 양식에 적힌 글자(부서·직위·성명·사유 칸, "부터"/"까지"/"일간", `종류( )`)로 자리를 찾으므로 **양식을 바꾸면 이 함수도 확인할 것.** `doc_fill.py`가 워드 XML의 글자만 고쳐 서식을 그대로 둔다(`lxml` 필요).
+    leave_type: 연차/월차/생리휴가/경조휴가/공가/병가/조퇴/결근/대체휴무/기타 (양식의 번호 순). **연차·월차만 연차에서 뺀다.** `leave_quotas` = 연도별 총 연차(없으면 15일), `leave_profiles` = 휴가원에 넣을 부서·직위·성명(비면 양식 그대로, 성명은 로그인 이름). 연도는 기간 시작일 기준. 일수는 평일 수로 자동 계산(공휴일 모름).
+  - **차량 운행 일지** = `routers/carlog.py` (`/api/engineers/{eng_id}/carlog`, 월 단위 `?month=YYYY-MM`). `car_profiles`(차종·차량번호·기본 출발지 — 한 번 넣으면 계속 씀), `car_months`(그 달 첫 출발 km), `car_trips`(운행 1줄: 일자·출발지·운행목적·**거리 km**). 줄의 출발·도착 km 는 저장하지 않고 첫 출발 km 에서 거리를 이어 붙여 계산한다(지난달 마지막 값이 다음 달 첫 값).
+    처음 여는 달은 점검 일정 + 기술지원(`wp-*`, 유선원격만 한 건 제외)을 운행 줄로 자동으로 가져온다(`src`로 중복 방지, `POST /import`로 다시). `POST /distribute {start_km, end_km}`는 그 사이 거리를 거래처별 다른 달 평균 거리 비율로 나눠 채운다(기록이 없으면 균등). `GET /download`는 `data/doc_templates/car_log.xlsx`(운행 줄 11~296행, F35~ 수식은 유지)에 써넣는다.
 - **테스트 서버 원격 접속** = `routers/remote.py` + `templates/remote.html`(새 탭 접속 화면, `/remote?c=<conn_id>&k=ssh|rdp`). 접속 대상은 `lab_conns`(kind 웹/SSH/RDP, `account_id`=쓸 계정) — `routers/lab.py`의 서버 저장(PUT/POST `conns`, 계정은 `account_idx`=같이 보낸 accounts 순번)으로 관리.
   - 웹 = 새 탭으로 주소 열기(포털 경유 아님). SSH = `asyncssh` ↔ WebSocket `/api/remote/{conn_id}/ssh` ↔ xterm.js. RDP = guacd(127.0.0.1:4822) ↔ WebSocket `/api/remote/{conn_id}/rdp`(부프로토콜 `guacamole`) ↔ guacamole-common-js.
   - **WebSocket 은 `require_login` 을 못 쓰므로 `remote.router` 는 `_LOGIN` 없이 등록하고 `_prepare()`가 세션 쿠키·Origin·소유를 직접 확인한다.** 비밀번호는 서버에서만 풀어 쓴다. 접속마다 `lab_access_logs` 기록(`GET /lab/logs`).
@@ -99,9 +108,10 @@ uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `
   - `/api/auth/*` 외 모든 라우터는 `app.py`에서 `dependencies=[Depends(require_login)]`로 등록 — 로그인 필수 + 주소의 `eng_id`가 로그인한 본인이어야 함(아니면 403). **새 라우터도 같은 방식으로 등록할 것.**
   - **관리자:** `users.is_admin`(없으면 `init_db()`의 `_ensure_admin`이 가장 먼저 가입한 계정을 관리자로). `/api/auth/me`·로그인 응답에 `is_admin`. 관리자 전용 API는 `Depends(require_admin)`(현재 `/api/dev/*` 개발 체크리스트), 화면은 `data-admin` 속성이 붙은 메뉴·페이지를 `initApp()`이 숨긴다. 다른 계정을 관리자로 만들려면 DB에서 `UPDATE users SET is_admin=1`.
   - 세션은 마지막 사용 후 30일(`SESSION_DAYS`)에 만료, 사용 중이면 하루 한 번 연장. 만료/미로그인 응답은 401 → 프론트가 로그인 화면으로 전환.
+  - 회원 가입(`POST /api/auth/register`)은 아이디·비밀번호·엔지니어 이름에 더해 **부서·직급·이메일**이 필수(`users.dept/position/email`). 부서·직급은 휴가원용 `leave_profiles`에도 같이 넣어 둔다.
   - 비밀번호는 PBKDF2-SHA256(`hash_pw`/`verify_pw`). 예전 SHA-256 저장분은 로그인 성공 시 자동 교체. 최소 8자.
   - 로그인 5회 연속 실패 시 5분 잠금(메모리 보관, 재시작 시 초기화). 비밀번호 변경은 `POST /api/auth/password`(다른 세션 모두 종료).
-  - `init_db()`의 `_ensure_column`이 `sessions.expires_at` 열을 자동 추가한다.
+  - `init_db()`의 `_ensure_column`이 `sessions.expires_at` 열을 자동 추가한다(`incidents.entry_id` 등 나중에 붙인 열도 같은 방식).
   - 쿠키는 HTTPS 요청이면 `Secure` 로 발급(nginx 의 `X-Forwarded-Proto`).
 - **사이트 접속 비밀번호(Access.password)는 암호화 저장** — `secure_store.encrypt/decrypt`(Fernet, `cryptography`), 저장값은 `enc:v1:` 로 시작.
   키 파일은 `data/secret.key`(appuser 600, git 제외). **키를 잃으면 복구 불가 → DB 백업·이전 시 키 파일도 함께.** `init_db()`가 평문 저장분을 자동 암호화.

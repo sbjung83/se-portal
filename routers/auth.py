@@ -1,6 +1,7 @@
+import re
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, Cookie
 from sqlalchemy.orm import Session
-from database import get_db, User, Engineer, hash_pw, verify_pw, SessionToken
+from database import get_db, User, Engineer, hash_pw, verify_pw, SessionToken, LeaveProfile
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, timedelta
@@ -89,12 +90,20 @@ class RegisterIn(BaseModel):
     username:      str
     password:      str
     engineer_name: str
+    dept:          str = ""
+    position:      str = ""
+    email:         str = ""
 
 @router.post("/register")
 def register(data: RegisterIn, db: Session = Depends(get_db)):
     username, name = data.username.strip(), data.engineer_name.strip()
     if not username or not name:
         raise HTTPException(400, "아이디와 엔지니어 이름을 입력해주세요")
+    dept, position, email = data.dept.strip(), data.position.strip(), data.email.strip()
+    if not dept or not position or not email:
+        raise HTTPException(400, "부서, 직급, 이메일을 입력해주세요")
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise HTTPException(400, "이메일 형식이 올바르지 않습니다")
     _check_new_password(data.password)
     if db.query(User).filter(User.username == username).first():
         raise HTTPException(400, "이미 사용 중인 아이디입니다")
@@ -104,7 +113,9 @@ def register(data: RegisterIn, db: Session = Depends(get_db)):
     uid = str(uuid.uuid4())
     db.add(Engineer(id=eid, name=name))
     db.flush()
-    db.add(User(id=uid, username=username, password=hash_pw(data.password), engineer_id=eid))
+    db.add(User(id=uid, username=username, password=hash_pw(data.password), engineer_id=eid,
+                dept=dept, position=position, email=email))
+    db.add(LeaveProfile(engineer_id=eid, dept=dept, position=position, name=name))   # 휴가원 양식에 그대로 쓴다
     db.commit()
     return {"ok": True, "message": f"'{name}' 계정이 생성되었습니다"}
 

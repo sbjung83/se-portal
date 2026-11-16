@@ -101,4 +101,5 @@ def _inc_dict(i):
         "downtime_min": _downtime_min(i.occurred_at, i.recovered_at),
         "worker": i.worker, "symptom": i.symptom, "cause": i.cause,
         "action": i.action, "prevention": i.prevention, "created_at": i.created_at,
+        "entry_id": i.entry_id or "",      # 점검 일정/기술지원과 함께 등록된 건이면 그 일정의 id
     }

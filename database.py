@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, String, Integer, Boolean, Text, DateTime, ForeignKey
+from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, Text, DateTime, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -49,6 +49,9 @@ class User(Base):
     engineer_id = Column(String, ForeignKey("engineers.id"), nullable=True)  # 1:1 매핑
     created_at  = Column(DateTime, default=datetime.utcnow)
     is_admin    = Column(Boolean, default=False)   # 관리자: 개발 체크리스트 등 관리 메뉴 사용
+    dept        = Column(String, default="")       # 부서 (회원 가입 때 입력)
+    position    = Column(String, default="")       # 직급
+    email       = Column(String, default="")
     engineer    = relationship("Engineer")
 
 # ── 엔지니어 ──────────────────────────────────
@@ -218,6 +221,7 @@ class Incident(Base):
     action       = Column(Text, default="")          # 조치 내용
     prevention   = Column(Text, default="")          # 재발 방지 대책
     created_at   = Column(String, default="")
+    entry_id     = Column(String, default="")        # 함께 등록한 점검 일정/기술지원의 id (routers/entries.py). 비면 장애처리만 한 건
 
 class LabServer(Base):
     """사내 테스트 서버 접속 정보 (routers/lab.py)."""
@@ -271,6 +275,66 @@ class LabAccessLog(Base):
     started_at  = Column(String, default="")       # "YYYY-MM-DD HH:MM:SS" (서버 시각)
     ended_at    = Column(String, default="")
     result      = Column(String, default="")       # 접속 중 / 정상 종료 / 실패: 사유
+
+class LeaveRecord(Base):
+    """휴가 사용 기록 = 휴가원 1장. 연차·월차만 연차에서 뺀다."""
+    __tablename__ = "leave_records"
+    id          = Column(String, primary_key=True)
+    engineer_id = Column(String, nullable=False, index=True)
+    leave_type  = Column(String, default="연차")    # 휴가원 양식의 종류 10가지 (routers/leaves.py LEAVE_TYPES)
+    start_date  = Column(String, default="")       # "YYYY-MM-DD" (연도 집계 기준)
+    end_date    = Column(String, default="")
+    days        = Column(Float, default=1)         # 사용 일수 (반일 0.5)
+    reason      = Column(String, default="")
+    memo        = Column(Text, default="")
+    apply_date  = Column(String, default="")       # 신청일 "YYYY-MM-DD" (휴가원 아래쪽 날짜)
+    created_at  = Column(String, default="")       # "YYYY-MM-DD HH:MM"
+
+class LeaveProfile(Base):
+    """휴가원에 들어가는 내 정보 (엔지니어당 1건). 비어 있는 값은 양식에 적힌 그대로 둔다."""
+    __tablename__ = "leave_profiles"
+    engineer_id = Column(String, primary_key=True)
+    dept        = Column(String, default="")
+    position    = Column(String, default="")
+    name        = Column(String, default="")
+
+class CarProfile(Base):
+    """차량 운행 일지 기본값 (엔지니어당 1건): 한 번 넣으면 다음부터 그대로 쓴다."""
+    __tablename__ = "car_profiles"
+    engineer_id = Column(String, primary_key=True)
+    car_model   = Column(String, default="")
+    car_no      = Column(String, default="")
+    start_place = Column(String, default="회사")
+
+class CarMonth(Base):
+    """운행 일지 한 달: 그 달 첫 출발 때의 계기판 km. 각 운행의 출발·도착 km 는 여기서부터 거리를 이어 붙여 계산한다."""
+    __tablename__ = "car_months"
+    id          = Column(String, primary_key=True)
+    engineer_id = Column(String, nullable=False, index=True)
+    ym          = Column(String, nullable=False)   # "YYYY-MM"
+    start_km    = Column(Integer, nullable=True)
+    imported    = Column(Boolean, default=False)   # 일정을 한 번 자동으로 가져왔는지
+
+class CarTrip(Base):
+    """운행 1건 (운행 일지의 한 줄)."""
+    __tablename__ = "car_trips"
+    id          = Column(String, primary_key=True)
+    engineer_id = Column(String, nullable=False, index=True)
+    trip_date   = Column(String, nullable=False)   # "YYYY-MM-DD"
+    start_place = Column(String, default="회사")
+    purpose     = Column(String, default="")       # 운행목적(거래처명)
+    km          = Column(Integer, default=0)       # 이 운행의 주행 거리
+    note        = Column(String, default="")
+    src         = Column(String, default="")       # 일정에서 가져온 건: "sched:<id>" / "wp:<id>"
+    created_at  = Column(String, default="")       # "YYYY-MM-DD HH:MM:SS" (같은 날 안에서의 순서)
+
+class LeaveQuota(Base):
+    """연도별 총 연차 일수 (없으면 15일로 본다)."""
+    __tablename__ = "leave_quotas"
+    id          = Column(String, primary_key=True)
+    engineer_id = Column(String, nullable=False, index=True)
+    year        = Column(String, nullable=False)   # "YYYY"
+    total_days  = Column(Float, default=15)
 
 class CalendarLink(Base):
     """엔지니어별 구글 캘린더 주소 (routers/gcal.py)"""
@@ -378,7 +442,11 @@ def init_db():
     _ensure_column("calendar_events", "adopted", "BOOLEAN DEFAULT 0")
     _ensure_column("calendar_events", "description", "TEXT DEFAULT ''")
     _ensure_column("schedules", "extra_types", "VARCHAR DEFAULT ''")
+    _ensure_column("leave_records", "apply_date", "VARCHAR DEFAULT ''")
     _ensure_column("users", "is_admin", "BOOLEAN DEFAULT 0")
+    _ensure_column("incidents", "entry_id", "VARCHAR DEFAULT ''")
+    for col in ("dept", "position", "email"):
+        _ensure_column("users", col, "VARCHAR DEFAULT ''")
     _ensure_admin()
     _unify_workplan_status()
     _encrypt_access_passwords()

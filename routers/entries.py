@@ -1,14 +1,17 @@
 """점검 일정과 기술지원을 같은 입력 창으로 다루기 위한 통합 저장 API.
 
-구분(types)은 여러 개 고를 수 있다: 점검 / 기술지원 / 납품 / 유선원격 / 이전 / 기타
+구분(types)은 여러 개 고를 수 있다: 점검 / 기술지원 / 장애처리 / 납품 / 유선원격 / 이전 / 기타
  - '점검'이 들어 있으면 점검 일정(Schedule)으로 저장하고, 함께 고른 지원 구분은 Schedule.extra_types 에 둔다.
    작업자·결재자·세부 작업계획은 id 가 같은 WorkPlan 레코드(연동 레코드)에 보관한다.
  - '점검'이 없으면 기술지원(WorkPlan, id 'wp-…')으로 저장하고 구분은 support_type 에 쉼표로 이어 둔다.
  - 수정하면서 '점검' 체크가 바뀌면 다른 쪽 표로 옮긴다(구글 캘린더 연결도 따라 옮김).
+ - '장애처리'가 들어 있으면 장애처리 보고서(Incident)를 함께 저장한다. 점검/기술지원과 같이 고르면
+   Incident.entry_id 에 그 일정의 id 를 두고, 장애처리만 고르면 Incident 1건만 만든다(entry_id 빈 값, 이때 일정 id = 장애 id).
+   체크를 풀고 저장하면 보고서(Incident)는 지운다.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from database import get_db, Site, Schedule, WorkPlan, CalendarEvent
+from database import get_db, Site, Schedule, WorkPlan, CalendarEvent, Incident
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
@@ -18,7 +21,11 @@ router = APIRouter(prefix="/api/engineers/{eng_id}/entries", tags=["entries"])
 
 CHECK = "점검"
 SUPPORT_TYPES = ("기술지원", "납품", "유선원격", "이전", "기타")
-ALL_TYPES = (CHECK,) + SUPPORT_TYPES
+INCIDENT = "장애처리"
+ALL_TYPES = (CHECK,) + SUPPORT_TYPES + (INCIDENT,)
+INC_SEVERITIES = ("긴급", "높음", "보통", "낮음")
+INC_STATUSES = ("접수", "처리중", "완료")
+INC_TEXT_FIELDS = ("symptom", "cause", "action", "prevention")
 SCHED_TYPES = ("월간", "분기", "특별")
 STATUSES = ("예정", "완료")
 PLAN_FIELDS = ("worker", "reviewer", "impact", "prerequisites", "mop_content", "verification", "rollback_plan")
@@ -47,10 +54,44 @@ class EntryIn(BaseModel):
     mop_content: Optional[str] = ""
     verification: Optional[str] = ""
     rollback_plan: Optional[str] = ""
+    # 장애처리 보고서 ('장애처리'를 체크했을 때만 쓴다)
+    inc_title: Optional[str] = ""         # 장애명 (비우면 제목과 같게)
+    inc_device: Optional[str] = ""
+    inc_severity: Optional[str] = "보통"
+    inc_status: Optional[str] = "접수"
+    inc_occurred_at: Optional[str] = ""   # "YYYY-MM-DDTHH:MM" (비우면 일정의 날짜·시간)
+    inc_recovered_at: Optional[str] = ""
+    symptom: Optional[str] = ""
+    cause: Optional[str] = ""
+    action: Optional[str] = ""
+    prevention: Optional[str] = ""
 
 
 def _sites(db, eng_id):
     return db.query(Site).filter(Site.engineer_id == eng_id).all()
+
+
+def _inc_fields(inc) -> dict:
+    d = {"inc_id": inc.id if inc else "", "inc_title": (inc.title if inc else "") or "",
+         "inc_device": (inc.device if inc else "") or "", "inc_severity": (inc.severity if inc else "") or "보통",
+         "inc_status": (inc.status if inc else "") or "접수", "inc_occurred_at": (inc.occurred_at if inc else "") or "",
+         "inc_recovered_at": (inc.recovered_at if inc else "") or ""}
+    for f in INC_TEXT_FIELDS:
+        d[f] = (getattr(inc, f) if inc else "") or ""
+    return d
+
+
+def _from_incident(i: Incident, sites):
+    """장애처리만 한 건 — 제목·날짜·사이트·작업자를 장애 기록에서 가져온다."""
+    site = next((s for s in sites if s.name == (i.site or "")), None)
+    occ = i.occurred_at or ""
+    d = {"id": i.id, "kind": "incident", "types": [INCIDENT], "title": i.title, "day": occ[:10], "time": occ[11:16],
+         "site_id": site.id if site else "", "site_name": i.site or "", "sched_type": "월간", "status": "예정",
+         "memo": "", "has_plan": False, "worker": i.worker or ""}
+    for f in PLAN_FIELDS:
+        d.setdefault(f, "")
+    d.update(_inc_fields(i))
+    return d
 
 
 def _from_schedule(s: Schedule, plan, site_names: dict):
@@ -76,26 +117,47 @@ def _from_workplan(p: WorkPlan, sites):
 
 
 def _find(db, eng_id, entry_id):
-    sch = db.query(Schedule).filter(Schedule.id == entry_id, Schedule.engineer_id == eng_id).first()
-    plan = db.query(WorkPlan).filter(WorkPlan.id == entry_id, WorkPlan.engineer_id == eng_id).first()
-    return sch, plan
+    """(점검 일정, 기술지원/연동 레코드, 장애 기록). entry_id 는 일정 id 또는 장애 id.
+    일정과 함께 등록된 장애의 id 를 주면 그 일정을 찾아 준다."""
+    def base(i):
+        sch = db.query(Schedule).filter(Schedule.id == i, Schedule.engineer_id == eng_id).first()
+        plan = db.query(WorkPlan).filter(WorkPlan.id == i, WorkPlan.engineer_id == eng_id).first()
+        if plan is not None and sch is None and not plan.id.startswith("wp-"):
+            plan = None                                   # 일정이 지워지고 남은 연동 레코드
+        return sch, plan
+    sch, plan = base(entry_id)
+    if sch or plan:
+        inc = db.query(Incident).filter(Incident.engineer_id == eng_id, Incident.entry_id == entry_id) \
+                .order_by(Incident.occurred_at).first()
+        return sch, plan, inc
+    inc = db.query(Incident).filter(Incident.id == entry_id, Incident.engineer_id == eng_id).first()
+    if inc is not None and inc.entry_id:
+        sch, plan = base(inc.entry_id)                    # 일정이 지워졌으면 장애처리만 한 건으로 본다
+    return sch, plan, inc
 
 
 @router.get("/{entry_id}")
 def get_entry(eng_id: str, entry_id: str, db: Session = Depends(get_db)):
-    sch, plan = _find(db, eng_id, entry_id)
+    sch, plan, inc = _find(db, eng_id, entry_id)
     sites = _sites(db, eng_id)
     if sch:
-        return _from_schedule(sch, plan, {s.id: s.name for s in sites})
-    if plan and plan.id.startswith("wp-"):
-        return _from_workplan(plan, sites)
-    raise HTTPException(404, detail="일정을 찾을 수 없습니다")
+        d = _from_schedule(sch, plan, {s.id: s.name for s in sites})
+    elif plan:
+        d = _from_workplan(plan, sites)
+    elif inc:
+        return _from_incident(inc, sites)
+    else:
+        raise HTTPException(404, detail="일정을 찾을 수 없습니다")
+    d.update(_inc_fields(inc))
+    if inc:
+        d["types"].append(INCIDENT)
+    return d
 
 
 def _save(db, eng_id: str, data: EntryIn, entry_id: Optional[str]):
     types = [t for t in ALL_TYPES if t in set(data.types or [])]
     if not types:
-        raise HTTPException(400, detail="구분을 하나 이상 골라주세요 (점검 / 기술지원 / 납품 / 유선원격 / 이전 / 기타)")
+        raise HTTPException(400, detail="구분을 하나 이상 골라주세요 (점검 / 기술지원 / 장애처리 / 납품 / 유선원격 / 이전 / 기타)")
     title = (data.title or "").strip()
     if not title:
         raise HTTPException(400, detail="제목을 입력해주세요")
@@ -122,16 +184,34 @@ def _save(db, eng_id: str, data: EntryIn, entry_id: Optional[str]):
         if not site:
             raise HTTPException(404, detail="사이트를 찾을 수 없습니다")
     is_check = CHECK in types
-    supports = [t for t in types if t != CHECK]
+    has_inc = INCIDENT in types
+    supports = [t for t in types if t in SUPPORT_TYPES]
+    inc_only = has_inc and not is_check and not supports
+    if has_inc:
+        if (data.inc_severity or "보통") not in INC_SEVERITIES:
+            raise HTTPException(400, detail="장애 등급이 올바르지 않습니다 (긴급 / 높음 / 보통 / 낮음)")
+        if (data.inc_status or "접수") not in INC_STATUSES:
+            raise HTTPException(400, detail="장애 처리 상태가 올바르지 않습니다 (접수 / 처리중 / 완료)")
+        occurred = (data.inc_occurred_at or "").strip()[:16] or when
+        recovered = (data.inc_recovered_at or "").strip()[:16]
+        try:
+            datetime.fromisoformat(occurred)
+            if recovered:
+                datetime.fromisoformat(recovered)
+        except ValueError:
+            raise HTTPException(400, detail="장애 발생/복구 일시 형식이 올바르지 않습니다")
+        if recovered and recovered < occurred:
+            raise HTTPException(400, detail="복구 일시가 발생 일시보다 빠릅니다")
     if is_check and not site:
         raise HTTPException(400, detail="점검은 사이트를 골라야 합니다")
     site_name = site.name if site else (data.site_name or "").strip()
     plan_vals = {f: getattr(data, f) or "" for f in PLAN_FIELDS}
     has_plan_vals = any(v for f, v in plan_vals.items() if not (f == "impact" and v == "없음"))
 
-    old_sch, old_plan = _find(db, eng_id, entry_id) if entry_id else (None, None)
-    if entry_id and not old_sch and not (old_plan and old_plan.id.startswith("wp-")):
+    old_sch, old_plan, old_inc = _find(db, eng_id, entry_id) if entry_id else (None, None, None)
+    if entry_id and not old_sch and not old_plan and not old_inc:
         raise HTTPException(404, detail="일정을 찾을 수 없습니다")
+    base_id = old_sch.id if old_sch else (old_plan.id if old_plan else None)     # 고치기 전 일정 id
 
     if is_check:
         sch = old_sch
@@ -151,6 +231,11 @@ def _save(db, eng_id: str, data: EntryIn, entry_id: Optional[str]):
         if old_plan is not None and not old_sch:         # 기술지원 → 점검으로 옮김
             db.delete(old_plan)
         new_id, kind = sch.id, "schedule"
+    elif inc_only:                                       # 장애처리만 → 일정 쪽 레코드는 없앤다
+        for o in (old_plan, old_sch):
+            if o is not None:
+                db.delete(o)
+        new_id, kind = None, "incident"
     else:
         plan = old_plan if (old_plan and not old_sch) else None
         if plan is None:
@@ -166,14 +251,34 @@ def _save(db, eng_id: str, data: EntryIn, entry_id: Optional[str]):
             db.delete(old_sch)
         new_id, kind = plan.id, "workplan"
 
-    if entry_id and new_id != entry_id:                  # 구글 캘린더 연결도 새 레코드로 옮긴다
-        for ev in db.query(CalendarEvent).filter(CalendarEvent.engineer_id == eng_id, CalendarEvent.target_id == entry_id):
+    inc_id = ""
+    if has_inc:                                          # 장애처리 보고서
+        inc = old_inc
+        if inc is None:
+            inc = Incident(id=str(uuid.uuid4()), engineer_id=eng_id, created_at=datetime.now().strftime("%Y-%m-%d"))
+            db.add(inc)
+        inc.title = title if inc_only else ((data.inc_title or "").strip() or title)
+        inc.site, inc.worker, inc.device = site_name, (data.worker or "").strip(), (data.inc_device or "").strip()
+        inc.severity = data.inc_severity or "보통"
+        inc.status = "처리중" if recovered and (data.inc_status or "접수") == "접수" else (data.inc_status or "접수")
+        inc.occurred_at, inc.recovered_at = occurred, recovered
+        for f in INC_TEXT_FIELDS:
+            setattr(inc, f, getattr(data, f) or "")
+        inc.entry_id = "" if inc_only else new_id
+        inc_id = inc.id
+        if inc_only:
+            new_id = inc.id
+    elif old_inc is not None:                            # 체크를 풀었으면 보고서를 지운다
+        db.delete(old_inc)
+
+    if base_id and new_id != base_id and not inc_only:   # 구글 캘린더 연결도 새 레코드로 옮긴다 (장애처리만 남기면 연결은 끊긴다)
+        for ev in db.query(CalendarEvent).filter(CalendarEvent.engineer_id == eng_id, CalendarEvent.target_id == base_id):
             ev.target_id, ev.target_type = new_id, kind
             ev.kind = CHECK if is_check else "기술지원"
             ev.sub_type = sched_type if is_check else ",".join(supports)
             ev.site_id = site.id if site else ""
     db.commit()
-    return {"ok": True, "id": new_id, "kind": kind}
+    return {"ok": True, "id": new_id, "kind": kind, "inc_id": inc_id}
 
 
 @router.post("")

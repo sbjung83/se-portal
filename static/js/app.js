@@ -76,10 +76,12 @@ async function doLogin(){
 }
 async function doRegister(){
   const username=$('reg-user').value.trim(),password=$('reg-pw').value,engineer_name=$('reg-eng').value.trim();
+  const dept=$('reg-dept').value.trim(),position=$('reg-position').value.trim(),email=$('reg-email').value.trim();
   $('reg-err').style.color='';
-  if(!username||!password||!engineer_name){$('reg-err').textContent='모든 항목을 입력해주세요';return}
+  if(!username||!password||!engineer_name||!dept||!position||!email){$('reg-err').textContent='모든 항목을 입력해주세요';return}
   if(password.length<8){$('reg-err').textContent='비밀번호는 8자 이상이어야 합니다';return}
-  const r=await api.post('/api/auth/register',{username,password,engineer_name});
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){$('reg-err').textContent='이메일 형식이 올바르지 않습니다';return}
+  const r=await api.post('/api/auth/register',{username,password,engineer_name,dept,position,email});
   if(r.ok){$('reg-pw').value='';$('login-err').style.color='#15803d';$('login-err').textContent=r.message||'가입 완료! 로그인해주세요';switchAuth('login')}
   else $('reg-err').textContent=(typeof r.detail==='string'&&r.detail)||'가입 실패';
 }
@@ -156,6 +158,7 @@ document.querySelectorAll('.nav-item').forEach(el=>{
     if(page==='dev-checklist')  loadDevChecklist();
     if(page==='gcal')           renderGcal();
     if(page==='lab')            renderLab();
+    if(page==='docs')           renderDocs();
   });
 });
 
@@ -1566,7 +1569,7 @@ function drawWorkPlans() {
   // 구분 탭 · 사이트 선택 · 검색
   $('wp-types').innerHTML = ['', ...WP_TYPES].map(t =>
     `<button class="svh-tab ${_wpType === t ? 'active' : ''}" onclick="wpSetType('${t}')">${t || '전체'} ${month.filter(p => !t || _wpTypes(p).includes(t)).length}</button>`).join('');
-  const sel = $('wp-site'), prev = sel.value;
+  const sel = $('wp-site-filter'), prev = sel.value;
   const sites = [...new Set(month.map(p => (p.site || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
   sel.innerHTML = '<option value="">전체 사이트</option>' + sites.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
   if(sites.includes(prev)) sel.value = prev;
@@ -1618,22 +1621,74 @@ async function changeWorkPlanStatus(id, status){
 }
 $('wp-search').addEventListener('input', () => { clearTimeout(window._wpT); window._wpT = setTimeout(drawWorkPlans, 200); });
 
-// ── 일정 공통 입력 창 (점검 · 기술지원) ─────────
+// ── 일정 공통 입력 창 (점검 · 기술지원 · 장애처리) ─────────
 // 구분 체크박스에 '점검'이 있으면 점검 일정으로, 없으면 기술지원으로 저장된다 (routers/entries.py)
+// '장애처리'를 체크하면 "장애처리 보고서" 탭이 생기고 장애 기록(Incident)이 함께 저장된다. 장애처리만 체크하면 장애 기록만 만든다.
 const ENTRY_PLAN_IDS = ['wp-prerequisites', 'wp-verification', 'wp-rollback'];
-let _entrySiteName = '';     // 사이트로 등록되지 않은 고객사 이름(기술지원)
+const ENTRY_SITE_MANUAL = '__manual__';   // 사이트 칸의 "직접 입력" — 등록되지 않은 고객사·다른 엔지니어의 사이트 (점검은 불가)
+function entrySiteChanged(){
+  const manual = $('wp-site').value === ENTRY_SITE_MANUAL;
+  $('wp-site-manual').style.display = manual ? '' : 'none';
+  if(manual && !$('wp-site-manual').value) $('wp-site-manual').focus();
+}
 function _entryTypes(){ return [...document.querySelectorAll('#wp-types input:checked')].map(c => c.value); }
+let _entryTab = '';          // 펼쳐 놓은 탭 ('' = 접힘 | plan | report)
+let _entryHadInc = false;    // 직전에 '장애처리'가 체크되어 있었는지
+let _entryIncId = '';        // 열 때 이미 저장되어 있던 장애처리 보고서 id
+let _entryHasPlan = false;
+let _entryOccAuto = true;    // 발생 일시를 위의 날짜·시간에 맞춰 따라가게 할지 (직접 고치면 멈춤)
+const ENTRY_INC_IDS = ['inc-title', 'inc-device', 'inc-recovered', 'inc-symptom', 'inc-cause', 'inc-action', 'inc-prevention'];
 function entryTypesChanged(){
-  const isCheck = _entryTypes().includes('점검');
+  const types = _entryTypes();
+  const isCheck = types.includes('점검'), hasInc = types.includes('장애처리'), incOnly = hasInc && types.length === 1;
   $('wp-sched-type-row').style.visibility = isCheck ? 'visible' : 'hidden';
   $('wp-site-req').style.display = isCheck ? '' : 'none';
+  // 장애처리만 하는 건은 장애 기록 1건만 남으므로 일정 쪽 칸(상태·결재자·메모·세부 작업계획)은 감춘다
+  $('wp-status-row').style.visibility = $('wp-reviewer-row').style.visibility = incOnly ? 'hidden' : 'visible';
+  $('wp-purpose-row').style.display = incOnly ? 'none' : '';
+  $('inc-title-row').style.display = incOnly ? 'none' : '';
+  $('wp-tab-plan').style.display = incOnly ? 'none' : '';
+  $('wp-tab-report').style.display = hasInc ? '' : 'none';
+  $('wp-excel').style.display = $('wp-id').value && _entryHasPlan && !incOnly ? '' : 'none';
+  $('wp-tab-hint').textContent = hasInc ? (incOnly ? '장애처리만 하는 건은 보고서만 작성합니다' : '탭을 눌러 펼치고, 한 번 더 누르면 접습니다')
+    : '영향도 · 사전 준비 · 상세 절차(MOP) · 확인사항 · 비상 계획 — 필요할 때만 작성';
+  if(hasInc && !_entryHadInc){ entrySyncOccurred(); entryTab('report', true); }     // 방금 체크함 → 보고서 탭을 연다
+  else if(!hasInc && _entryTab === 'report') entryTab('', true);
+  else if(incOnly && _entryTab === 'plan') entryTab('report', true);
+  _entryHadInc = hasInc;
+}
+// 탭을 누르면 펼치고, 펼쳐진 탭을 다시 누르면 접는다
+function entryTab(name, force){
+  _entryTab = (!force && _entryTab === name) ? '' : name;
+  $('wp-pane-plan').style.display = _entryTab === 'plan' ? '' : 'none';
+  $('wp-pane-report').style.display = _entryTab === 'report' ? '' : 'none';
+  $('wp-tab-plan').classList.toggle('active', _entryTab === 'plan');
+  $('wp-tab-report').classList.toggle('active', _entryTab === 'report');
+  $('wp-plan').classList.toggle('open', !!_entryTab);
+  if(_entryTab === 'plan') document.querySelectorAll('#wp-mop textarea').forEach(mopGrow);
+  _entryMarkTabs();
+}
+// 내용이 적힌 탭에 점을 찍어 준다
+function _entryMarkTabs(){
+  const plan = ENTRY_PLAN_IDS.some(id => $(id).value.trim()) || !!mopGet('wp-mop') || $('wp-impact').value !== '없음';
+  const rep = ['inc-device', 'inc-symptom', 'inc-cause', 'inc-action', 'inc-prevention'].some(id => $(id).value.trim());
+  $('wp-tab-plan').classList.toggle('filled', plan);
+  $('wp-tab-report').classList.toggle('filled', rep);
+}
+function entrySyncOccurred(){
+  if(!_entryOccAuto) return;
+  const d = $('wp-day').value, t = $('wp-time').value;
+  $('inc-occurred').value = d && t ? `${d}T${t}` : '';
 }
 function openAddWorkPlan(){ return openEntry(null, ['기술지원']); }
 function openEditWorkPlan(p){ return openEntry(typeof p === 'string' ? p : p && p.id); }
 
-async function openEntry(id, types = ['기술지원']){
-  let e = { id:'', types, title:'', day:_ymd(new Date()), time:'', site_id:'', site_name:'', sched_type:'월간', status:'예정',
-            memo:'', worker:'', reviewer:'', impact:'', prerequisites:'', mop_content:'', verification:'', rollback_plan:'', has_plan:false };
+async function openEntry(id, types = ['기술지원'], tab){
+  const newInc = !id && types.includes('장애처리');      // 장애 등록: 지금 시각·본인 이름을 기본값으로
+  const now = new Date();
+  let e = { id:'', types, title:'', day:_ymd(now), time: newInc ? `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}` : '',
+            site_id:'', site_name:'', sched_type:'월간', status:'예정',
+            memo:'', worker: newInc ? (ENG_NAME || '') : '', reviewer:'', impact:'', prerequisites:'', mop_content:'', verification:'', rollback_plan:'', has_plan:false };
   let sites = [];
   try {
     sites = await api.get(`/api/engineers/${ENG_ID}/sites`);
@@ -1643,10 +1698,12 @@ async function openEntry(id, types = ['기술지원']){
   $('wp-modal-title').textContent = id ? '일정 수정' : '일정 등록';
   $('wp-id').value = e.id || '';
   document.querySelectorAll('#wp-types input').forEach(c => c.checked = e.types.includes(c.value));
-  _entrySiteName = e.site_id ? '' : (e.site_name || '');
+  const manualName = e.site_id ? '' : (e.site_name || '');
   $('wp-site').innerHTML = '<option value="">— 선택 —</option>'
-    + (_entrySiteName ? `<option value="" selected>${esc(_entrySiteName)} (사이트 미등록)</option>` : '')
-    + sites.map(x => `<option value="${esc(x.id)}" ${x.id === e.site_id ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+    + sites.map(x => `<option value="${esc(x.id)}" ${x.id === e.site_id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')
+    + `<option value="${ENTRY_SITE_MANUAL}" ${manualName ? 'selected' : ''}>✎ 직접 입력 (목록에 없는 사이트)</option>`;
+  $('wp-site-manual').value = manualName;
+  $('wp-site-manual').style.display = manualName ? '' : 'none';
   $('wp-title').value = e.title;
   $('wp-day').value = e.day; $('wp-time').value = e.time || '';
   $('wp-status').value = e.status; $('wp-sched-type').value = e.sched_type || '월간';
@@ -1658,22 +1715,39 @@ async function openEntry(id, types = ['기술지원']){
   mopSet('wp-mop', e.mop_content || '');
   $('wp-verification').value = e.verification || '';
   $('wp-rollback').value = e.rollback_plan || '';
-  // 세부 작업계획은 내용이 있을 때만 펼쳐서 보여 준다
-  $('wp-plan').open = !!(e.prerequisites || e.mop_content || e.verification || e.rollback_plan || (e.impact && e.impact !== '없음'));
-  $('wp-excel').style.display = id && e.has_plan ? '' : 'none';
+  // 장애처리 보고서
+  const hasInc = e.types.includes('장애처리');
+  _entryIncId = e.inc_id || '';
+  $('inc-title').value = e.inc_title && e.inc_title !== e.title ? e.inc_title : '';
+  $('inc-device').value = e.inc_device || '';
+  $('inc-severity').value = e.inc_severity || '보통'; $('inc-status').value = e.inc_status || '접수';
+  $('inc-occurred').value = e.inc_occurred_at || ''; $('inc-recovered').value = e.inc_recovered_at || '';
+  ['symptom', 'cause', 'action', 'prevention'].forEach(f => $('inc-' + f).value = e[f] || '');
+  _entryOccAuto = !e.inc_occurred_at || e.inc_occurred_at === `${e.day}T${e.time}`;
+  _entryHasPlan = !!e.has_plan;
+  _entryHadInc = hasInc;
+  entrySyncOccurred();
+  // 탭: 장애 쪽에서 열었으면 보고서, 아니면 내용이 있는 탭만 펼쳐서 보여 준다
+  const planFilled = !!(e.prerequisites || e.mop_content || e.verification || e.rollback_plan || (e.impact && e.impact !== '없음'));
+  _entryTab = '';
   entryTypesChanged();
+  entryTab(hasInc && (tab === 'report' || !planFilled) ? 'report' : planFilled ? 'plan' : '', true);
   openModal('modal-add-workplan');
 }
 
 function _entryPayload(){
-  const sel = $('wp-site');
+  const manual = $('wp-site').value === ENTRY_SITE_MANUAL;
   return {
     types: _entryTypes(), title: $('wp-title').value.trim(), day: $('wp-day').value, time: $('wp-time').value,
-    site_id: sel.value, site_name: sel.value ? '' : (sel.selectedIndex > 0 && _entrySiteName ? _entrySiteName : ''),
+    site_id: manual ? '' : $('wp-site').value, site_name: manual ? $('wp-site-manual').value.trim() : '',
     sched_type: $('wp-sched-type').value, status: $('wp-status').value, memo: $('wp-purpose').value,
     worker: $('wp-worker').value.trim(), reviewer: $('wp-reviewer').value.trim(),
     impact: $('wp-impact').value, prerequisites: $('wp-prerequisites').value, mop_content: mopGet('wp-mop'),
     verification: $('wp-verification').value, rollback_plan: $('wp-rollback').value,
+    inc_title: $('inc-title').value.trim(), inc_device: $('inc-device').value.trim(),
+    inc_severity: $('inc-severity').value, inc_status: $('inc-status').value,
+    inc_occurred_at: $('inc-occurred').value, inc_recovered_at: $('inc-recovered').value,
+    symptom: $('inc-symptom').value, cause: $('inc-cause').value, action: $('inc-action').value, prevention: $('inc-prevention').value,
   };
 }
 
@@ -1683,7 +1757,11 @@ async function _entrySave(){
   if(!body.types.length){ toast('구분을 하나 이상 골라주세요'); return null; }
   if(!body.title){ toast('제목을 입력해주세요'); return null; }
   if(!body.day){ toast('날짜를 입력해주세요'); return null; }
-  if(body.types.includes('점검') && !body.site_id){ toast('점검은 사이트를 골라주세요'); return null; }
+  if(body.types.includes('점검') && !body.site_id){ toast('점검은 목록에 등록된 사이트를 골라주세요'); return null; }
+  if(body.types.includes('장애처리')){
+    if(body.inc_recovered_at && !body.inc_occurred_at){ entryTab('report', true); toast('장애 발생 일시를 입력해주세요'); return null; }
+    if(body.inc_recovered_at && body.inc_recovered_at < body.inc_occurred_at){ entryTab('report', true); toast('복구 일시가 발생 일시보다 빠릅니다'); return null; }
+  } else if(_entryIncId && !confirm('장애처리 체크를 풀고 저장하면 작성해 둔 장애처리 보고서가 지워집니다. 계속할까요?')) return null;
   const id = $('wp-id').value;
   try {
     return await _apiSend(id ? 'PUT' : 'POST', `/api/engineers/${ENG_ID}/entries${id ? '/' + id : ''}`, body);
@@ -1694,6 +1772,8 @@ async function _entryRefresh(){
   await loadSchedWorkPlans(true);
   if($('page-schedule-mgmt').classList.contains('active')) renderSchedMgmt();
   if($('page-work-plan').classList.contains('active')) renderWorkPlans();
+  if($('page-incidents').classList.contains('active')) renderIncidents();
+  else _allIncidents = [];                       // 다음에 열 때 다시 읽는다
   _refreshSvcHistory();
 }
 
@@ -1705,14 +1785,14 @@ async function saveEntry(){
   if(!r) return;
   closeModal('modal-add-workplan');
   await _entryRefresh();
-  toast(`${r.kind === 'schedule' ? '점검 일정' : '기술지원'} ${wasNew ? '등록됨' : '수정됨'}`);
+  toast(`${{schedule:'점검 일정', workplan:'기술지원', incident:'장애처리'}[r.kind]}${r.inc_id && r.kind !== 'incident' ? ' + 장애처리 보고서' : ''} ${wasNew ? '등록됨' : '수정됨'}`);
 }
 
 // 창에 적힌 내용을 먼저 저장한 뒤 작업계획서 엑셀을 내려받는다
 async function downloadEntryExcel(){
   const r = await _entrySave();
   if(!r) return;
-  $('wp-id').value = r.id;
+  $('wp-id').value = r.id; _entryIncId = r.inc_id || '';
   _entryRefresh();
   window.location.href = `/api/engineers/${ENG_ID}/workplans/${r.id}/download`;
 }
@@ -1832,7 +1912,7 @@ function drawIncidents(){
     return `<tr class="${isOpen(i) ? '' : 'done'}" onclick="openEditIncident('${i.id}')" style="cursor:pointer">
       <td class="sm-d">${day ? _smDateLabel(day) : '-'}${time ? ` <span class="wp-time">${time}</span>` : ''}</td>
       <td class="sm-s" title="${esc(i.site)}">${esc(i.site || '-')}</td>
-      <td class="sm-t">${esc(i.title)}${sub ? `<div class="wp-purpose" title="${esc(sub)}">${esc(sub)}</div>` : ''}</td>
+      <td class="sm-t">${esc(i.title)}${i.entry_id ? ' <span class="badge b-green" title="점검 일정/기술지원과 함께 등록된 건 — 누르면 그 일정이 열립니다">일정과 함께</span>' : ''}${sub ? `<div class="wp-purpose" title="${esc(sub)}">${esc(sub)}</div>` : ''}</td>
       <td class="c"><span class="badge ${INC_SEV_CLS[i.severity] || 'b-gray'}">${esc(i.severity)}</span></td>
       <td class="wp-worker" title="${esc(i.worker)}">${esc(i.worker || '-')}</td>
       <td class="inc-down" title="${i.recovered_at ? `복구 ${esc(fmtDT(i.recovered_at))}` : '복구 일시가 아직 없습니다'}">${i.downtime_min !== null && i.downtime_min !== undefined ? fmtDuration(i.downtime_min) : '<span class="inc-nodown">복구 전</span>'}</td>
@@ -1852,89 +1932,10 @@ function drawIncidents(){
 }
 $('inc-search').addEventListener('input', () => { clearTimeout(window._incT); window._incT = setTimeout(drawIncidents, 200); });
 
-async function _fillIncSiteSel(selected=''){
-  try {
-    const sites = await api.get(`/api/engineers/${ENG_ID}/sites`);
-    const names = sites.map(s => s.name);
-    if(selected && !names.includes(selected)) names.unshift(selected);   // 삭제된 사이트명도 보존
-    $('inc-site').innerHTML = '<option value="">-</option>' + names.map(n => `<option ${n===selected?'selected':''}>${esc(n)}</option>`).join('');
-  } catch(e) {
-    $('inc-site').innerHTML = '<option value="">사이트 로딩 실패</option>';
-  }
-}
-
-function _nowLocal(){
-  const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-  return d.toISOString().slice(0, 16);
-}
-
-async function openAddIncident(){
-  $('inc-modal-title').textContent = '장애 등록';
-  $('inc-id').value = '';
-  ['inc-title','inc-device','inc-recovered','inc-worker','inc-symptom','inc-cause','inc-action','inc-prevention'].forEach(id => $(id).value = '');
-  $('inc-occurred').value = _nowLocal();
-  $('inc-severity').value = '보통';
-  $('inc-status').value = '접수';
-  $('inc-worker').value = ENG_NAME || '';
-  await _fillIncSiteSel();
-  openModal('modal-add-incident');
-}
-
-async function openEditIncident(id){
-  let i = _allIncidents.find(x => x.id === id);
-  if(!i){
-    try { _allIncidents = await api.get(`/api/engineers/${ENG_ID}/incidents`); } catch(e) {}
-    i = _allIncidents.find(x => x.id === id);
-  }
-  if(!i){ toast('장애 기록을 찾을 수 없습니다'); return; }
-  $('inc-modal-title').textContent = '장애 수정';
-  $('inc-id').value = i.id;
-  $('inc-title').value = i.title || '';
-  $('inc-device').value = i.device || '';
-  $('inc-occurred').value = i.occurred_at || '';
-  $('inc-recovered').value = i.recovered_at || '';
-  $('inc-severity').value = i.severity || '보통';
-  $('inc-status').value = i.status || '접수';
-  $('inc-worker').value = i.worker || '';
-  $('inc-symptom').value = i.symptom || '';
-  $('inc-cause').value = i.cause || '';
-  $('inc-action').value = i.action || '';
-  $('inc-prevention').value = i.prevention || '';
-  await _fillIncSiteSel(i.site || '');
-  openModal('modal-add-incident');
-}
-
-async function saveIncident(){
-  const title = $('inc-title').value.trim();
-  const occurred = $('inc-occurred').value;
-  if(!title){ toast('장애명을 입력해주세요'); return; }
-  if(!occurred){ toast('발생 일시를 입력해주세요'); return; }
-  const recovered = $('inc-recovered').value;
-  if(recovered && recovered < occurred){ toast('복구 일시가 발생 일시보다 빠릅니다'); return; }
-  let status = $('inc-status').value;
-  if(recovered && status === '접수') status = '처리중';
-  const payload = {
-    title, site: $('inc-site').value, device: $('inc-device').value.trim(),
-    severity: $('inc-severity').value, status,
-    occurred_at: occurred, recovered_at: recovered, worker: $('inc-worker').value.trim(),
-    symptom: $('inc-symptom').value, cause: $('inc-cause').value,
-    action: $('inc-action').value, prevention: $('inc-prevention').value,
-  };
-  const id = $('inc-id').value;
-  const url = id ? `/api/engineers/${ENG_ID}/incidents/${id}` : `/api/engineers/${ENG_ID}/incidents`;
-  try {
-    const r = await fetch(url, {method: id ? 'PATCH' : 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
-    if(!r.ok) throw new Error(`HTTP ${r.status}`);
-  } catch(e) {
-    console.error('장애 저장 실패:', e);
-    toast('저장 실패: 서버 오류가 발생했습니다. 입력 내용은 유지됩니다.');
-    return;
-  }
-  closeModal('modal-add-incident');
-  if($('page-incidents').classList.contains('active')) renderIncidents();
-  _refreshSvcHistory();
-  toast(id ? '장애 수정됨' : '장애 등록됨');
-}
+// 장애 등록·수정은 일정 공통 입력 창을 쓴다 (구분 '장애처리' + "장애처리 보고서" 탭).
+// 점검/기술지원과 함께 등록된 장애는 그 일정을 열어 보고서 탭을 보여 준다.
+function openAddIncident(){ return openEntry(null, ['장애처리']); }
+function openEditIncident(id){ return openEntry(id, undefined, 'report'); }
 
 async function deleteIncident(id){
   if(!confirm('해당 장애 기록을 삭제하시겠습니까?')) return;
@@ -3534,4 +3535,203 @@ async function deleteLab(id){
   try { await _apiSend('DELETE', `/api/engineers/${ENG_ID}/lab/${id}`); }
   catch(e){ toast(e.message); return; }
   toast('삭제됨'); renderLab();
+}
+
+// ── 문서 양식: 휴가원 · 차량 운행 일지 · 개인 경비 (양식 파일은 서버의 data/doc_templates/ 에 둔다) ─────────────
+function docTab(k){
+  document.querySelectorAll('#doc-tabs .svh-tab').forEach(t => t.classList.toggle('active', t.dataset.doc === k));
+  ['leave', 'car', 'expense'].forEach(x => { $('doc-pane-' + x).style.display = x === k ? '' : 'none'; });
+  if(k === 'leave') renderLeaves();
+  if(k === 'car') renderCarLog();
+}
+function renderDocs(){ docTab((document.querySelector('#doc-tabs .svh-tab.active') || {dataset: {doc: 'leave'}}).dataset.doc); }
+
+// ── 휴가원: 간단히 입력 → 연차 사용 내역에 기록 → 목록에서 휴가원 문서 내려받기 ─────────
+let _lvYear = String(new Date().getFullYear()), _lvData = null;
+const _lvBase = () => `/api/engineers/${ENG_ID}/leaves`;
+const _lvNum = v => String(Math.round(Number(v || 0) * 100) / 100);
+function _lvWeekdays(a, b){          // 시작~종료 사이 평일 수 (공휴일은 모르므로 필요하면 일수를 직접 고친다)
+  if(!a) return 0;
+  const s = new Date(a + 'T00:00:00'), e = new Date((b || a) + 'T00:00:00');
+  let n = 0;
+  for(const d = new Date(s); d <= e && n < 400; d.setDate(d.getDate() + 1)) if(d.getDay() % 6) n++;
+  return n;
+}
+function lvMove(d){ _lvYear = String(Number(_lvYear) + d); renderLeaves(); }
+
+async function renderLeaves(){
+  $('lv-year').textContent = `${_lvYear}년`;
+  try { _lvData = await _apiSend('GET', `${_lvBase()}?year=${_lvYear}`); }
+  catch(e) { $('lv-list').innerHTML = `<div class="empty" style="color:#dc2626">연차 사용 내역을 불러오지 못했습니다 (${esc(e.message)})</div>`; return; }
+  const d = _lvData;
+  const item = (label, val, sub, cls, extra = '') => `<div class="wr-sum-i ${cls}" ${extra}><span>${label}${sub ? `<em>${sub}</em>` : ''}</span><b>${val}</b></div>`;
+  $('lv-summary').innerHTML =
+      item('총 연차', `${_lvNum(d.total)}일`, d.total_is_default ? '기본값 · 눌러서 수정' : '눌러서 수정', 'st-f', 'onclick="lvSetQuota()" title="이 해의 총 연차 일수 바꾸기"')
+    + item('사용', `${_lvNum(d.used)}일`, d.deduct_types.join(' · '), d.used ? '' : 'zero')
+    + item('그 밖의 휴가', `${_lvNum(d.other)}일`, '연차에서 빼지 않음', d.other ? '' : 'zero')
+    + item('남은 연차', `${_lvNum(d.remain)}일`, '', 'total');
+  $('lv-sub').innerHTML = (d.records.length ? `${d.records.length}건 · 기간 시작일이 ${_lvYear}년인 휴가원` : '')
+    + (d.has_template ? '' : ' <span class="doc-warn">휴가원 양식 파일이 서버에 없어 문서를 내려받을 수 없습니다</span>');
+  $('lv-list').innerHTML = !d.records.length ? `<div class="empty">${_lvYear}년에 작성한 휴가원이 없습니다. <b>+ 휴가원 작성</b>을 눌러 주세요.</div>`
+    : `<table class="wr-tbl doc-tbl lv-tbl"><colgroup><col style="width:120px"><col style="width:230px"><col style="width:100px"><col style="width:80px"><col><col style="width:210px"></colgroup>
+      <thead><tr><th>신청일</th><th>기간</th><th>종류</th><th>일수</th><th>사유</th><th>관리</th></tr></thead><tbody>${d.records.map(r => `
+      <tr onclick="openEditLeave('${r.id}')" title="눌러서 수정">
+        <td class="wr-date">${esc(r.apply_date)}</td>
+        <td class="wr-date">${esc(r.start_date)}${r.end_date && r.end_date !== r.start_date ? ` ~ ${esc(r.end_date)}` : ''}</td>
+        <td><span class="badge ${r.deduct ? 'b-blue' : 'b-gray'}">${esc(r.leave_type)}</span></td>
+        <td><b>${_lvNum(r.days)}</b>일</td>
+        <td class="lv-reason">${esc(r.reason || '-')}</td>
+        <td class="doc-act" onclick="event.stopPropagation()"><button class="btn btn-sm sm-xls" title="이 내용이 채워진 휴가원 문서(워드) 내려받기" onclick="downloadLeaveDoc('${r.id}')">휴가원 받기</button><button class="icon-btn edit" title="수정" onclick="openEditLeave('${r.id}')">${ICO_EDIT}</button><button class="icon-btn del" title="삭제" onclick="deleteLeave('${r.id}')">${ICO_DEL}</button></td>
+      </tr>`).join('')}</tbody></table>`;
+}
+function downloadLeaveDoc(id){ location.href = `${_lvBase()}/${id}/document`; }
+
+async function lvSetQuota(){
+  const v = prompt(`${_lvYear}년 총 연차 일수`, _lvData ? _lvNum(_lvData.total) : '15');
+  if(v === null) return;
+  const n = Number(v);
+  if(!(n >= 0) || v.trim() === ''){ toast('숫자로 넣어주세요'); return; }
+  try { await _apiSend('PUT', `${_lvBase()}/quota`, {year: _lvYear, total_days: n}); } catch(e) { toast('저장 실패: ' + e.message); }
+  renderLeaves();
+}
+function lvAutoDays(){
+  if($('lv-end').value && $('lv-end').value < $('lv-start').value) $('lv-end').value = $('lv-start').value;
+  $('lv-days').value = _lvWeekdays($('lv-start').value, $('lv-end').value) || '';
+}
+function _lvOpen(r){
+  const today = _ymd(new Date());
+  $('lv-modal-title').textContent = r ? '휴가원 수정' : '휴가원 작성';
+  $('lv-type').innerHTML = ((_lvData && _lvData.types) || ['연차']).map(x => `<option>${esc(x)}</option>`).join('');
+  $('lv-id').value = r ? r.id : '';
+  $('lv-type').value = r ? r.leave_type : '연차';
+  $('lv-apply').value = r ? r.apply_date : today;
+  $('lv-start').value = r ? r.start_date : today;
+  $('lv-end').value = r ? r.end_date : today;
+  $('lv-reason').value = r ? r.reason : '';
+  if(r) $('lv-days').value = r.days; else lvAutoDays();
+  const p = (_lvData && _lvData.profile) || {};
+  $('lv-modal-hint').textContent = `저장하면 연차 사용 내역에 기록되고, 목록의 '휴가원 받기'로 문서를 내려받습니다. (신청인: ${p.name || '-'})`;
+  openModal('modal-leave');
+}
+function openAddLeave(){ _lvOpen(null); }
+function openEditLeave(id){ const r = _lvData && _lvData.records.find(x => x.id === id); if(r) _lvOpen(r); }
+async function saveLeave(){
+  const id = $('lv-id').value;
+  const body = {leave_type: $('lv-type').value, start_date: $('lv-start').value, end_date: $('lv-end').value || $('lv-start').value,
+                days: Number($('lv-days').value), reason: $('lv-reason').value.trim(), apply_date: $('lv-apply').value};
+  if(!body.start_date){ toast('기간 시작일을 넣어주세요'); return; }
+  if(!(body.days > 0)){ toast('일수를 넣어주세요'); return; }
+  try { await _apiSend(id ? 'PATCH' : 'POST', `${_lvBase()}${id ? '/' + id : ''}`, body); }
+  catch(e) { toast('저장 실패: ' + e.message); return; }
+  closeModal('modal-leave');
+  toast(id ? '수정했습니다' : "휴가원을 작성했습니다. 목록의 '휴가원 받기'로 내려받으세요");
+  _lvYear = body.start_date.slice(0, 4);
+  renderLeaves();
+}
+async function deleteLeave(id){
+  if(!confirm('이 휴가원 기록을 삭제하시겠습니까? 사용한 연차에서도 빠집니다.')) return;
+  try { await _apiSend('DELETE', `${_lvBase()}/${id}`); toast('삭제됨'); } catch(e) { toast('삭제 실패: ' + e.message); }
+  renderLeaves();
+}
+function openLeaveProfile(){
+  const p = (_lvData && _lvData.profile) || {};
+  $('lp-dept').value = p.dept || ''; $('lp-position').value = p.position || ''; $('lp-name').value = p.name || '';
+  openModal('modal-leave-profile');
+}
+async function saveLeaveProfile(){
+  try { await _apiSend('PUT', `${_lvBase()}/profile`, {dept: $('lp-dept').value, position: $('lp-position').value, name: $('lp-name').value}); }
+  catch(e) { toast('저장 실패: ' + e.message); return; }
+  closeModal('modal-leave-profile'); toast('저장됨');
+  renderLeaves();
+}
+
+// ── 차량 운행 일지: 일정에서 운행 줄을 가져오고, 첫 출발·마지막 도착 km 만 넣으면 줄마다 나눠 채운다 ─────────
+let _carYM = _ymd(new Date()).slice(0, 7), _carData = null;
+const _carBase = () => `/api/engineers/${ENG_ID}/carlog`;
+const _carKm = v => v === null || v === undefined ? '' : Number(v).toLocaleString('ko-KR');
+function carMove(d){ const [y, m] = _carYM.split('-').map(Number); _carYM = _ymd(new Date(y, m - 1 + d, 1)).slice(0, 7); renderCarLog(); }
+
+async function renderCarLog(){
+  try { _carData = await _apiSend('GET', `${_carBase()}?month=${_carYM}`); }
+  catch(e) { $('car-list').innerHTML = `<div class="empty" style="color:#dc2626">운행 일지를 불러오지 못했습니다 (${esc(e.message)})</div>`; return; }
+  if(_carData.imported) toast(`일정에서 운행 ${_carData.imported}건을 가져왔습니다`);
+  drawCarLog();
+}
+function drawCarLog(){
+  const d = _carData, [y, m] = d.month.split('-');
+  $('car-month').textContent = `${y}년 ${Number(m)}월`;
+  if(document.activeElement !== $('car-model')) $('car-model').value = d.profile.car_model;
+  if(document.activeElement !== $('car-no')) $('car-no').value = d.profile.car_no;
+  if(document.activeElement !== $('car-place')) $('car-place').value = d.profile.start_place;
+  const item = (label, val, sub, cls) => `<div class="wr-sum-i ${cls}"><span>${label}${sub ? `<em>${sub}</em>` : ''}</span><b>${val}</b></div>`;
+  $('car-summary').innerHTML =
+      item('운행', `${d.trips.length}건`, d.empty_count ? `거리 미입력 ${d.empty_count}건` : '', d.trips.length ? (d.empty_count ? 'amber' : '') : 'zero')
+    + item('첫 출발 때', d.start_km === null ? '-' : _carKm(d.start_km) + ' km', d.start_km_is_carried ? '지난달 마지막 값' : '', d.start_km === null ? 'zero sm' : 'sm')
+    + item('마지막 도착 때', d.end_km === null ? '-' : _carKm(d.end_km) + ' km', '', d.end_km === null ? 'zero sm' : 'sm')
+    + item('이 달 주행 거리', `${_carKm(d.total_km)} km`, '', 'total');
+  if(document.activeElement !== $('car-start')) $('car-start').value = d.start_km === null ? '' : d.start_km;
+  if(document.activeElement !== $('car-end')) $('car-end').value = d.total_km && d.end_km !== null && !d.empty_count ? d.end_km : '';
+  $('car-keep').checked = d.trips.some(t => t.km) && d.empty_count > 0;
+  $('car-title').textContent = `${Number(m)}월 운행 내역`;
+  $('car-sub').innerHTML = (d.trips.length ? '칸을 고치면 바로 저장됩니다 · 출발·도착 km 는 거리를 이어 붙여 자동으로 계산됩니다' : '')
+    + (d.has_template ? '' : ' <span class="doc-warn">양식 파일이 서버에 없어 엑셀을 내려받을 수 없습니다</span>');
+  $('car-list').innerHTML = !d.trips.length ? `<div class="empty doc-empty">${Number(m)}월 운행 내역이 없습니다.<br><b>일정에서 가져오기</b> 또는 <b>+ 운행 추가</b>를 눌러 주세요.</div>`
+    : `<table class="wr-tbl doc-tbl car-tbl"><colgroup><col style="width:150px"><col style="width:90px"><col style="width:12%"><col style="width:120px"><col><col style="width:100px"><col style="width:120px"><col style="width:16%"><col style="width:56px"></colgroup>
+      <thead><tr><th>일자</th><th>성명</th><th>출발지명</th><th class="r">출발시 주행km</th><th>운행목적(거래처명)</th><th class="r">거리 km</th><th class="r">도착시 주행km</th><th>비고</th><th></th></tr></thead><tbody>${d.trips.map(t => `
+      <tr data-id="${t.id}">
+        <td><input type="date" value="${esc(t.trip_date)}" onchange="carEdit('${t.id}', 'trip_date', this.value)"></td>
+        <td class="car-ro">${esc(d.name)}</td>
+        <td><input type="text" value="${esc(t.start_place)}" onchange="carEdit('${t.id}', 'start_place', this.value)"></td>
+        <td class="r car-ro">${_carKm(t.start_km)}</td>
+        <td><input type="text" value="${esc(t.purpose)}" onchange="carEdit('${t.id}', 'purpose', this.value)"${t.from_schedule ? ' title="일정에서 가져온 운행"' : ''}></td>
+        <td><input type="number" class="r${t.km ? '' : ' car-miss'}" min="0" value="${t.km || ''}" placeholder="-" onchange="carEdit('${t.id}', 'km', this.value)"></td>
+        <td class="r car-ro">${_carKm(t.end_km)}</td>
+        <td><input type="text" value="${esc(t.note)}" onchange="carEdit('${t.id}', 'note', this.value)"></td>
+        <td class="c"><button class="icon-btn del" title="이 운행 삭제" onclick="carDelete('${t.id}')">${ICO_DEL}</button></td>
+      </tr>`).join('')}</tbody></table>`;
+}
+async function carSaveProfile(){
+  try { await _apiSend('PUT', `${_carBase()}/profile`, {car_model: $('car-model').value, car_no: $('car-no').value, start_place: $('car-place').value || '회사'}); toast('차량 정보를 저장했습니다 (다음부터 그대로 씁니다)'); }
+  catch(e) { toast('저장 실패: ' + e.message); }
+  renderCarLog();
+}
+async function carEdit(id, field, value){
+  const body = {[field]: field === 'km' ? (Number(value) || 0) : value};
+  try { await _apiSend('PATCH', `${_carBase()}/trips/${id}`, body); }
+  catch(e) { toast('저장 실패: ' + e.message); }
+  if(field === 'trip_date' && value) _carYM = value.slice(0, 7);
+  renderCarLog();
+}
+async function carAdd(){
+  const today = _ymd(new Date());
+  const last = _carData && _carData.trips.length ? _carData.trips[_carData.trips.length - 1].trip_date : '';
+  const day = today.startsWith(_carYM) ? today : (last || `${_carYM}-01`);
+  try { _carData = await _apiSend('POST', `${_carBase()}/trips`, {trip_date: day}); drawCarLog(); }
+  catch(e) { toast('추가 실패: ' + e.message); }
+}
+async function carDelete(id){
+  if(!confirm('이 운행 줄을 삭제하시겠습니까?')) return;
+  try { await _apiSend('DELETE', `${_carBase()}/trips/${id}`); } catch(e) { toast('삭제 실패: ' + e.message); }
+  renderCarLog();
+}
+async function carImport(){
+  try { _carData = await _apiSend('POST', `${_carBase()}/import?month=${_carYM}`); }
+  catch(e) { toast('가져오기 실패: ' + e.message); return; }
+  toast(_carData.imported ? `일정에서 운행 ${_carData.imported}건을 가져왔습니다` : '새로 가져올 일정이 없습니다');
+  _carData.imported = 0; drawCarLog();
+}
+async function carDistribute(){
+  const s = $('car-start').value, e = $('car-end').value;
+  if(s === '' || e === ''){ toast('첫 출발 때 km 와 마지막 도착 때 km 를 넣어주세요'); return; }
+  try {
+    _carData = await _apiSend('POST', `${_carBase()}/distribute`, {month: _carYM, start_km: Number(s), end_km: Number(e), keep_filled: $('car-keep').checked});
+    toast(_carData.used_history ? '거래처별 평소 거리 비율로 나눠 채웠습니다' : '참고할 예전 기록이 없어 똑같이 나눴습니다. 거리를 고쳐 두면 다음 달부터 그 비율을 씁니다');
+    drawCarLog();
+  } catch(err) { toast('자동 계산 실패: ' + err.message); }
+}
+function carDownload(){
+  if(!_carData || !_carData.trips.length){ toast('운행 내역이 없습니다'); return; }
+  if(!_carData.profile.car_model || !_carData.profile.car_no){ toast('차종과 차량번호를 먼저 넣어주세요'); return; }
+  if(_carData.empty_count && !confirm(`거리를 넣지 않은 운행이 ${_carData.empty_count}건 있습니다. 그 줄은 km 가 빈 채로 내려받습니다. 계속할까요?`)) return;
+  location.href = `${_carBase()}/download?month=${_carYM}`;
 }
