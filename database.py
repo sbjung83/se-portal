@@ -327,6 +327,40 @@ class ExpenseReport(Base):
     applicant   = Column(String, default="")
     card_no     = Column(String, default="")       # secure_store 로 암호화
 
+class EosProduct(Base):
+    """OS EOS 현황 — 제품 1개 (routers/eos.py 의 PRODUCTS 목록을 갱신 때마다 맞춘다). 엔지니어 공용 데이터."""
+    __tablename__ = "eos_products"
+    key         = Column(String, primary_key=True)   # endoflife.date 제품 이름 또는 hyperv / hp-ux
+    label       = Column(String, default="")
+    category    = Column(String, default="")         # Windows / Linux / Unix / 가상화
+    source      = Column(String, default="")         # endoflife / microsoft / manual
+    policy_link = Column(String, default="")         # 제조사 공식 수명 주기 페이지
+    terms       = Column(Text, default="{}")         # 제품별 용어 {"eoas": "Full Support", ...}
+    note        = Column(String, default="")
+    order_idx   = Column(Integer, default=0)
+    checked_at  = Column(String, default="")         # 마지막으로 갱신을 시도한 때 "YYYY-MM-DD HH:MM:SS"
+    fetched_at  = Column(String, default="")         # 마지막으로 성공한 때
+    error       = Column(String, default="")         # 마지막 시도가 실패했으면 사유
+
+class EosRelease(Base):
+    """OS EOS 현황 — 버전 1개. 날짜 칸: "YYYY-MM-DD" / "Y"(종료, 날짜 모름) / "N"(미발표) / ""(해당 없음)."""
+    __tablename__ = "eos_releases"
+    id           = Column(String, primary_key=True)  # "<제품>:<버전>"
+    product      = Column(String, nullable=False, index=True)
+    cycle        = Column(String, default="")
+    label        = Column(String, default="")
+    lts          = Column(Boolean, default=False)
+    release_date = Column(String, default="")
+    eoas         = Column(String, default="")        # 일반(Active/Full) 지원 종료
+    eol          = Column(String, default="")        # 지원 종료 (보안 업데이트 끝)
+    eoes         = Column(String, default="")        # 연장 지원 종료 (유료)
+    latest       = Column(String, default="")
+    link         = Column(String, default="")
+    note         = Column(String, default="")
+    order_idx    = Column(Integer, default=0)
+    changes      = Column(Text, default="{}")        # {"eol": {"old": ..., "new": ..., "at": "YYYY-MM-DD"}}
+    added_at     = Column(String, default="")        # 처음 받은 뒤 새로 생긴 버전이면 그 날짜
+
 class ExpenseItem(Base):
     __tablename__ = "expense_items"
     id          = Column(String, primary_key=True)

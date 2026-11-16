@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=57">
+<link rel="stylesheet" href="/static/css/style.css?v=58">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -135,6 +135,9 @@
       <div class="nav-group-label">지식 창고</div>
       <div class="nav-item" data-page="technotes">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>기술 노트
+      </div>
+      <div class="nav-item" data-page="eos">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>OS별 EOS 현황
       </div>
     </div>
     <!-- 시스템 관리 그룹 -->
@@ -464,6 +467,26 @@
     </div>
 
     
+    <!-- OS별 EOS 현황 (routers/eos.py): 하루 한 번 자동 갱신되는 OS·버전별 지원 종료일 -->
+    <div class="page" id="page-eos">
+      <div class="wr-top">
+        <div class="page-title">OS별 EOS 현황</div>
+        <div class="svh-tabs" id="eos-tabs"></div>
+      </div>
+      <div class="eos-info" id="eos-info"></div>
+      <div class="wr-sum" id="eos-sum"></div>
+      <div class="eos-up" id="eos-up"></div>
+      <div class="eos-filter">
+        <input type="text" id="eos-q" placeholder="제품 · 버전 검색 (예: 2019, rhel 8, 7.2)" oninput="drawEos()">
+        <select id="eos-scope" onchange="drawEos()">
+          <option value="recent">지원 중 + 최근 3년 내 종료</option>
+          <option value="active">지원 중인 버전만</option>
+          <option value="all">전체 버전</option>
+        </select>
+      </div>
+      <div id="eos-list"></div>
+    </div>
+
     <!-- 결재 문서 관리: 문서 종류마다 탭 1개 (휴가원 / 차량 운행 일지). 종류가 늘면 탭(doc-tabs)과 doc-pane-* 를 추가한다 -->
     <div class="page" id="page-docs">
       <div class="wr-top">
@@ -1210,6 +1233,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=95"></script>
+<script src="/static/js/app.js?v=96"></script>
 </body>
 </html>

@@ -219,6 +219,7 @@ document.querySelectorAll('.nav-item').forEach(el=>{
     if(page==='users')          renderUsers();
     if(page==='gcal')           renderGcal();
     if(page==='lab')            renderLab();
+    if(page==='eos')            renderEos();
     if(page==='docs')           renderDocs();
   });
 });
@@ -3991,4 +3992,164 @@ function exDownload(){
   // 고치던 칸이 있으면 먼저 저장되도록 포커스를 뺀 뒤 내려받는다
   if(document.activeElement) document.activeElement.blur();
   setTimeout(() => { location.href = `${_exBase()}/download?month=${_exYM}`; }, 300);
+}
+
+// ── OS별 EOS 현황 (routers/eos.py) ─────────────────────────────
+// 날짜 칸 값: "YYYY-MM-DD" / "Y"(종료, 날짜 모름) / "N"(미발표) / ""(해당 없음)
+let _eos = null, _eosCat = '전체', _eosSt = '', _eosUpAll = false;
+const EOS_ST = {
+  end:   {t: '지원 종료',     cls: 'b-red',    tip: '보안 업데이트까지 끝난 버전'},
+  ext:   {t: '연장 지원만',   cls: 'b-purple', tip: '일반 지원은 끝났고 유료 연장 지원 계약으로만 업데이트를 받는 버전'},
+  soon:  {t: '종료 임박',     cls: 'b-amber',  tip: '1년 안에 지원(EOL)이 끝나는 버전'},
+  maint: {t: '유지보수 단계', cls: 'b-blue',   tip: '일반 지원은 끝나고 보안·중요 업데이트만 나오는 버전'},
+  ok:    {t: '지원 중',       cls: 'b-green',  tip: '일반 지원 중인 버전'},
+};
+const EOS_F = {eoas: '일반 지원 종료', eol: '지원 종료 (EOL)', eoes: '연장 지원 종료'};
+const _eosIsDate = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '');
+function _eosDays(d){ return Math.round((new Date(d + 'T00:00:00') - new Date(_ymd(new Date()) + 'T00:00:00')) / 86400000); }
+function _eosSpan(days){
+  const m = Math.round(days / 30.44);
+  if(m < 1) return `${days}일`;
+  const y = Math.floor(m / 12), mo = m % 12;
+  return y ? `${y}년${mo ? ' ' + mo + '개월' : ''}` : `${mo}개월`;
+}
+function eosStatus(r){
+  const today = _ymd(new Date());
+  const ended = r.eol === 'Y' || (_eosIsDate(r.eol) && r.eol < today);
+  if(ended) return _eosIsDate(r.eoes) && r.eoes >= today ? 'ext' : 'end';
+  if(_eosIsDate(r.eol) && _eosDays(r.eol) <= 365) return 'soon';
+  if(r.eoas === 'Y' || (_eosIsDate(r.eoas) && r.eoas < today)) return 'maint';
+  return 'ok';
+}
+function _eosLeft(r){
+  if(r.eol === 'N') return '<span class="eos-muted">미발표</span>';
+  if(r.eol === 'Y') return '<span class="eos-muted">종료</span>';
+  if(!_eosIsDate(r.eol)) return '<span class="eos-muted">-</span>';
+  const d = _eosDays(r.eol);
+  if(d < 0) return `<span class="eos-muted">${_eosSpan(-d)} 전 종료</span>`;
+  return d <= 90 ? `<b class="eos-dday">D-${d}</b>` : _eosSpan(d);
+}
+function _eosRecent(at){ return at && _eosDays(at) >= -30; }
+function _eosDate(r, f){
+  const v = r[f] || '', ch = (r.changes || {})[f];
+  const today = _ymd(new Date());
+  let html = v === '' ? '<span class="eos-muted">-</span>' : v === 'N' ? '<span class="eos-muted">미발표</span>'
+           : v === 'Y' ? '<span class="eos-muted">종료</span>' : `<span class="${v < today ? 'eos-past' : ''}">${esc(v)}</span>`;
+  if(ch && _eosRecent(ch.at)) html += ` <span class="eos-chg" title="${esc(ch.at)} 변경 · 이전 값: ${esc(ch.old)}">변경</span>`;
+  return html;
+}
+function _eosLink(u){ return /^https:\/\//.test(u || '') ? u : ''; }
+async function renderEos(){
+  try { _eos = await _apiSend('GET', '/api/eos'); }
+  catch(e){ $('eos-list').innerHTML = `<div class="empty" style="color:#dc2626">${esc(e.message)}</div>`; return; }
+  $('eos-tabs').innerHTML = ['전체', ..._eos.categories].map(c =>
+    `<button class="svh-tab${c === _eosCat ? ' active' : ''}" onclick="eosCat('${c}')">${c}</button>`).join('');
+  drawEos();
+}
+function eosCat(c){ _eosCat = c; _eosSt = ''; renderEos(); }
+function eosSt(k){ _eosSt = _eosSt === k ? '' : k; drawEos(); }
+function eosUpToggle(){ _eosUpAll = !_eosUpAll; drawEos(); }
+async function eosRefresh(btn){
+  btn.disabled = true; btn.textContent = '갱신 중…';
+  try {
+    const r = await _apiSend('POST', '/api/eos/refresh');
+    toast(r.failed.length ? `${r.ok}개 제품 갱신 · 실패: ${r.failed.join(', ')}` : `${r.ok}개 제품을 모두 갱신했습니다`);
+  } catch(e){ toast(e.message); }
+  renderEos();
+}
+function drawEos(){
+  const d = _eos; if(!d) return;
+  const today = _ymd(new Date());
+  const q = ($('eos-q').value || '').trim().toLowerCase();
+  const scope = $('eos-scope').value;
+  const prods = d.products.filter(p => _eosCat === '전체' || p.category === _eosCat);
+  const failed = d.products.filter(p => p.error);
+  $('eos-info').innerHTML = `
+    <div class="eos-info-t">
+      <b>제조사 공식 지원 종료일</b> · 매일 1회 자동 갱신 ·
+      마지막 갱신 <b>${esc(d.last_refresh ? d.last_refresh.slice(0, 16) : '없음')}</b>
+      ${failed.length ? `<span class="eos-err" title="${esc(failed.map(p => p.label + ': ' + p.error).join('\n'))}">갱신 실패 ${failed.length}개 제품 — 마지막으로 받은 값을 표시 중</span>` : ''}
+      <div class="eos-info-s">자료: endoflife.date 오픈 데이터(제조사 발표 기준) · Microsoft 수명 주기 페이지(Hyper-V) · HPE 발표(HP-UX, 수동). 제품마다 <b>공식 정책 ↗</b> 링크로 원문을 확인할 수 있습니다.</div>
+    </div>
+    <button class="btn" onclick="eosRefresh(this)"${d.refreshing ? ' disabled' : ''}>${d.refreshing ? '갱신 중…' : '지금 갱신'}</button>`;
+  if(!d.products.length){
+    $('eos-sum').innerHTML = ''; $('eos-up').innerHTML = '';
+    $('eos-list').innerHTML = '<div class="empty doc-empty">아직 받은 정보가 없습니다.<br><b>지금 갱신</b>을 누르면 바로 받아 옵니다.</div>';
+    return;
+  }
+  // 검색 + 표시 범위 (상태 필터 전)
+  const base = [];
+  prods.forEach(p => p.releases.forEach(r => {
+    const st = eosStatus(r);
+    if(q && ![p.label, p.key, r.label, r.cycle, r.latest].some(v => (v || '').toLowerCase().includes(q))
+         && !(p.label + ' ' + r.cycle).toLowerCase().includes(q)) return;
+    if(scope === 'active' && st === 'end') return;
+    if(scope === 'recent' && st === 'end'){
+      const last = [r.eol, r.eoes].filter(_eosIsDate).sort().pop();
+      if(!last || _eosDays(last) < -365 * 3) return;
+    }
+    base.push({p, r, st});
+  }));
+  const cnt = k => base.filter(x => x.st === k).length;
+  $('eos-sum').innerHTML = ['end', 'ext', 'soon', 'maint', 'ok'].map(k => {
+    const n = cnt(k);
+    return `<div class="wr-sum-i st-f${n ? '' : ' zero'}${_eosSt === k ? ' on' : ''}${k === 'end' ? ' red' : k === 'soon' ? ' amber' : ''}"
+      title="${EOS_ST[k].tip} — 누르면 이 상태만 봅니다" onclick="${n || _eosSt === k ? `eosSt('${k}')` : ''}"><span>${EOS_ST[k].t}</span><b>${n}</b></div>`;
+  }).join('');
+  // 앞으로 12개월 안의 지원 종료 (분류만 반영)
+  const ev = [];
+  prods.forEach(p => p.releases.forEach(r => ['eoas', 'eol', 'eoes'].forEach(f => {
+    const v = r[f];
+    if(!_eosIsDate(v) || v < today || _eosDays(v) > 365) return;
+    if(f === 'eoas' && v === r.eol) return;            // 일반·EOL 이 같은 날이면 EOL 만
+    ev.push({v, f, p, r});
+  })));
+  ev.sort((a, b) => a.v.localeCompare(b.v) || a.p.label.localeCompare(b.p.label));
+  const evShow = _eosUpAll ? ev : ev.slice(0, 6);
+  $('eos-up').innerHTML = `
+    <div class="eos-up-h">앞으로 12개월 안에 끝나는 지원 <span>${ev.length}건</span>
+      ${ev.length > 6 ? `<button class="eos-more" onclick="eosUpToggle()">${_eosUpAll ? '접기' : `모두 보기 (${ev.length})`}</button>` : ''}</div>
+    ${ev.length ? `<table class="lab-tbl eos-up-tbl"><colgroup><col style="width:110px"><col style="width:80px"><col style="width:26%"><col><col style="width:150px"></colgroup>
+      <thead><tr><th>날짜</th><th>남은 날</th><th>제품</th><th>버전</th><th>구분</th></tr></thead><tbody>
+      ${evShow.map(e => { const n = _eosDays(e.v); return `<tr>
+        <td class="mono">${esc(e.v)}</td><td class="${n <= 90 ? 'eos-dday' : ''}">D-${n}</td>
+        <td>${esc(e.p.label)}</td><td>${esc(e.r.label)}</td>
+        <td><span class="badge ${e.f === 'eol' ? 'b-red' : e.f === 'eoes' ? 'b-purple' : 'b-blue'}">${EOS_F[e.f]}</span></td></tr>`; }).join('')}
+      </tbody></table>` : '<div class="eos-up-none">12개월 안에 지원이 끝나는 버전이 없습니다</div>'}`;
+  // 제품별 표
+  const rows = _eosSt ? base.filter(x => x.st === _eosSt) : base;
+  const byP = new Map();
+  rows.forEach(x => { if(!byP.has(x.p)) byP.set(x.p, []); byP.get(x.p).push(x); });
+  if(!byP.size){ $('eos-list').innerHTML = '<div class="empty doc-empty">조건에 맞는 버전이 없습니다</div>'; return; }
+  const srcTxt = p => p.source === 'manual' ? '수동 입력 · 자동 갱신 안 됨'
+    : `${p.source === 'microsoft' ? 'Microsoft 공식 페이지' : 'endoflife.date'} · ${esc((p.fetched_at || '').slice(5, 16))} 갱신`;
+  $('eos-list').innerHTML = [...byP.entries()].map(([p, list]) => {
+    const t = p.terms || {}, link = _eosLink(p.policy_link);
+    const terms = ['eoas', 'eol', 'eoes'].filter(f => t[f]).map(f => `${EOS_F[f]} = ${esc(t[f])}`).join(' · ');
+    return `<div class="eos-prod">
+      <div class="eos-ph">
+        <span class="eos-pn">${esc(p.label)}</span><span class="badge b-gray">${esc(p.category)}</span>
+        <span class="eos-cnt">${list.length} / ${p.releases.length}개 버전</span>
+        <span style="flex:1"></span>
+        ${p.error ? `<span class="eos-err" title="${esc(p.error)}">갱신 실패 — 이전 값</span>` : ''}
+        <span class="eos-src">${srcTxt(p)}</span>
+        ${link ? `<a class="eos-link" href="${esc(link)}" target="_blank" rel="noopener noreferrer">공식 정책 ↗</a>` : ''}
+      </div>
+      <div class="eos-tw"><table class="lab-tbl eos-tbl">
+        <colgroup><col><col style="width:104px"><col style="width:150px"><col style="width:132px"><col style="width:132px"><col style="width:132px"><col style="width:120px"><col style="width:112px"></colgroup>
+        <thead><tr><th>버전</th><th>출시일</th><th>최신 릴리스</th><th>${EOS_F.eoas}</th><th class="eos-key">${EOS_F.eol}</th><th>${EOS_F.eoes}</th><th>남은 기간 (EOL)</th><th>상태</th></tr></thead>
+        <tbody>${list.map(({r, st}) => { const ll = _eosLink(r.link); return `<tr class="eos-r-${st}">
+          <td><span class="eos-ver">${esc(r.label)}</span>${r.lts && !/LTS/i.test(r.label) ? ' <span class="badge b-gray">LTS</span>' : ''}${_eosRecent(r.added_at) ? ' <span class="eos-new">신규</span>' : ''}
+            ${r.note ? `<div class="eos-note">${esc(r.note)}</div>` : ''}</td>
+          <td class="mono">${esc(r.release_date) || '<span class="eos-muted">-</span>'}</td>
+          <td class="mono">${r.latest ? (ll ? `<a href="${esc(ll)}" target="_blank" rel="noopener noreferrer">${esc(r.latest)}</a>` : esc(r.latest)) : '<span class="eos-muted">-</span>'}</td>
+          <td class="mono">${_eosDate(r, 'eoas')}</td>
+          <td class="mono eos-key">${_eosDate(r, 'eol')}</td>
+          <td class="mono">${_eosDate(r, 'eoes')}</td>
+          <td>${_eosLeft(r)}</td>
+          <td><span class="badge ${EOS_ST[st].cls}" title="${EOS_ST[st].tip}">${EOS_ST[st].t}</span></td>
+        </tr>`; }).join('')}</tbody></table></div>
+      ${terms || p.note ? `<div class="eos-legend">${terms ? '제조사 용어: ' + terms : ''}${terms && p.note ? '<br>' : ''}${esc(p.note)}</div>` : ''}
+    </div>`;
+  }).join('');
 }

@@ -78,6 +78,11 @@ uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `
   - 비밀번호 보기·복사(`GET /lab/accounts/{id}/password`)도 `lab_access_logs`에 kind '비밀번호 보기'로 남는다. 관리자는 `GET /lab/logs/all`(화면의 '모든 엔지니어의 기록 보기')로 전체 기록을 본다.
   - nginx 443 에 `X-Frame-Options SAMEORIGIN`·`X-Content-Type-Options nosniff`·`Referrer-Policy same-origin`. HSTS 는 자체 서명 인증서라 넣지 않는다(인증서 경고를 넘길 수 없게 되어 접속이 막힘).
   - 브라우저 라이브러리는 `static/vendor/`(xterm 5.3.0, xterm-addon-fit 0.8.0, guacamole-common-js 1.5.0 — 끝의 `module.exports` 를 떼어 낸 것)에 직접 보관, CDN 아님.
+- **OS별 EOS 현황** (`page-eos`, 지식 창고 그룹) = `routers/eos.py` (`/api/eos` — 엔지니어 공용 데이터라 `eng_id` 없음, 로그인만 필요).
+  OS·버전별 일반 지원 종료(`eoas`)·지원 종료(`eol`)·연장 지원 종료(`eoes`)를 `eos_products`/`eos_releases`에 저장. 대상 제품은 모듈의 `PRODUCTS`(분류 Windows/Linux/Unix/가상화).
+  자료: endoflife.date v1 API(대부분) / Microsoft 수명 주기 페이지 직접 파싱(Hyper-V Server, 종료 시각이 오전이면 전날) / `MANUAL`(HP-UX — HPE 사이트를 서버에서 못 읽어 직접 입력, 자동 갱신 안 됨).
+  `app.py`의 `_eos_loop`가 1시간마다 `refresh_due()`(마지막 성공 24시간 전 + 마지막 시도 1시간 전)를 보고 갱신. 실패한 제품은 이전 값 유지·`error` 표시. 날짜가 바뀌면 `changes`에 이전 값(화면 '변경' 30일), 새 버전은 `added_at`('신규').
+  날짜 칸 값: "YYYY-MM-DD" / "Y"(종료, 날짜 모름) / "N"(미발표) / ""(해당 없음). '지금 갱신'(`POST /api/eos/refresh`)은 5분 간격 제한.
 - 기존 "작업 현황/이력"(WorkLog, `/logs`) 메뉴와 "월간 보고서" 메뉴는 폐지. `/logs` API와 `worklogs` 테이블은 남아 있음.
 
 ## 아키텍처 규칙
