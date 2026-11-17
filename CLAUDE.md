@@ -142,6 +142,10 @@ uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `
 - 함수 네이밍: `renderXxx` (목록 렌더), `openAddXxx`/`openEditXxx` (모달), `saveXxx`, `deleteXxx`.
 - 외부 라이브러리는 CDN(cdnjs): marked(마크다운), highlight.js. JS 변경 후 캐시 무효화 필요 시 `app.js?v=N` 증가.
 
+## 문서 갱신 규칙
+- **기능을 추가·변경·삭제하면 같은 커밋에서 `README.md`도 고친다**: 1부(사용 안내)의 해당 메뉴 항목, 운영에 영향이 있으면 2부(설치·백업·문제 해결), 맨 아래 **변경 이력** 표 맨 위에 한 줄. 개발용 상세(API·테이블·규칙)는 이 `CLAUDE.md`에 쓴다.
+- README 는 GitHub 에 공개되므로 실명·내부 IP·계정·고객사 이름을 넣지 않는다.
+
 ## 주의 사항
 - `patch*.py`, `split_frontend.py`, `update_tasks.py`, `query_db*.py` 는 과거 일회성 수정 스크립트(절대경로 하드코딩) — 재실행 금지.
 - `*_bk` 파일은 백업본. 수정 대상 아님.
