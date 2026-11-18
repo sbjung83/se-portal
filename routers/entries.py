@@ -11,7 +11,7 @@
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from database import get_db, Site, Schedule, WorkPlan, CalendarEvent, Incident
+from database import get_db, Site, Schedule, WorkPlan, CalendarEvent, Incident, Device
 from routers.incidents import PartIn, clean_parts, load_parts
 from pydantic import BaseModel
 from typing import Optional, List
@@ -67,6 +67,7 @@ class EntryIn(BaseModel):
     action: Optional[str] = ""
     prevention: Optional[str] = ""
     inc_parts: Optional[List[PartIn]] = None   # 사용(교체) 파트
+    device_ids: Optional[List[str]] = None     # 대상 장비 (그 사이트의 장비 id). None = 기존 값 유지
 
 
 def _sites(db, eng_id):
@@ -94,7 +95,12 @@ def _from_incident(i: Incident, sites):
     for f in PLAN_FIELDS:
         d.setdefault(f, "")
     d.update(_inc_fields(i))
+    d["device_ids"] = split_ids(i.device_ids)
     return d
+
+
+def split_ids(v) -> list:
+    return [x for x in (v or "").split(",") if x]
 
 
 def _from_schedule(s: Schedule, plan, site_names: dict):
@@ -154,6 +160,7 @@ def get_entry(eng_id: str, entry_id: str, db: Session = Depends(get_db)):
     d.update(_inc_fields(inc))
     if inc:
         d["types"].append(INCIDENT)
+    d["device_ids"] = split_ids((sch.device_ids if sch else plan.device_ids) or (inc.device_ids if inc else ""))
     return d
 
 
@@ -218,6 +225,16 @@ def _save(db, eng_id: str, data: EntryIn, entry_id: Optional[str]):
         raise HTTPException(404, detail="일정을 찾을 수 없습니다")
     base_id = old_sch.id if old_sch else (old_plan.id if old_plan else None)     # 고치기 전 일정 id
 
+    # 대상 장비: 고른 사이트의 장비만. 안 보냈으면(None) 기존 값 유지, 사이트가 없으면 비움
+    if data.device_ids is None:
+        old = next((o.device_ids for o in (old_sch, old_plan, old_inc) if o is not None and o.device_ids), "")
+        dev_ids = [x for x in split_ids(old)]
+    else:
+        dev_ids = list(dict.fromkeys(x for x in data.device_ids if x))
+    devs = db.query(Device).filter(Device.site_id == site.id, Device.id.in_(dev_ids)).all() if (site and dev_ids) else []
+    dev_ids = [x for x in dev_ids if any(d.id == x for d in devs)]
+    dev_csv = ",".join(dev_ids)
+
     if is_check:
         sch = old_sch
         if sch is None:
@@ -225,6 +242,7 @@ def _save(db, eng_id: str, data: EntryIn, entry_id: Optional[str]):
             db.add(sch)
         sch.site_id, sch.title, sch.sched_date, sch.sched_type = site.id, title, day, sched_type
         sch.status, sch.memo, sch.extra_types = status, data.memo or "", ",".join(supports)
+        sch.device_ids = dev_csv
         plan = old_plan if old_sch else None            # 연동 레코드(id = 일정 id)
         if plan is None and (has_plan_vals or tm):
             plan = WorkPlan(id=sch.id, engineer_id=eng_id, purpose="", support_type="기술지원")
@@ -248,6 +266,7 @@ def _save(db, eng_id: str, data: EntryIn, entry_id: Optional[str]):
             db.add(plan)
         plan.title, plan.work_date, plan.site, plan.status = title, when, site_name, status
         plan.purpose, plan.support_type = data.memo or "", ",".join(supports)
+        plan.device_ids = dev_csv
         for f, v in plan_vals.items():
             setattr(plan, f, v)
         if old_sch is not None:                          # 점검 → 기술지원으로 옮김
@@ -264,6 +283,9 @@ def _save(db, eng_id: str, data: EntryIn, entry_id: Optional[str]):
             db.add(inc)
         inc.title = title if inc_only else ((data.inc_title or "").strip() or title)
         inc.site, inc.worker, inc.device = site_name, (data.worker or "").strip(), (data.inc_device or "").strip()
+        inc.device_ids = dev_csv
+        if not inc.device and devs:                      # 장애 장비 칸이 비었으면 고른 장비 이름으로
+            inc.device = ", ".join(d.name for d in devs if d.id in dev_ids)
         inc.severity = data.inc_severity or "보통"
         inc.status = "처리중" if recovered and (data.inc_status or "접수") == "접수" else (data.inc_status or "접수")
         inc.occurred_at, inc.recovered_at = occurred, recovered

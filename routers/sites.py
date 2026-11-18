@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 import uuid, os, shutil
+import eos_match
 
 router = APIRouter(prefix="/api/engineers/{eng_id}/sites", tags=["sites"])
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "uploads")
@@ -20,7 +21,8 @@ def list_sites(eng_id: str, db: Session = Depends(get_db)):
     sites = db.query(Site).filter(Site.engineer_id == eng_id).order_by(Site.name).all()
     today = datetime.now().strftime("%Y-%m-%d")
     ym    = today[:7]
-    return [{**_site_dict(s), **_site_status(s, today, ym)} for s in sites]
+    idx = eos_match.load_index(db)
+    return [{**_site_dict(s, idx), **_site_status(s, today, ym)} for s in sites]
 
 def _site_status(s, today, ym):
     """사이트 상태 요약 (미해결 이슈, 지연 점검, 이번 달 점검, 남은 체크리스트)"""
@@ -33,13 +35,15 @@ def _site_status(s, today, ym):
         "checklist_todo": sum(1 for c in s.checklists if not _cl_is_done(c)),
     }
 
-def _site_dict(s):
+def _site_dict(s, idx=None):
     expiring = sum(1 for d in s.devices
                    if _warranty_days(d.warranty) is not None and _warranty_days(d.warranty) <= 90)
+    # OS 지원 종료·임박 장비 수 (idx = eos_match.load_index, 없으면 계산하지 않음)
+    eos_cnt = sum(1 for d in s.devices if eos_match.device_alert(d, idx))
     return {
         "id": s.id, "name": s.name, "location": s.location,
         "manager": s.manager, "contact": s.contact, "memo": s.memo or "",
-        "device_count": len(s.devices), "expiring_count": expiring
+        "device_count": len(s.devices), "expiring_count": expiring, "eos_count": eos_cnt
     }
 
 def _get_valid_site(eng_id: str, site_id: str, db: Session):
@@ -130,11 +134,15 @@ def site_overview(eng_id: str, site_id: str, db: Session = Depends(get_db)):
         .order_by(WorkPlan.work_date.desc()).limit(5).all()
     incs = db.query(Incident).filter(Incident.engineer_id == eng_id, Incident.site == s.name) \
         .order_by(Incident.occurred_at.desc()).limit(5).all()
+    idx = eos_match.load_index(db)
+    eos = sorted(({"id": d.id, "name": d.name, "os": d.os, **m} for d in s.devices
+                  for m in [eos_match.device_alert(d, idx)] if m),
+                 key=lambda x: (x["eol"] if x["eol"][:1].isdigit() else "0"))
     warranty = sorted(({"id": d.id, "name": d.name, "warranty": d.warranty, "warranty_days": _warranty_days(d.warranty)}
                        for d in s.devices if _warranty_days(d.warranty) is not None and _warranty_days(d.warranty) <= 90),
                       key=lambda x: x["warranty_days"])
     return {
-        "site": _site_dict(s),
+        "site": _site_dict(s, idx),
         "today": today,
         "counts": {"devices": len(s.devices), "no_warranty": sum(1 for d in s.devices if not d.warranty),
                    "accesses": len(s.accesses), "reports": len(s.reports), "notes": len(s.notes)},
@@ -148,13 +156,15 @@ def site_overview(eng_id: str, site_id: str, db: Session = Depends(get_db)):
         "incidents": [{"id": i.id, "title": i.title, "occurred_at": i.occurred_at, "severity": i.severity,
                        "status": i.status, "entry_id": i.entry_id or ""} for i in incs],
         "warranty": warranty,
+        "eos": eos,
     }
 
 # ── Devices ────────────────────────────────────────────
 @router.get("/{site_id}/devices")
 def list_devices(eng_id: str, site_id: str, db: Session = Depends(get_db)):
     _get_valid_site(eng_id, site_id, db)
-    return [_dev_dict(d) for d in db.query(Device).filter(Device.site_id == site_id).all()]
+    idx = eos_match.load_index(db)
+    return [_dev_dict(d, idx) for d in db.query(Device).filter(Device.site_id == site_id).all()]
 
 class DeviceIn(BaseModel):
     name:      str
@@ -206,13 +216,56 @@ def delete_device(eng_id: str, site_id: str, dev_id: str, db: Session = Depends(
     site = db.query(Site).filter(Site.id == site_id).first()
     return {"ok": True, "site_device_count": len(site.devices) if site else 0}
 
-def _dev_dict(d):
+def _dev_dict(d, idx=None):
     return {
         "id": d.id, "name": d.name, "model": d.model, "serial_no": d.serial_no,
         "dev_type": d.dev_type, "os": d.os, "purchase": d.purchase,
         "warranty": d.warranty, "status": d.status, "memo": d.memo,
-        "warranty_days": _warranty_days(d.warranty)
+        "warranty_days": _warranty_days(d.warranty),
+        "eos": eos_match.match_os(d.os, idx) if idx else None,
     }
+
+@router.get("/{site_id}/devices/{dev_id}/history")
+def device_history(eng_id: str, site_id: str, dev_id: str, db: Session = Depends(get_db)):
+    """장비 한 대의 이력: 공통 입력 창에서 '대상 장비'로 고른 점검·기술지원·장애처리 +
+    (예전 기록) 같은 사이트 장애 중 장애 장비 칸에 장비 이름·S/N 이 있거나 파트의 S/N 이 이 장비 S/N 인 것."""
+    from routers.incidents import load_parts
+    s = _get_valid_site(eng_id, site_id, db)
+    dev = db.query(Device).filter(Device.id == dev_id, Device.site_id == site_id).first()
+    if not dev: raise HTTPException(404, detail="장비를 찾을 수 없습니다")
+    has = lambda v: dev_id in (v or "").split(",")
+    name, sn = (dev.name or "").strip().lower(), (dev.serial_no or "").strip().lower()
+    out, linked = [], set()
+    for x in db.query(Schedule).filter(Schedule.engineer_id == eng_id, Schedule.site_id == site_id).all():
+        if has(x.device_ids):
+            linked.add(x.id)
+            out.append({"date": x.sched_date or "", "kinds": ["점검"] + [t for t in (x.extra_types or "").split(",") if t],
+                        "title": x.title, "status": x.status, "open_id": x.id, "detail": x.memo or "", "parts": []})
+    for p in db.query(WorkPlan).filter(WorkPlan.engineer_id == eng_id, WorkPlan.site == s.name,
+                                       WorkPlan.id.startswith("wp-")).all():
+        if has(p.device_ids):
+            linked.add(p.id)
+            out.append({"date": p.work_date or "", "kinds": [t for t in (p.support_type or "기술지원").split(",") if t],
+                        "title": p.title, "status": p.status, "open_id": p.id, "detail": p.purpose or "", "parts": []})
+    for i in db.query(Incident).filter(Incident.engineer_id == eng_id, Incident.site == s.name).all():
+        parts = load_parts(i.parts)
+        txt = (i.device or "").lower()
+        legacy = (name and name in txt) or (sn and (sn in txt or any(sn in (str(q.get("old_sn", "")) + " " + str(q.get("new_sn", ""))).lower() for q in parts)))
+        if not (has(i.device_ids) or legacy):
+            continue
+        row = {"date": i.occurred_at or "", "kinds": ["장애처리"], "title": i.title, "status": i.status,
+               "severity": i.severity, "open_id": i.id, "detail": i.action or i.symptom or "",
+               "parts": [{k: q.get(k, "") for k in ("name", "part_no", "qty", "old_sn", "new_sn")} for q in parts],
+               "legacy": not has(i.device_ids)}
+        host = next((r for r in out if r["open_id"] == i.entry_id), None) if i.entry_id else None
+        if host:                                   # 일정과 함께 등록한 장애는 그 일정 줄에 합친다
+            host["kinds"].append("장애처리"); host["parts"] = row["parts"]; host["severity"] = i.severity
+            host["detail"] = host["detail"] or row["detail"]
+        else:
+            out.append(row)
+    out.sort(key=lambda r: r["date"], reverse=True)
+    return {"device": _dev_dict(dev, eos_match.load_index(db)), "items": out,
+            "parts_total": sum(len(r["parts"]) for r in out)}
 
 # ── Access ─────────────────────────────────────────────
 # 접속 정보는 로그인 세션(쿠키)의 엔지니어 본인만 접근 가능. 목록에는 비밀번호를 내려주지 않는다.

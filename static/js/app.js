@@ -11,6 +11,7 @@ let _allIssues=[], _allCLItems=[], _devChecklist={};
 
 // SVG 아이콘
 const ICO_EDIT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+const ICO_HIST = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>`;
 const ICO_DEL  = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>`;
 const ICO_CLOSE= `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
 
@@ -154,6 +155,40 @@ async function saveProfile(){
   closeModal('modal-profile');
   toast('내 정보를 저장했습니다');
 }
+// ── 아침 알림 설정 (routers/notify.py) ──
+const _ntBase = () => `/api/engineers/${ENG_ID}/notify`;
+function _ntShow(d){
+  $('nt-cur').textContent = d.has_webhook ? `· 저장됨: ${d.kind} (${d.webhook_host})` : '· 저장된 주소 없음';
+  $('nt-time').value = d.send_time; $('nt-weekdays').checked = d.weekdays_only; $('nt-enabled').checked = d.enabled;
+  $('nt-url').value = ''; $('nt-clear').checked = false; $('nt-mention').value = d.mention || '';
+  $('nt-last').textContent = d.last_result ? `마지막 결과: ${d.last_result}` : '';
+}
+async function openNotify(){
+  let d;
+  try { d = await _apiSend('GET', _ntBase()); } catch(e){ toast('알림 설정을 불러오지 못했습니다'); return; }
+  _ntShow(d); $('nt-err').textContent = '';
+  openModal('modal-notify');
+  $('nt-prev').textContent = '불러오는 중…';
+  try {
+    const p = await _apiSend('GET', _ntBase() + '/preview');
+    $('nt-prev').innerHTML = `<b>${esc(p.title)}</b>` + p.sections.map(x => `<div class="nt-sec"><b>${esc(x.head)}</b>${x.lines.map(l => `<div>• ${esc(l)}</div>`).join('')}</div>`).join('');
+  } catch(e){ $('nt-prev').textContent = '미리보기를 만들지 못했습니다: ' + e.message; }
+}
+async function saveNotify(silent){
+  const body = {send_time: $('nt-time').value || '08:00', weekdays_only: $('nt-weekdays').checked, enabled: $('nt-enabled').checked, mention: $('nt-mention').value.trim()};
+  const url = $('nt-url').value.trim();
+  if($('nt-clear').checked){ body.webhook = ''; body.enabled = false; }
+  else if(url) body.webhook = url;
+  try { _ntShow(await _apiSend('PUT', _ntBase(), body)); $('nt-err').textContent = ''; if(!silent) toast('알림 설정을 저장했습니다'); return true; }
+  catch(e){ $('nt-err').textContent = e.message; return false; }
+}
+async function notifyTest(){
+  if(!(await saveNotify(true))) return;     // 새로 넣은 주소·멘션을 먼저 저장
+  try { await _apiSend('POST', _ntBase() + '/test'); toast('시험 알림을 보냈습니다. 메신저를 확인해 주세요'); $('nt-err').textContent = '';
+        _ntShow(await _apiSend('GET', _ntBase())); }
+  catch(e){ $('nt-err').textContent = e.message; }
+}
+
 function openChangePw(){
   ['cp-cur','cp-new','cp-new2'].forEach(i=>$(i).value='');
   $('cp-err').textContent='';
@@ -250,6 +285,7 @@ async function renderDashboard(){
   renderDashWeek();
   renderDashIssues();
   renderDashWarranty();
+  renderDashEos();
   renderDashProjects();
 }
 // 대시보드를 열어 둔 채로 있어도 최신 내용이 보이도록: 1분마다, 그리고 다른 창에 갔다 돌아올 때 다시 불러온다
@@ -500,6 +536,46 @@ function renderDashProjects(){
   $('dash-projects').innerHTML = pj.active.length ? pj.active.map(p => row(p, false)).join('')
     : `<div class="empty" style="padding:10px 4px 12px">진행 중인 프로젝트가 없습니다</div>`
       + (pj.recent_done.length ? `<div class="dp-sub">최근 완료</div>${pj.recent_done.map(p => row(p, true)).join('')}` : '');
+}
+
+// 장비 OS ↔ OS별 EOS 현황 (서버 eos_match.py) — 상태 배지
+const EOS_DEV = {end: ['b-red', '지원 종료'], ext: ['b-purple', '연장 지원만'], soon: ['b-amber', '종료 임박']};
+function _eosTip(m){ return `${m.product_label} ${m.label} · 지원 종료(EOL) ${m.eol === 'Y' ? '종료됨' : m.eol === 'N' ? '미발표' : m.eol}${m.eoes ? ` · 연장 지원 ${m.eoes}` : ''}`; }
+function _eosBadge(m){
+  if(!m || !EOS_DEV[m.state]) return '';
+  const [cls, t] = EOS_DEV[m.state];
+  return `<span class="badge ${cls}" title="${esc(_eosTip(m))}">${m.state === 'soon' && m.days != null ? `EOL D-${m.days}` : t}</span>`;
+}
+// 제품 이름 + 버전 (버전에 제품 이름이 이미 들어 있으면 한 번만: 'IBM HMC' + 'HMC V10 R2')
+function _eosName(m){
+  const last = (m.product_label || '').split(' ').pop().toLowerCase();
+  return last && (m.label || '').toLowerCase().includes(last) ? `${m.product_label.replace(/\s*\S+$/, '')} ${m.label}`.trim() : `${m.product_label} ${m.label}`;
+}
+function renderDashEos(){
+  const all = _dashData?.eos_devices || [];
+  const n = k => all.filter(x => x.state === k).length;
+  $('dash-eos-card').style.display = all.length ? '' : 'none';
+  $('dash-eos-cnt').innerHTML = all.length
+    ? [`<span style="color:var(--slate-600)">${new Set(all.map(x=>x.site_id)).size}곳</span>`, n('end') + n('ext') ? `<span style="color:var(--red-600)">종료 ${n('end') + n('ext')}</span>` : '', n('soon') ? `<span style="color:var(--amber-600)">1년 이내 ${n('soon')}</span>` : '']
+        .filter(Boolean).join('<span class="sep">·</span>') : '';
+  // 사이트별로 묶고, 사이트 안에서는 같은 OS·버전끼리 한 줄(장비 이름을 이어서)
+  const rank = st => st === 'end' ? 0 : st === 'ext' ? 1 : 2;
+  const sites = {};
+  all.forEach(x => {
+    const g = sites[x.site_id] ||= {id: x.site_id, name: x.site_name, rows: {}, n: 0, ended: 0, worst: 9};
+    const k = x.product + '|' + x.cycle;
+    (g.rows[k] ||= {m: x, devs: []}).devs.push(x.name);
+    g.n++; if(x.state !== 'soon') g.ended++; g.worst = Math.min(g.worst, rank(x.state));
+  });
+  const list = Object.values(sites).sort((a,b) => a.worst - b.worst || b.n - a.n || a.name.localeCompare(b.name));
+  $('dash-eos').innerHTML = list.map(g => {
+    const rows = Object.values(g.rows).sort((a,b) => rank(a.m.state) - rank(b.m.state) || (a.m.eol||'').localeCompare(b.m.eol||''));
+    const tip = rows.map(r => `${_eosName(r.m)} (${_eosTip(r.m)}): ${r.devs.join(', ')}`).join('\n');
+    return `<div class="eos-site" title="${esc(tip)}\n— 눌러서 사이트 장비 보기" onclick="openSiteDetail('${g.id}','devices')">
+      <div class="eos-site-name"><span>${esc(g.name)}</span><em>${g.n}대</em></div>
+      <div class="eos-chips">${rows.map(r => `<span class="eos-chip ${r.m.state === 'soon' ? 'soon' : 'end'}">${esc(_eosName(r.m))}<b>${r.devs.length}</b></span>`).join('')}</div>
+    </div>`;
+  }).join('');
 }
 
 function renderDashWarranty(){
@@ -880,13 +956,13 @@ async function renderSites(){
   catch(e){ $('site-list').innerHTML = '<div class="empty" style="color:#dc2626">사이트 목록을 불러오지 못했습니다</div>'; return; }
   drawSites();
 }
-let _siteFilter = '';      // 요약 칸을 눌러 고른 조건: '' | open_issues | late_sched | checklist_todo | expiring_count
+let _siteFilter = '';      // 요약 칸을 눌러 고른 조건: '' | open_issues | late_sched | checklist_todo | expiring_count | eos_count
 function siteFilter(k){ _siteFilter = _siteFilter === k ? '' : k; drawSites(); }
 function drawSites(){
   const q = ($('site-search').value || '').trim().toLowerCase();
   const el = $('site-list');
   const sum = k => _sites.reduce((a, s) => a + (s[k] || 0), 0);
-  const FILTERS = [['open_issues','미해결 이슈','red'], ['late_sched','점검 지연','red'], ['checklist_todo','체크리스트 남음','amber'], ['expiring_count','워런티 만료 임박','amber']];
+  const FILTERS = [['open_issues','미해결 이슈','red'], ['late_sched','점검 지연','red'], ['checklist_todo','체크리스트 남음','amber'], ['expiring_count','워런티 만료 임박','amber'], ['eos_count','OS 지원 종료·임박','red']];
   $('site-summary').innerHTML =
       `<div class="wr-sum-i"><span>사이트</span><b>${_sites.length}</b></div>`
     + `<div class="wr-sum-i"><span>장비</span><b>${sum('device_count')}</b></div>`
@@ -908,6 +984,7 @@ function drawSites(){
         s.late_sched ? `<span class="badge b-red" title="날짜가 지난 미완료 점검">점검 지연 ${s.late_sched}</span>` : '',
         s.checklist_todo ? `<span class="badge b-amber" title="이번 주기에 남은 체크리스트">체크 ${s.checklist_todo}</span>` : '',
         s.expiring_count ? `<span class="badge b-amber" title="90일 이내 워런티 만료">워런티 ${s.expiring_count}</span>` : '',
+        s.eos_count ? `<span class="badge b-red" title="OS 지원 종료(EOL)·1년 안에 종료되는 장비 (OS별 EOS 현황 기준)">OS ${s.eos_count}</span>` : '',
       ].filter(Boolean).join(' ');
       return `<tr id="site-card-${s.id}" onclick="openSiteDetail('${s.id}')">
         <td><div class="wr-site">${esc(s.name)}</div>${s.memo ? `<div class="st-memo" title="${esc(s.memo)}">${esc(s.memo)}</div>` : ''}</td>
@@ -1078,6 +1155,10 @@ async function loadOverview(){
       <span class="ov-text">${esc(w.name)}</span><span style="font-size:11px;color:#94a3b8">${esc(w.warranty)}</span>
       <span class="badge ${w.warranty_days<=30?'b-red':'b-amber'}">${w.warranty_days<=0?`만료 ${-w.warranty_days}일`:'D-'+w.warranty_days}</span></div>`).join('');
 
+  const eos = (d.eos || []).map(x => `<div class="ov-row" style="cursor:pointer" onclick="_siteTab('devices')" title="${esc(_eosTip(x))}">
+      <span class="ov-text">${esc(x.name)}</span><span style="font-size:11px;color:var(--slate-400)">${esc(x.product_label)} ${esc(x.label)}</span>
+      ${_eosBadge(x)}</div>`).join('');
+
   const stat = (tab, label, n, warn='') => `<button class="ov-stat" onclick="_siteTab('${tab}')"><b>${n}</b>${label}${warn}</button>`;
   el.innerHTML = `
     <div class="ov-stats">
@@ -1096,6 +1177,7 @@ async function loadOverview(){
         ${card('dc-cl', '체크리스트', clBody, clTodo.length ? ` <span class="ov-cnt">${clTodo.length}</span>` : '')}
         ${card('dc-proj', '최근 기술지원 · 장애처리', svc)}
         ${warr ? card('dc-warr', '워런티 만료 임박', warr) : ''}
+        ${eos ? card('dc-issue', 'OS 지원 종료 · 임박', eos, ` <span class="ov-cnt">${d.eos.length}</span>`) : ''}
       </div>
     </div>`;
 }
@@ -1112,6 +1194,39 @@ async function ovToggleCL(id, checked){
 
 // ── Devices ───────────────────────────────
 let _siteDevs = [], _devType = '';
+// 장비 한 대의 이력 (GET /sites/{id}/devices/{dev}/history)
+let _devHistId = '';
+async function openDeviceHistory(devId){
+  _devHistId = devId;
+  const d0 = _siteDevs.find(x => x.id === devId);
+  $('dh-title').textContent = `장비 이력 - ${d0 ? d0.name : ''}`;
+  $('dh-info').innerHTML = ''; $('dh-list').innerHTML = '<div class="empty">불러오는 중…</div>';
+  openModal('modal-dev-history');
+  let r;
+  try { r = await api.get(`/api/engineers/${ENG_ID}/sites/${currentSiteId}/devices/${devId}/history`); }
+  catch(e){ $('dh-list').innerHTML = `<div class="empty" style="color:var(--red-600)">이력을 불러오지 못했습니다</div>`; return; }
+  if(_devHistId !== devId) return;
+  const d = r.device, it = r.items;
+  const info = [['유형', d.dev_type], ['모델', d.model], ['S/N', d.serial_no], ['OS', d.os ? esc(d.os) + (d.eos ? ' ' + (_eosBadge(d.eos) || `<span class="dev-muted" style="font-size:11px">EOL ${esc(d.eos.eol)}</span>`) : '') : ''],
+                ['워런티', d.warranty], ['상태', d.status]].filter(x => x[1]);
+  $('dh-info').innerHTML = info.map(([k, v]) => `<span><em>${k}</em>${k === 'OS' ? v : esc(v)}</span>`).join('')
+    + `<span><em>기록</em>${it.length}건${r.parts_total ? ` · 파트 교체 ${r.parts_total}줄` : ''}</span>`;
+  if(!it.length){
+    $('dh-list').innerHTML = `<div class="empty">아직 이 장비로 남긴 기록이 없습니다.<br><span class="dev-muted">점검·기술지원·장애처리를 등록할 때 입력 창의 <b>대상 장비</b>에서 이 장비를 고르면 여기에 쌓입니다.</span></div>`;
+    return;
+  }
+  const part = q => `<div class="dh-part">${esc(q.name || '파트')}${q.part_no ? ` <span class="mono">${esc(q.part_no)}</span>` : ''}${q.qty > 1 ? ` ×${q.qty}` : ''}${q.old_sn || q.new_sn ? ` · <span class="mono">${esc(q.old_sn || '?')} → ${esc(q.new_sn || '?')}</span>` : ''}</div>`;
+  $('dh-list').innerHTML = `<table class="dev-tbl dh-tbl"><colgroup><col style="width:96px"><col style="width:150px"><col><col style="width:30%"><col style="width:70px"></colgroup>
+    <thead><tr><th>날짜</th><th>구분</th><th>내용</th><th>사용 파트</th><th>상태</th></tr></thead><tbody>
+    ${it.map(x => `<tr class="clickable" onclick="closeModal('modal-dev-history');openEntry('${x.open_id}', undefined, ${x.kinds.includes('장애처리') ? "'report'" : 'undefined'})" title="눌러서 열기${x.legacy ? ' · 예전 기록: 장애 장비 칸의 이름·S/N 으로 찾음' : ''}">
+      <td>${esc((x.date || '').slice(0, 10))}</td>
+      <td><div class="svc-kind">${[...new Set(x.kinds)].map(k => _svcKind(k)).join('')}</div></td>
+      <td class="dev-name" style="white-space:normal">${esc(x.title)}${x.detail ? `<div class="wp-purpose">${esc(x.detail)}</div>` : ''}</td>
+      <td>${x.parts.length ? x.parts.map(part).join('') : '<span class="dev-muted">-</span>'}</td>
+      <td><span class="badge ${INC_ST_CLS[x.status] || (x.status === '완료' ? 'b-green' : 'b-gray')}">${esc(x.status)}</span></td>
+    </tr>`).join('')}</tbody></table>`;
+}
+
 async function loadDevices(){
   const sid = currentSiteId;
   const devs = await api.get(`/api/engineers/${ENG_ID}/sites/${sid}/devices`);
@@ -1151,13 +1266,14 @@ function drawDevices(){
   const sCls={'점검중':'b-amber','교체예정':'b-red','철수':'b-gray'};
   const cell = (v, cls='') => `<td class="${cls}" title="${esc(v||'')}">${v ? esc(v) : '<span class="dev-muted">-</span>'}</td>`;
   el.innerHTML=`<div class="dev-wrap"><table class="dev-tbl">
-    <colgroup><col style="width:19%"><col style="width:8%"><col style="width:17%"><col style="width:15%"><col style="width:13%"><col style="width:9%"><col style="width:13%"><col style="width:62px"></colgroup>
+    <colgroup><col style="width:19%"><col style="width:8%"><col style="width:17%"><col style="width:15%"><col style="width:13%"><col style="width:9%"><col style="width:13%"><col style="width:92px"></colgroup>
     <thead><tr><th>장비명</th><th>유형</th><th>모델</th><th>OS</th><th>S/N</th><th>워런티</th><th>메모</th><th></th></tr></thead><tbody>
     ${list.map(d=>`<tr class="clickable" onclick="openEditDevice('${d.id}')">
       <td class="dev-name" title="${esc(d.name)}">${esc(d.name)}${d.status && d.status!=='운영중' ? ` <span class="badge ${sCls[d.status]||'b-gray'}">${esc(d.status)}</span>` : ''}</td>
-      ${cell(d.dev_type)}${cell(d.model)}${cell(d.os)}${cell(d.serial_no,'mono')}
+      ${cell(d.dev_type)}${cell(d.model)}<td title="${esc(d.eos ? d.os + ' — ' + _eosTip(d.eos) : d.os || '')}">${d.os ? esc(d.os) : '<span class="dev-muted">-</span>'}${_eosBadge(d.eos) ? '<br>' + _eosBadge(d.eos) : ''}</td>${cell(d.serial_no,'mono')}
       <td>${wBadge(d)}</td>${cell(d.memo,'dev-memo')}
       <td class="dev-act" onclick="event.stopPropagation()">
+        <button class="icon-btn hist" title="이력 보기 (점검 · 기술지원 · 장애 · 파트 교체)" onclick="openDeviceHistory('${d.id}')">${ICO_HIST}</button>
         <button class="icon-btn edit" title="수정" onclick="openEditDevice('${d.id}')">${ICO_EDIT}</button>
         <button class="icon-btn del"  title="삭제" onclick="deleteDevice('${d.id}')">${ICO_DEL}</button>
       </td>
@@ -1793,7 +1909,32 @@ function entrySiteChanged(){
   const manual = $('wp-site').value === ENTRY_SITE_MANUAL;
   $('wp-site-manual').style.display = manual ? '' : 'none';
   if(manual && !$('wp-site-manual').value) $('wp-site-manual').focus();
+  _entryLoadDevs(manual ? '' : $('wp-site').value);
 }
+// 대상 장비: 고른 사이트의 장비를 눌러서 고른다 (장비별 이력 — routers/sites.py device_history)
+let _entryDevs = [], _entryDevSel = new Set(), _entryDevSite = '';
+async function _entryLoadDevs(siteId, keep){
+  if(!keep) _entryDevSel = new Set();
+  _entryDevSite = siteId; _entryDevs = [];
+  $('wp-dev-q').value = '';
+  if(siteId){
+    try { _entryDevs = await api.get(`/api/engineers/${ENG_ID}/sites/${siteId}/devices`); } catch(e){ _entryDevs = []; }
+    if(_entryDevSite !== siteId) return;            // 그 사이 다른 사이트를 골랐으면 버림
+    _entryDevs.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko', {numeric: true}));
+  }
+  $('wp-dev-row').style.display = _entryDevs.length ? '' : 'none';
+  $('wp-dev-q').style.display = _entryDevs.length > 12 ? '' : 'none';
+  _entryDrawDevs();
+}
+function _entryDrawDevs(){
+  const q = $('wp-dev-q').value.trim().toLowerCase();
+  const list = _entryDevs.filter(d => _entryDevSel.has(d.id) || !q || [d.name, d.model, d.serial_no, d.os].some(v => (v || '').toLowerCase().includes(q)));
+  $('wp-devs').innerHTML = list.map(d => `<button type="button" class="en-dev${_entryDevSel.has(d.id) ? ' on' : ''}" onclick="entryDevToggle('${d.id}')"
+      title="${esc([d.model, d.serial_no && 'S/N ' + d.serial_no, d.os].filter(Boolean).join(' · '))}">${esc(d.name)}</button>`).join('')
+    || '<span class="en-hint" style="margin:0">찾는 장비가 없습니다</span>';
+  $('wp-dev-cnt').textContent = _entryDevSel.size ? `${_entryDevSel.size}대 선택` : '';
+}
+function entryDevToggle(id){ _entryDevSel.has(id) ? _entryDevSel.delete(id) : _entryDevSel.add(id); _entryDrawDevs(); }
 function _entryTypes(){ return [...document.querySelectorAll('#wp-types input:checked')].map(c => c.value); }
 let _entryTab = '';          // 펼쳐 놓은 탭 ('' = 접힘 | plan | report)
 let _entryHadInc = false;    // 직전에 '장애처리'가 체크되어 있었는지
@@ -1918,6 +2059,8 @@ async function openEntry(id, types = ['기술지원'], tab){
     + `<option value="${ENTRY_SITE_MANUAL}" ${manualName ? 'selected' : ''}>✎ 직접 입력 (목록에 없는 사이트)</option>`;
   $('wp-site-manual').value = manualName;
   $('wp-site-manual').style.display = manualName ? '' : 'none';
+  _entryDevSel = new Set(e.device_ids || []);
+  _entryLoadDevs(e.site_id || '', true);
   $('wp-title').value = e.title;
   $('wp-day').value = e.day; $('wp-time').value = e.time || '';
   $('wp-sched-type').value = e.sched_type || '월간';
@@ -1967,6 +2110,7 @@ function _entryPayload(){
     inc_occurred_at: incOnly ? '' : $('inc-occurred').value, inc_recovered_at: $('inc-recovered').value,     // 장애만이면 발생 = 위의 날짜·시간
     symptom: $('inc-symptom').value, cause: $('inc-cause').value, action: $('inc-action').value, prevention: $('inc-prevention').value,
     inc_parts: incGetParts(),
+    device_ids: manual ? [] : [..._entryDevSel],
   };
 }
 

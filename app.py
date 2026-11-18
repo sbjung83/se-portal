@@ -5,7 +5,7 @@ from fastapi.requests import Request
 from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 from database import init_db
-from routers import auth, sites, logs, dashboard, schedules, issues, site_checklist, projects, technotes, development, incidents, reports, gcal, entries, lab, remote, leaves, carlog, carrepair, expenses, eos
+from routers import auth, sites, logs, dashboard, schedules, issues, site_checklist, projects, technotes, development, incidents, reports, gcal, entries, lab, remote, leaves, carlog, carrepair, expenses, eos, notify
 from routers.auth import require_login, require_admin
 import os, asyncio
 
@@ -20,9 +20,11 @@ async def lifespan(app: FastAPI):
     remote.close_stale_logs()
     task = asyncio.create_task(_calendar_loop())
     eos_task = asyncio.create_task(_eos_loop())
+    notify_task = asyncio.create_task(_notify_loop())
     yield
     task.cancel()
     eos_task.cancel()
+    notify_task.cancel()
 
 async def _calendar_loop():
     """구글 캘린더를 주기적으로 읽어 온다 (routers/gcal.py)."""
@@ -44,6 +46,16 @@ async def _eos_loop():
         except Exception:
             pass
         await asyncio.sleep(3600)
+
+async def _notify_loop():
+    """아침 알림: 1분마다 보낼 시각이 된 엔지니어에게 웹훅으로 보낸다 (routers/notify.py)."""
+    await asyncio.sleep(20)
+    while True:
+        try:
+            await asyncio.to_thread(notify.send_due)
+        except Exception:
+            pass
+        await asyncio.sleep(60)
 
 # API 문서(/docs, /redoc, /openapi.json)는 외부에 노출하지 않는다
 app = FastAPI(title="SE Portal", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
@@ -74,6 +86,7 @@ app.include_router(carlog.router, dependencies=_LOGIN)
 app.include_router(eos.router, dependencies=_LOGIN)        # 엔지니어 공용 데이터 (/api/eos)
 app.include_router(carrepair.router, dependencies=_LOGIN)
 app.include_router(expenses.router, dependencies=_LOGIN)
+app.include_router(notify.router, dependencies=_LOGIN)
 # 원격 접속(WebSocket)은 require_login 을 쓸 수 없어 라우터 안에서 세션 쿠키를 직접 확인한다
 app.include_router(remote.router)
 

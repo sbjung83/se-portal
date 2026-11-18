@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=74">
+<link rel="stylesheet" href="/static/css/style.css?v=82">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -71,6 +71,9 @@
         <button type="button" onclick="closeUserMenu();openProfile()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
           내 정보 수정
+        </button>
+        <button type="button" onclick="closeUserMenu();openNotify()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>아침 알림 설정
         </button>
         <button type="button" onclick="closeUserMenu();openChangePw()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>비밀번호 변경
@@ -227,6 +230,17 @@
             </summary>
             <div class="dash-card-body">
               <div id="dash-warranty" class="dash-scroll" style="max-height:300px"></div>
+            </div>
+          </details>
+
+          <!-- OS 지원 종료·임박 장비 (장비 OS 칸 ↔ OS별 EOS 현황) -->
+          <details class="card dash-card dc-issue dash-warr" id="dash-eos-card">
+            <summary class="dash-card-title">
+              <span>OS 지원 종료 <span id="dash-eos-cnt" class="dcl-summary"></span></span>
+              <span class="dash-warr-hint"></span>
+            </summary>
+            <div class="dash-card-body">
+              <div id="dash-eos" class="dash-scroll" style="max-height:440px"></div>
             </div>
           </details>
         </div>
@@ -1075,6 +1089,10 @@
           <input type="text" id="wp-site-manual" style="display:none;margin-top:6px" placeholder="고객사 / 사이트 이름을 직접 입력 (예: 다른 엔지니어 담당 사이트)"></div>
         <div class="form-row"><label>제목 *</label><input type="text" id="wp-title" placeholder="예: PM, vCenter 통합 작업"></div>
       </div>
+      <div class="form-row" id="wp-dev-row" style="display:none">
+        <div class="en-devhead"><label>대상 장비 <span class="en-hint">선택 · 고르면 장비별 이력에 남습니다</span><span class="en-devcnt" id="wp-dev-cnt"></span></label>
+          <input type="text" id="wp-dev-q" class="en-devq" placeholder="장비 찾기" oninput="_entryDrawDevs()"></div>
+        <div id="wp-devs" class="en-devs"></div></div>
       <div class="grid3">
         <div class="form-row"><label><span id="wp-day-lbl">날짜</span> *</label><input type="date" id="wp-day" onchange="entrySyncOccurred()"></div>
         <div class="form-row"><label><span id="wp-time-lbl">시간</span> <span class="en-hint">선택</span></label><input type="time" id="wp-time" onchange="entrySyncOccurred()"></div>
@@ -1181,6 +1199,44 @@
   </div>
 </div>
 
+<!-- 장비 이력 (장비 리스트의 이력 버튼) -->
+<div class="overlay" id="modal-dev-history">
+  <div class="modal modal-lg" style="width:900px">
+    <div class="modal-head"><div class="modal-title" id="dh-title">장비 이력</div><button class="btn btn-sm" onclick="closeModal('modal-dev-history')">✕</button></div>
+    <div class="dh-info" id="dh-info"></div>
+    <div class="dev-wrap" id="dh-list" style="max-height:60vh;overflow:auto"></div>
+  </div>
+</div>
+
+<!-- 아침 알림 설정 (routers/notify.py) -->
+<div class="overlay" id="modal-notify">
+  <div class="modal" style="width:560px">
+    <div class="modal-head"><div class="modal-title">아침 알림 설정</div><button class="btn btn-sm" onclick="closeModal('modal-notify')">✕</button></div>
+    <div class="cp-note" style="margin:0 0 12px">매일 정한 시각에 메신저(Slack · Teams · Google Chat · Discord 등) 채널의 <b>웹훅 주소</b>로
+      오늘·내일 일정, 지연 건, 미처리 장애, 워런티·OS 지원 종료 임박 장비를 요약해 보냅니다.</div>
+    <div class="form-row"><label>웹훅 주소 <span id="nt-cur" class="nt-cur"></span></label>
+      <input type="password" id="nt-url" placeholder="https://hooks.slack.com/services/... (비워 두면 지금 주소 그대로)" autocomplete="off">
+      <label class="nt-chk" style="margin-top:6px"><input type="checkbox" id="nt-clear"> 저장된 주소 지우기</label></div>
+    <div class="form-row"><label>멘션 <span class="nt-cur">· 핸드폰 알림이 뜨게 메시지 맨 앞에 붙임 (Slack: 프로필 → ⋮ → 멤버 ID 복사)</span></label>
+      <input type="text" id="nt-mention" placeholder="본인 Slack 멤버 ID (예: U0ABC1234) 추천 · @channel · @here · 비우면 멘션 없음" autocomplete="off"></div>
+    <div class="nt-row">
+      <div class="form-row"><label>보낼 시각</label><input type="time" id="nt-time" value="08:00"></div>
+      <label class="nt-chk"><input type="checkbox" id="nt-weekdays"> 평일(월~금)만</label>
+      <label class="nt-chk"><input type="checkbox" id="nt-enabled"> <b>알림 켜기</b></label>
+    </div>
+    <div class="nt-last" id="nt-last"></div>
+    <div class="auth-err" id="nt-err"></div>
+    <div class="nt-prev-h">지금 보내면 이렇게 갑니다</div>
+    <div class="nt-prev" id="nt-prev">불러오는 중…</div>
+    <div class="form-actions">
+      <button class="btn" onclick="notifyTest()" title="저장된 주소로 지금 한 번 보내 봅니다">시험 보내기</button>
+      <span style="flex:1"></span>
+      <button class="btn" onclick="closeModal('modal-notify')">닫기</button>
+      <button class="btn btn-primary" onclick="saveNotify()">저장</button>
+    </div>
+  </div>
+</div>
+
 <!-- 비밀번호 변경 -->
 <div class="overlay" id="modal-change-pw">
   <div class="modal" style="width:420px">
@@ -1248,6 +1304,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=109"></script>
+<script src="/static/js/app.js?v=116"></script>
 </body>
 </html>

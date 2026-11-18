@@ -147,6 +147,7 @@ class Schedule(Base):
     status      = Column(String, default="예정")   # 예정 / 완료
     memo        = Column(Text, default="")
     extra_types = Column(String, default="")        # 점검과 함께 한 지원 구분(쉼표로 이어 씀): 기술지원/납품/유선원격/이전/기타
+    device_ids  = Column(String, default="")        # 대상 장비 id (쉼표로 이어 씀) — 장비별 이력
     site        = relationship("Site", back_populates="schedules")
 
 # ── 사이트 이슈 ───────────────────────────────
@@ -204,6 +205,7 @@ class WorkPlan(Base):
     rollback_plan = Column(Text, default="")
     status        = Column(String, default="예정")       # 예정 / 완료 (점검 일정과 같음)
     support_type  = Column(String, default="기술지원")   # 기술지원/납품/유선원격/이전/기타 — 여러 개면 쉼표로 이어 씀 (주간보고서 열 구분)
+    device_ids    = Column(String, default="")           # 대상 장비 id (쉼표로 이어 씀) — 장비별 이력
 
 # ── 장애처리 ─────────────────────────────────
 class Incident(Base):
@@ -225,6 +227,7 @@ class Incident(Base):
     created_at   = Column(String, default="")
     entry_id     = Column(String, default="")        # 함께 등록한 점검 일정/기술지원의 id (routers/entries.py). 비면 장애처리만 한 건
     parts        = Column(Text, default="")          # 사용(교체) 파트 JSON 목록: [{name, part_no, qty, old_sn, new_sn, note}]
+    device_ids   = Column(String, default="")        # 대상 장비 id (쉼표로 이어 씀) — 장비별 이력
 
 class LabServer(Base):
     """사내 테스트 서버 접속 정보 (routers/lab.py)."""
@@ -292,6 +295,18 @@ class LeaveRecord(Base):
     memo        = Column(Text, default="")
     apply_date  = Column(String, default="")       # 신청일 "YYYY-MM-DD" (휴가원 아래쪽 날짜)
     created_at  = Column(String, default="")       # "YYYY-MM-DD HH:MM"
+
+class NotifySetting(Base):
+    """아침 알림 (엔지니어당 1건): 메신저 웹훅으로 그날 확인할 것을 보낸다 (routers/notify.py)."""
+    __tablename__ = "notify_settings"
+    engineer_id   = Column(String, primary_key=True)
+    enabled       = Column(Boolean, default=False)
+    webhook       = Column(Text, default="")          # 웹훅 주소 (secure_store 로 암호화)
+    send_time     = Column(String, default="08:00")   # 보낼 시각 HH:MM
+    weekdays_only = Column(Boolean, default=True)     # 평일(월~금)만
+    last_sent     = Column(String, default="")        # 마지막으로 보낸 날 YYYY-MM-DD (하루 한 번)
+    last_result   = Column(String, default="")        # 마지막 결과 ("YYYY-MM-DD HH:MM 성공" / 오류 내용)
+    mention       = Column(String, default="")        # 메시지 맨 앞 멘션 (핸드폰 알림용): Slack 멤버 ID U… / @channel / @here
 
 class LeaveProfile(Base):
     """휴가원에 들어가는 내 정보 (엔지니어당 1건). 비어 있는 값은 양식에 적힌 그대로 둔다."""
@@ -532,6 +547,9 @@ def init_db():
     _ensure_column("users", "is_admin", "BOOLEAN DEFAULT 0")
     _ensure_column("incidents", "entry_id", "VARCHAR DEFAULT ''")
     _ensure_column("incidents", "parts", "TEXT DEFAULT ''")
+    _ensure_column("notify_settings", "mention", "VARCHAR DEFAULT ''")
+    for t in ("schedules", "workplans", "incidents"):
+        _ensure_column(t, "device_ids", "VARCHAR DEFAULT ''")
     _ensure_column("car_profiles", "driver_name", "VARCHAR DEFAULT ''")
     _ensure_column("car_profiles", "biz_no", "VARCHAR DEFAULT ''")
     _ensure_column("car_trips", "driver", "VARCHAR DEFAULT ''")

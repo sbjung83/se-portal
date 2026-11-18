@@ -28,7 +28,8 @@ journalctl -u se-portal -f
 app.py               FastAPI 진입점: 라우터 등록, /static 마운트, "/" → templates/index.html
 database.py          SQLAlchemy 엔진/세션(get_db), 전체 ORM 모델, init_db()
 routers/<도메인>.py   도메인별 APIRouter (auth, dashboard, sites, projects, logs,
-                     schedules, issues, site_checklist, technotes, development, incidents, reports, gcal, entries, lab, remote, leaves, carlog)
+                     schedules, issues, site_checklist, technotes, development, incidents, reports, gcal, entries, lab, remote, leaves, carlog, notify)
+eos_match.py         장비 OS 칸(자유 입력) → OS별 EOS 현황 제품·버전 맞추기 (sites·dashboard·notify 가 씀)
 templates/index.html SPA 전체 마크업 (모든 page-* 섹션과 modal-* 오버레이)
 static/js/app.js     프론트 로직 전체 (바닐라 JS, 프레임워크 없음)
 static/css/style.css 공통 스타일
@@ -92,6 +93,9 @@ uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `
 - **사이트 관리** (`page-sites`, `renderSites`/`drawSites`) = `routers/sites.py`. 목록 칸: 사이트 / 위치 / 담당자 / 연락처 / 장비 / 이번 달 점검(`month_sched` → `_stMonth`) / 확인할 것 / 관리. 상세 창(`modal-site-detail`, `openSiteDetail`)
   탭 = 개요 / 장비 리스트 / 접속 정보 / 점검표 파일 / 특이사항. 탭 이름 옆 건수는 `_siteTabCnt(key, n)`(`tcnt-*`). 장비·접속 정보·점검표 파일·특이사항은 같은 형식: 위 `dev-bar`(검색 칸 + 추가 버튼) + `dev-tbl` 표(`load*`가 받아 `draw*`가 검색 반영해 그림), 줄 클릭 = 수정 창, 관리 칸은 `dev-act`(표 칸 그대로, flex 금지 — 여러 줄 행에서 구분선이 어긋남).
   개요 카드는 `ov-card` + 대시보드 색 변수(`dc-week`/`dc-issue`/`dc-cl`/`dc-proj`/`dc-warr`). '최근 기술지원 · 장애처리'는 `_svcKind`로 구분 이름 표시, 기술지원과 함께 등록된 장애(overview `incidents[].entry_id`)는 그 기술지원 줄에 '장애처리'만 붙이고 따로 줄을 만들지 않는다.
+- **장비 OS ↔ EOS** (`eos_match.py`): `match_os(os, load_index(db))` 가 OS 글자에서 제품·버전을 찾아(ESXi `8.0`, AIX `7.2.5`·oslevel `7200-05-..`, HMC `V10 R2`, Windows Server 연도, RHEL/Rocky 주버전, Ubuntu `22.04` 등) `eos_releases` 와 맞추고 상태(end/ext/soon/maint/ok, 화면 `eosStatus()`와 같은 기준)를 준다. 버전을 모르면 None. 표에 없는 옛 AIX TL 은 같은 릴리스의 더 높은 TL 이 모두 종료면 종료로 본다. `device_alert(dev, idx)` = 철수 장비 제외, end/ext/soon 만. 장비 dict 의 `eos`, 사이트 `eos_count`('확인할 것' OS n·요약 칸), overview `eos`, 대시보드 `eos_devices`(`#dash-eos-card`, `renderDashEos`가 사이트 1줄 + 제품·cycle 배지 `eos-chip`(장비 이름은 title), `.dash-body` 는 minmax(0,…) 로 칸 비율 고정, 이름은 `_eosName`). 프론트 배지 `_eosBadge`/`_eosTip`.
+- **장비별 이력**: `schedules`·`workplans`·`incidents` 의 `device_ids`(쉼표로 이은 Device.id). 공통 입력 창의 '대상 장비'(`#wp-dev-row`, `_entryLoadDevs`/`_entryDevSel`, 사이트의 장비만 저장, 보내지 않으면 기존 값 유지, 장애 장비 칸이 비면 장비 이름으로 채움). `GET /sites/{id}/devices/{dev}/history` = device_ids 로 고른 기록 + 예전 장애(장애 장비 칸에 이름·S/N, 파트 S/N 일치 → `legacy`). 일정과 함께 등록한 장애는 그 일정 줄에 합침. 화면 `openDeviceHistory`(`modal-dev-history`), 줄 클릭 = `openEntry`.
+- **아침 알림** (`routers/notify.py`, 계정 메뉴 '아침 알림 설정' `modal-notify`): `notify_settings`(엔지니어당 1건, 웹훅 `secure_store` 암호화, `send_time`, `weekdays_only`, `last_sent`, `last_result`). `app.py` `_notify_loop` 1분마다 `send_due()` — 시각이 지났고 오늘 안 보냈으면 보냄(실패해도 그날은 다시 안 보냄). 내용 `build_digest`(오늘·내일·지연 일정, 미처리 장애, 워런티 30일, OS EOL 90일, 미해결 이슈·이미 종료 장비 수). 형식은 주소로 고름 `hook_kind`(Slack/Discord/Google Chat/Teams MessageCard/Teams 워크플로 Adaptive Card/그 밖 `{"text"}`). https 만, `remote.blocked_target` 으로 내부 주소 거부. `GET /notify/preview`, `POST /notify/test`. `notify_settings.mention`(`clean_mention`: Slack 멤버 ID `U…`/`W…`, `@channel`, `@here`, Discord 숫자 ID) → `mention_tag`가 메신저별 글자(Slack `<@U…>`/`<!channel>`/`<!here>`, Discord, Google Chat `<users/all>`, Teams 는 없음)로 제목 앞에 붙인다 — 멘션 없는 웹훅 글은 Slack 기본 설정에서 핸드폰 푸시가 안 뜨기 때문.
 - **사이트 체크리스트** (`page-checklist`, `drawChecklist`) = 테두리 표(`#page-checklist` 범위 CSS로 사이트 관리와 같은 선 색). 마감 칸은 `_clDue`(D-n)만, 날짜는 title. 체크리스트 없는 사이트는 `<details class="cl-nosite">`(펼침 상태 `_clNoSiteOpen`).
 - 기존 "작업 현황/이력"(WorkLog, `/logs`) 메뉴와 "월간 보고서" 메뉴는 폐지. `/logs` API와 `worklogs` 테이블은 남아 있음.
 

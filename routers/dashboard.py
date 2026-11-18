@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from database import get_db, Site, Device, Schedule, Issue, WorkPlan, Incident, Project
 from datetime import datetime, timedelta
 from routers.technotes import support_only
+import eos_match
 
 router = APIRouter(prefix="/api/engineers/{eng_id}/dashboard", tags=["dashboard"])
 
@@ -44,6 +45,16 @@ def get_dashboard(eng_id: str, db: Session = Depends(get_db)):
                 "site_id": d.site_id, "site_name": site.name if site else ""
             })
     expiring.sort(key=lambda x: x["warranty_days"])
+    # OS 지원 종료·임박 장비 (OS별 EOS 현황과 장비 OS 칸을 맞춘 결과)
+    idx = eos_match.load_index(db)
+    eos_devices = []
+    for d in all_devices:
+        m = eos_match.device_alert(d, idx)
+        if m:
+            site = site_by_id.get(d.site_id)
+            eos_devices.append({"id": d.id, "name": d.name, "os": d.os, "site_id": d.site_id,
+                                "site_name": site.name if site else "", **m})
+    eos_devices.sort(key=lambda x: (x["eol"] if x["eol"][:1].isdigit() else "0", x["site_name"], x["name"]))
 
     # ── 이번 주 / 다음 주 할 일 (주는 월~일, 지난 미완료 포함) ──
     now      = datetime.now()
@@ -83,6 +94,7 @@ def get_dashboard(eng_id: str, db: Session = Depends(get_db)):
         "issues":     [_iss(i, sites) for i in open_issues],   # 전체
         "issues_all": [_iss(i, sites) for i in open_issues],   # 명시적 전체 키
         "expiring_warranties": expiring,
+        "eos_devices": eos_devices,
         "projects": _projects(db, eng_id),
         "week": {
             "today": today, "this_start": this_start, "this_end": this_end, "end": week_end,
