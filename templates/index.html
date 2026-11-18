@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=61">
+<link rel="stylesheet" href="/static/css/style.css?v=62">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -646,34 +646,40 @@
     </div>
     <div class="tabs">
       <div class="tab active" data-dtab="overview">개요</div>
-      <div class="tab" data-dtab="devices">장비 리스트</div>
-      <div class="tab" data-dtab="access">접속 정보</div>
-      <div class="tab" data-dtab="reports">점검표 파일</div>
-      <div class="tab" data-dtab="notes">특이사항</div>
+      <div class="tab" data-dtab="devices">장비 리스트<span class="tab-cnt" id="tcnt-devices"></span></div>
+      <div class="tab" data-dtab="access">접속 정보<span class="tab-cnt" id="tcnt-access"></span></div>
+      <div class="tab" data-dtab="reports">점검표 파일<span class="tab-cnt" id="tcnt-reports"></span></div>
+      <div class="tab" data-dtab="notes">특이사항<span class="tab-cnt" id="tcnt-notes"></span></div>
     </div>
     <div class="tab-pane active" id="dtab-overview"><div id="site-overview"></div></div>
     <div class="tab-pane" id="dtab-devices">
       <div class="dev-bar">
         <input type="text" id="dev-search" placeholder="장비명, 모델, S/N, OS 검색...">
         <div class="svh-tabs" id="dev-type-tabs"></div>
-        <button class="btn btn-sm" onclick="openModal('modal-add-device')">+ 장비 추가</button>
+        <button class="btn btn-sm btn-primary" onclick="openModal('modal-add-device')">+ 장비 추가</button>
       </div>
       <div id="device-table"></div>
     </div>
     <div class="tab-pane" id="dtab-access">
-      <div class="sec-head"><span class="sec-label">접속 정보</span><button class="btn btn-sm" onclick="openAddAccess()">+ 추가</button></div>
+      <div class="dev-bar">
+        <input type="text" id="acc-search" placeholder="구분, IP, 계정, 메모 검색..." oninput="drawAccesses()">
+        <button class="btn btn-sm btn-primary" onclick="openAddAccess()">+ 접속 정보 추가</button>
+      </div>
       <div id="access-table"></div>
     </div>
     <div class="tab-pane" id="dtab-reports">
-      <div class="sec-head"><span class="sec-label">점검표 파일</span></div>
-      <div style="margin-bottom:10px">
+      <div class="dev-bar">
+        <input type="text" id="rep-search" placeholder="파일명 검색..." oninput="drawReports()">
         <input type="file" id="file-input" style="display:none" onchange="uploadReport(event)">
-        <button class="btn" onclick="document.getElementById('file-input').click()">↑ 파일 업로드</button>
+        <button class="btn btn-sm btn-primary" onclick="document.getElementById('file-input').click()">↑ 파일 업로드</button>
       </div>
       <div id="report-table"></div>
     </div>
     <div class="tab-pane" id="dtab-notes">
-      <div class="sec-head"><span class="sec-label">특이사항</span><button class="btn btn-sm" onclick="openAddNote()">+ 추가</button></div>
+      <div class="dev-bar">
+        <input type="text" id="note-search" placeholder="제목, 내용 검색..." oninput="drawNotes()">
+        <button class="btn btn-sm btn-primary" onclick="openAddNote()">+ 특이사항 추가</button>
+      </div>
       <div id="notes-list"></div>
     </div>
   </div>
@@ -1241,6 +1247,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=103"></script>
+<script src="/static/js/app.js?v=104"></script>
 </body>
 </html>

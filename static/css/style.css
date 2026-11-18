@@ -1129,3 +1129,48 @@ tr.done .inc-down{color:#64748b}
 .svc-kind{display:flex;flex-wrap:wrap;gap:4px;justify-content:center}
 .svc-kind .badge{margin:0}
 .cl-act .ph{visibility:hidden}
+
+/* ── 사이트 상세 창: 탭 건수 · 표 통일 (장비/접속 정보/점검표 파일/특이사항) ── */
+.tab-cnt{margin-left:5px;font-size:11px;font-weight:600;color:#94a3b8}
+.tab-cnt:empty{display:none}
+.tab.active .tab-cnt{color:#378ADD}
+.dev-tbl .dev-act{display:table-cell;overflow:visible;text-align:right;white-space:nowrap}
+.dev-tbl .dev-act .icon-btn{vertical-align:middle}
+.dev-tbl .dev-act .icon-btn+.icon-btn,.dev-tbl .dev-act .btn+.icon-btn{margin-left:2px}
+.dev-tbl .dev-act .btn{padding:3px 8px;font-size:11.5px;text-decoration:none;vertical-align:middle}
+.dev-tbl tbody tr.clickable{cursor:pointer}
+.dev-tbl td{height:34px;box-sizing:border-box}
+.acc-tbl td{vertical-align:top;padding-top:8px;padding-bottom:7px}
+.acc-tbl td.dev-act{padding-top:5px}
+.acc-tbl .pw-cell{font-family:monospace;font-size:11.5px;margin-right:4px}
+.acc-tbl .pw-btn{padding:2px 7px;font-size:11px}
+.acc-tbl .acc-memo,.dev-tbl .note-wrap{white-space:pre-wrap;overflow:visible;text-overflow:clip;word-break:break-word;color:#64748b;line-height:1.5}
+.note-tbl td{vertical-align:top;padding-top:8px;padding-bottom:8px}
+.note-tbl .dev-name.note-wrap{color:#0f172a}
+
+/* 사이트 상세 개요 카드: 대시보드 카드처럼 왼쪽 색 막대 + 옅은 제목 띠 (색은 dc-* 변수) */
+.ov-card{padding:0;overflow:hidden;border-color:#e2e8f0}
+.ov-card .ov-title{margin:0;padding:8px 12px 8px 10px;background:var(--dc-bg,#f8fafc);border-bottom:1px solid var(--dc-line,#eef0f4);border-left:4px solid var(--dc,#cbd5e1)}
+.ov-body{padding:4px 12px 8px}
+.ov-kinds{display:inline-flex;gap:3px;flex-shrink:0}
+.ov-kinds .badge{font-size:10px}
+
+/* 사이트 목록: 이번 달 점검 칸 */
+.st-ms{font-size:12px;font-weight:700;color:#b45309;white-space:nowrap}
+.st-ms.ok{color:#16a34a}
+
+/* 사이트 체크리스트: 사이트 관리 화면과 같은 테두리 표 형식 */
+#page-checklist .cl-sum,#page-checklist .cl-toolbar,#page-checklist .cl-panel{border-radius:0;border-color:#c3ccd9}
+#page-checklist .cl-table th{background:#eef2f7;color:#334155;font-weight:700;border-bottom:1px solid #c3ccd9}
+#page-checklist .cl-table td{border-bottom:1px solid #d5dce6}
+#page-checklist .cl-table td+td,#page-checklist .cl-table th+th{border-left:1px solid #d5dce6}
+#page-checklist .cl-table tr.cl-grp td{background:#f8fafc;border-top:1px solid #c3ccd9;border-bottom:1px solid #c3ccd9}
+#page-checklist .cl-due-cell .dcl-due{margin-left:0;font-size:12px}
+.cl-nosite{padding:0}
+.cl-nosite>summary{list-style:none;cursor:pointer;margin:0;padding:10px 14px;display:flex;align-items:center}
+.cl-nosite>summary::-webkit-details-marker{display:none}
+.cl-nosite>summary::before{content:'▸';font-size:11px;color:#64748b;margin-right:8px}
+.cl-nosite[open]>summary::before{content:'▾'}
+.cl-nosite>summary:hover{background:#f8fafc}
+.cl-nosite[open]>summary{border-bottom:1px solid #d5dce6}
+.cl-nosite .cl-nosite-list{padding:12px 14px}

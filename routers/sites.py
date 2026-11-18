@@ -143,9 +143,10 @@ def site_overview(eng_id: str, site_id: str, db: Session = Depends(get_db)):
         "issues": [{"id": i.id, "title": i.title, "body": i.body or "", "severity": i.severity, "status": i.status,
                     "created_at": i.created_at, "site_id": i.site_id, "site_name": s.name} for i in issues],
         "checklists": [{**_cl_dict(c), "site_name": s.name} for c in s.checklists],
-        "workplans": [{"id": p.id, "title": p.title, "work_date": p.work_date, "status": p.status} for p in plans],
+        "workplans": [{"id": p.id, "title": p.title, "work_date": p.work_date, "status": p.status,
+                       "support_type": p.support_type or ""} for p in plans],
         "incidents": [{"id": i.id, "title": i.title, "occurred_at": i.occurred_at, "severity": i.severity,
-                       "status": i.status} for i in incs],
+                       "status": i.status, "entry_id": i.entry_id or ""} for i in incs],
         "warranty": warranty,
     }
 

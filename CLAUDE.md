@@ -88,6 +88,10 @@ uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `
   자료: endoflife.date v1 API(대부분) / Microsoft 수명 주기 페이지 직접 파싱(Hyper-V Server, 종료 시각이 오전이면 전날) / IBM FLRT JSON(`FLRT`: HMC·PowerVM(VIOS) — 레벨을 릴리스(V R / x.y.z)로 묶어 출시일 = 가장 이른 ga, 지원 종료 = 가장 늦은 EoSPS, 'NA'=미발표) / IBM PowerVC Lifecycle Information 페이지 표 파싱(`_fetch_powervc`: 2.3.x 등 릴리스별 EoSPS→eoas, EOS→eol) / `MANUAL`(HP-UX — HPE 사이트를 서버에서 못 읽어 직접 입력, 자동 갱신 안 됨).
   `app.py`의 `_eos_loop`가 1시간마다 `refresh_due()`(마지막 성공 24시간 전 + 마지막 시도 1시간 전)를 보고 갱신. 실패한 제품은 이전 값 유지·`error` 표시. 날짜가 바뀌면 `changes`에 이전 값(화면 '변경' 30일), 새 버전은 `added_at`('신규').
   날짜 칸 값: "YYYY-MM-DD" / "Y"(종료, 날짜 모름) / "N"(미발표) / ""(해당 없음). '지금 갱신'(`POST /api/eos/refresh`)은 5분 간격 제한.
+- **사이트 관리** (`page-sites`, `renderSites`/`drawSites`) = `routers/sites.py`. 목록 칸: 사이트 / 위치 / 담당자 / 연락처 / 장비 / 이번 달 점검(`month_sched` → `_stMonth`) / 확인할 것 / 관리. 상세 창(`modal-site-detail`, `openSiteDetail`)
+  탭 = 개요 / 장비 리스트 / 접속 정보 / 점검표 파일 / 특이사항. 탭 이름 옆 건수는 `_siteTabCnt(key, n)`(`tcnt-*`). 장비·접속 정보·점검표 파일·특이사항은 같은 형식: 위 `dev-bar`(검색 칸 + 추가 버튼) + `dev-tbl` 표(`load*`가 받아 `draw*`가 검색 반영해 그림), 줄 클릭 = 수정 창, 관리 칸은 `dev-act`(표 칸 그대로, flex 금지 — 여러 줄 행에서 구분선이 어긋남).
+  개요 카드는 `ov-card` + 대시보드 색 변수(`dc-week`/`dc-issue`/`dc-cl`/`dc-proj`/`dc-warr`). '최근 기술지원 · 장애처리'는 `_svcKind`로 구분 이름 표시, 기술지원과 함께 등록된 장애(overview `incidents[].entry_id`)는 그 기술지원 줄에 '장애처리'만 붙이고 따로 줄을 만들지 않는다.
+- **사이트 체크리스트** (`page-checklist`, `drawChecklist`) = 테두리 표(`#page-checklist` 범위 CSS로 사이트 관리와 같은 선 색). 마감 칸은 `_clDue`(D-n)만, 날짜는 title. 체크리스트 없는 사이트는 `<details class="cl-nosite">`(펼침 상태 `_clNoSiteOpen`).
 - 기존 "작업 현황/이력"(WorkLog, `/logs`) 메뉴와 "월간 보고서" 메뉴는 폐지. `/logs` API와 `worklogs` 테이블은 남아 있음.
 
 ## 아키텍처 규칙

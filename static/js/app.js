@@ -708,7 +708,7 @@ async function deleteIssue(id){
 }
 
 // ── SITE CHECKLIST ────────────────────────
-let _clData = [], _clCat = '';
+let _clData = [], _clCat = '', _clNoSiteOpen = false;
 const CL_BADGE = {'월간':'b-blue', '분기':'b-purple', '일반':'b-gray'};
 
 async function renderChecklistPage(){
@@ -758,9 +758,10 @@ function drawChecklist(){
   }).join('');
 
   const order = i => CL_CATS.indexOf(i.category) + (i.done ? 10 : 0);
+  // 마감 날짜는 위 요약 카드에 있으므로 칸에는 남은 날만 (7일 이내 주황, 3일 이내 빨강). 날짜는 마우스를 올리면 보인다
   const status = i => i.done
     ? `<span class="cl-st ok">✓ ${i.period ? esc(i.period) + ' ' : ''}완료</span>`
-    : i.due ? `<span class="cl-st">${i.due.slice(5).replace('-', '/')} 마감</span> ${_clDue(i)}`
+    : i.due ? `<span title="${i.due.slice(5).replace('-', '/')} 마감">${_clDue(i)}</span>`
     : `<span class="cl-st mute">기한 없음</span>`;
   const row = i => `
     <tr class="${i.done ? 'done' : ''}">
@@ -790,16 +791,17 @@ function drawChecklist(){
   }).join('');
 
   const table = `<div class="cl-panel"><table class="cl-table">
-    <thead><tr><th class="c" style="width:52px">완료</th><th style="width:64px">주기</th><th>항목</th><th style="width:170px">마감</th><th class="c" style="width:86px">관리</th></tr></thead>
+    <thead><tr><th class="c" style="width:52px">완료</th><th style="width:64px">주기</th><th>항목</th><th style="width:110px">마감</th><th class="c" style="width:86px">관리</th></tr></thead>
     <tbody>${body || msgRow(!all.length
       ? '등록된 체크리스트가 없습니다. 매월·분기마다 반복하는 일을 등록해 두면 주기가 바뀔 때 자동으로 다시 할 일이 됩니다.'
       : todoOnly ? '✓ 남은 항목이 없습니다' : '조건에 맞는 항목이 없습니다')}</tbody></table></div>`;
 
   // 체크리스트가 하나도 없는 사이트는 아래 상자에 모아서 표시
   const emptySites = siteId ? [] : groups.filter(s => !s.items.length);
-  const emptyBox = emptySites.length ? `<div class="cl-panel cl-nosite">
-    <div class="cl-nosite-title">체크리스트가 없는 사이트 - ${emptySites.length}곳 <span>이름을 누르면 항목을 추가합니다</span></div>
-    <div class="cl-nosite-list">${emptySites.map(s => `<button class="cl-chip" onclick="openAddCLItem('${s.site_id}')">+ ${esc(s.site_name)}</button>`).join('')}</div></div>` : '';
+  // 체크리스트가 없는 사이트: 한 줄로 접어 두고 누르면 펼친다 (펼침 상태는 다시 그려도 유지)
+  const emptyBox = emptySites.length ? `<details class="cl-panel cl-nosite" ${_clNoSiteOpen ? 'open' : ''} ontoggle="_clNoSiteOpen=this.open">
+    <summary class="cl-nosite-title">체크리스트가 없는 사이트 - ${emptySites.length}곳 <span>펼쳐서 이름을 누르면 항목을 추가합니다</span></summary>
+    <div class="cl-nosite-list">${emptySites.map(s => `<button class="cl-chip" onclick="openAddCLItem('${s.site_id}')">+ ${esc(s.site_name)}</button>`).join('')}</div></details>` : '';
 
   el.innerHTML = table + emptyBox;
 }
@@ -898,8 +900,8 @@ function drawSites(){
   if(!list.length){ el.innerHTML = `<div class="empty">${_sites.length ? '조건에 맞는 사이트가 없습니다' : '사이트가 없습니다. [+ 사이트 추가]로 등록해주세요'}</div>`; return; }
   const none = '<span class="lab-none">-</span>';
   el.innerHTML = `<div class="svh-table-wrap"><table class="wr-tbl st-tbl">
-    <thead><tr><th style="width:21%">사이트</th><th>위치</th><th style="width:11%">담당자</th><th style="width:14%">연락처</th>
-      <th class="c" style="width:56px">장비</th><th style="width:21%">확인할 것</th><th style="width:84px"></th></tr></thead>
+    <thead><tr><th style="width:19%">사이트</th><th>위치</th><th style="width:9%">담당자</th><th style="width:13%">연락처</th>
+      <th class="c" style="width:56px">장비</th><th class="c" style="width:92px" title="이번 달 점검 일정 완료 / 전체">이번 달 점검</th><th style="width:17%">확인할 것</th><th style="width:84px"></th></tr></thead>
     <tbody>${list.map(s => {
       const badges = [
         s.open_issues ? `<span class="badge b-red" title="미해결 이슈">이슈 ${s.open_issues}</span>` : '',
@@ -913,11 +915,19 @@ function drawSites(){
         <td>${esc(s.manager) || none}</td>
         <td class="st-tel">${esc(s.contact) || none}</td>
         <td class="c"><b id="dev-count-${s.id}">${s.device_count}</b></td>
+        <td class="c">${_stMonth(s.month_sched)}</td>
         <td>${badges || '<span class="st-ok">이상 없음</span>'}</td>
         <td class="lab-act">
           <button class="icon-btn edit" title="정보 수정" onclick="event.stopPropagation();openEditSite('${s.id}')">${ICO_EDIT}</button>
           <button class="icon-btn del" title="삭제" onclick="event.stopPropagation();deleteSite('${s.id}')">${ICO_DEL}</button>
         </td></tr>`; }).join('')}</tbody></table></div>`;
+}
+// 사이트 목록의 '이번 달 점검' 칸: 없음 / 남은 건수(완료/전체) / 모두 완료
+function _stMonth(ms){
+  if(!ms || !ms.total) return '<span class="lab-none" title="이번 달 점검 일정 없음">-</span>';
+  return ms.done === ms.total
+    ? `<span class="st-ms ok" title="이번 달 점검 ${ms.total}건 모두 완료">✓ 완료</span>`
+    : `<span class="st-ms" title="이번 달 점검 ${ms.total}건 중 ${ms.done}건 완료">${ms.done} / ${ms.total}</span>`;
 }
 $('site-search').addEventListener('input', () => { clearTimeout(window._siteT); window._siteT = setTimeout(drawSites, 150); });
 
@@ -985,13 +995,15 @@ function _drawSiteHead(){
     ? [s.location, s.manager ? `담당 ${s.manager}` : '', s.contact].filter(Boolean).map(esc).join(' · ') || '<span style="color:#cbd5e1">위치·담당자 미입력</span>'
     : '';
 }
+function _siteTabCnt(key, n){ const e = $('tcnt-' + key); if(e) e.textContent = n === '' ? '' : n; }
 function _siteTab(tab){
   document.querySelectorAll('.tab[data-dtab]').forEach(t => t.classList.toggle('active', t.dataset.dtab === tab));
   document.querySelectorAll('[id^="dtab-"]').forEach(t => t.classList.toggle('active', t.id === 'dtab-' + tab));
 }
 async function openSiteDetail(siteId, tab='overview'){
   currentSiteId = siteId; revealedPw = {};
-  _devType = ''; $('dev-search').value = '';
+  _devType = ''; ['dev-search','acc-search','rep-search','note-search'].forEach(i => $(i).value = '');
+  ['devices','access','reports','notes'].forEach(k => _siteTabCnt(k, ''));
   if(!_sites.some(s => s.id === siteId)){ try { _sites = await api.get(`/api/engineers/${ENG_ID}/sites`); } catch(e){} }
   _drawSiteHead();
   _siteTab(tab);
@@ -1012,7 +1024,7 @@ async function loadOverview(){
   _ovData = d;
   (d.schedules_pending.concat(d.schedules_done)).forEach(x => { _schedById[x.id] = x; });
   const today = d.today, c = d.counts;
-  const card = (title, body, extra='') => `<div class="ov-card"><div class="ov-title">${title}${extra}</div>${body}</div>`;
+  const card = (cls, title, body, extra='') => `<div class="ov-card ${cls}"><div class="ov-title">${title}${extra}</div><div class="ov-body">${body}</div></div>`;
   const empty = t => `<div class="ov-empty">${t}</div>`;
   const sevCls = INC_SEV_CLS;
 
@@ -1046,14 +1058,18 @@ async function loadOverview(){
       + `<div class="ov-sub">완료 ${cls.length - clTodo.length} / 전체 ${cls.length}</div>`
     : empty('체크리스트 항목 없음');
 
+  // 최근 기술지원·장애: 구분 이름은 서비스 지원 목록과 같게(_svcKind). 기술지원과 함께 등록된 장애는 그 줄에 '장애처리'만 붙인다
+  const wpIds = new Set(d.workplans.map(p => p.id));
+  const linked = {}; d.incidents.forEach(i => { if(i.entry_id && wpIds.has(i.entry_id)) linked[i.entry_id] = i; });
   const svc = [
     ...d.workplans.map(p => ({d:p.work_date, html:`<div class="ov-row clickable" onclick="openEditWorkPlan('${p.id}')">
       <span class="ov-date">${esc((p.work_date||'').slice(5,10).replace('-','/') || '-')}</span>
-      <span class="wk-kind wk-plan">기술지원</span><span class="ov-text">${esc(p.title)}</span>
+      <span class="ov-kinds">${_wpTypes(p).map(t => _svcKind(t)).join('')}${linked[p.id] ? _svcKind('장애처리', `함께 등록된 장애: ${linked[p.id].title} (${linked[p.id].status})`) : ''}</span>
+      <span class="ov-text">${esc(p.title)}</span>
       <span class="badge ${WP_ST_CLS[p.status]||'b-gray'}">${esc(p.status)}</span></div>`})),
-    ...d.incidents.map(i => ({d:i.occurred_at, html:`<div class="ov-row clickable" onclick="openEditIncident('${i.id}')">
+    ...d.incidents.filter(i => !linked[i.entry_id] || linked[i.entry_id].id !== i.id).map(i => ({d:i.occurred_at, html:`<div class="ov-row clickable" onclick="openEditIncident('${i.id}')">
       <span class="ov-date">${esc((i.occurred_at||'').slice(5,10).replace('-','/') || '-')}</span>
-      <span class="wk-kind wk-inc">장애</span><span class="ov-text">${esc(i.title)}</span>
+      <span class="ov-kinds">${_svcKind('장애처리')}</span><span class="ov-text">${esc(i.title)}</span>
       <span class="badge ${sevCls[i.severity]||'b-gray'}">${esc(i.severity)}</span>
       <span class="badge ${INC_ST_CLS[i.status]||'b-gray'}">${esc(i.status)}</span></div>`})),
   ].sort((a,b) => (b.d||'').localeCompare(a.d||'')).slice(0, 6).map(x => x.html).join('') || empty('기술지원·장애처리 기록 없음');
@@ -1073,13 +1089,13 @@ async function loadOverview(){
     ${d.site.memo ? `<div class="ov-memo">${esc(d.site.memo)}</div>` : ''}
     <div class="ov-grid">
       <div>
-        ${card('📅 점검 일정', sched + schedDone, _ovMonthSched())}
-        ${card('🔴 미해결 이슈', issues, d.issues.length ? ` <span class="ov-cnt">${d.issues.length}</span>` : '')}
+        ${card('dc-week', '점검 일정', sched + schedDone, _ovMonthSched())}
+        ${card('dc-issue', '미해결 이슈', issues, d.issues.length ? ` <span class="ov-cnt">${d.issues.length}</span>` : '')}
       </div>
       <div>
-        ${card('✅ 체크리스트', clBody, clTodo.length ? ` <span class="ov-cnt">${clTodo.length}</span>` : '')}
-        ${card('🛠 최근 기술지원 · 장애', svc)}
-        ${warr ? card('⚠️ 워런티 만료 임박', warr) : ''}
+        ${card('dc-cl', '체크리스트', clBody, clTodo.length ? ` <span class="ov-cnt">${clTodo.length}</span>` : '')}
+        ${card('dc-proj', '최근 기술지원 · 장애처리', svc)}
+        ${warr ? card('dc-warr', '워런티 만료 임박', warr) : ''}
       </div>
     </div>`;
 }
@@ -1101,6 +1117,7 @@ async function loadDevices(){
   const devs = await api.get(`/api/engineers/${ENG_ID}/sites/${sid}/devices`);
   if(sid !== currentSiteId) return;
   _siteDevs = devs;
+  _siteTabCnt('devices', devs.length);
   const cntEl=$(`dev-count-${sid}`);
   if(cntEl) cntEl.textContent=devs.length;
   drawDevices();
@@ -1136,17 +1153,17 @@ function drawDevices(){
   el.innerHTML=`<div class="dev-wrap"><table class="dev-tbl">
     <colgroup><col style="width:19%"><col style="width:8%"><col style="width:17%"><col style="width:15%"><col style="width:13%"><col style="width:9%"><col style="width:13%"><col style="width:62px"></colgroup>
     <thead><tr><th>장비명</th><th>유형</th><th>모델</th><th>OS</th><th>S/N</th><th>워런티</th><th>메모</th><th></th></tr></thead><tbody>
-    ${list.map(d=>`<tr ondblclick="openEditDevice('${d.id}')">
+    ${list.map(d=>`<tr class="clickable" onclick="openEditDevice('${d.id}')">
       <td class="dev-name" title="${esc(d.name)}">${esc(d.name)}${d.status && d.status!=='운영중' ? ` <span class="badge ${sCls[d.status]||'b-gray'}">${esc(d.status)}</span>` : ''}</td>
       ${cell(d.dev_type)}${cell(d.model)}${cell(d.os)}${cell(d.serial_no,'mono')}
       <td>${wBadge(d)}</td>${cell(d.memo,'dev-memo')}
-      <td class="dev-act">
+      <td class="dev-act" onclick="event.stopPropagation()">
         <button class="icon-btn edit" title="수정" onclick="openEditDevice('${d.id}')">${ICO_EDIT}</button>
         <button class="icon-btn del"  title="삭제" onclick="deleteDevice('${d.id}')">${ICO_DEL}</button>
       </td>
     </tr>`).join('')}
   </tbody></table></div>
-  <div class="dev-foot">${list.length !== devs.length ? `${list.length} / ${devs.length}대 표시 · ` : `${devs.length}대 · `}행을 더블클릭하면 수정 · 운영중이 아닌 장비만 상태 표시</div>`;
+  <div class="dev-foot">${list.length !== devs.length ? `${list.length} / ${devs.length}대 표시 · ` : `${devs.length}대 · `}줄을 누르면 수정 · 운영중이 아닌 장비만 상태 표시</div>`;
 }
 $('dev-search').addEventListener('input', () => { clearTimeout(window._devT); window._devT = setTimeout(drawDevices, 120); });
 async function saveDevice(){
@@ -1200,21 +1217,35 @@ async function loadAccesses(){
   catch(e){ el.innerHTML = `<div class="empty" style="color:#dc2626">${esc(e.message)}</div>`; return; }
   if(sid !== currentSiteId) return;
   _siteAccs = items;
-  if(!items.length){el.innerHTML='<div class="empty">접속 정보가 없습니다</div>';return}
-  el.innerHTML=`<table class="tbl"><thead><tr><th>구분</th><th>IP</th><th>포트</th><th>프로토콜</th><th>계정</th><th>비밀번호</th><th>메모</th><th></th></tr></thead><tbody>
-    ${items.map(a=>`<tr>
-      <td style="font-weight:600;min-width:100px">${esc(a.name)}</td><td class="mono" style="min-width:120px">${esc(a.ip||'-')}</td><td style="min-width:50px">${esc(a.port||'-')}</td>
-      <td><span class="badge b-blue">${esc(a.protocol)}</span></td><td class="mono" style="min-width:80px">${esc(a.username||'-')}</td>
-      <td style="min-width:150px">${a.has_password ? `<span class="pw-cell" id="pw-${a.id}">••••••</span>
+  _siteTabCnt('access', items.length);
+  drawAccesses();
+}
+function drawAccesses(){
+  const el = $('access-table'), items = _siteAccs;
+  if(!items.length){ el.innerHTML = '<div class="empty">접속 정보가 없습니다</div>'; return; }
+  const q = ($('acc-search').value || '').trim().toLowerCase();
+  const list = items.filter(a => !q || [a.name, a.ip, a.port, a.protocol, a.username, a.memo].some(v => (v || '').toLowerCase().includes(q)));
+  if(!list.length){ el.innerHTML = '<div class="empty">조건에 맞는 접속 정보가 없습니다</div>'; return; }
+  const none = '<span class="dev-muted">-</span>';
+  el.innerHTML = `<div class="dev-wrap"><table class="dev-tbl acc-tbl">
+    <colgroup><col style="width:17%"><col style="width:13%"><col style="width:9%"><col style="width:8%"><col style="width:17%"><col style="width:150px"><col><col style="width:62px"></colgroup>
+    <thead><tr><th>구분</th><th>IP</th><th>포트</th><th>프로토콜</th><th>계정</th><th>비밀번호</th><th>메모</th><th></th></tr></thead><tbody>
+    ${list.map(a => `<tr class="clickable" onclick="openEditAccess('${a.id}')">
+      <td class="dev-name" title="${esc(a.name)}">${esc(a.name)}</td>
+      <td class="mono" title="${esc(a.ip||'')}">${a.ip ? esc(a.ip) : none}</td>
+      <td title="${esc(a.port||'')}">${a.port ? esc(a.port) : none}</td>
+      <td><span class="badge b-blue">${esc(a.protocol)}</span></td>
+      <td class="mono" title="${esc(a.username||'')}">${a.username ? esc(a.username) : none}</td>
+      <td onclick="event.stopPropagation()">${a.has_password ? `<span class="pw-cell" id="pw-${a.id}">••••••</span>
         <button class="btn btn-sm pw-btn" onclick="togglePw('${a.id}')" id="pwb-${a.id}">보기</button>
-        <button class="btn btn-sm pw-btn" onclick="copyPw('${a.id}')">복사</button>` : '<span style="color:#cbd5e1">-</span>'}</td>
-      <td style="font-size:12px;color:#888;min-width:80px;white-space:pre-wrap">${esc(a.memo||'-')}</td>
-      <td style="display:flex;gap:3px">
+        <button class="btn btn-sm pw-btn" onclick="copyPw('${a.id}')">복사</button>` : none}</td>
+      <td class="acc-memo">${a.memo ? esc(a.memo) : none}</td>
+      <td class="dev-act" onclick="event.stopPropagation()">
         <button class="icon-btn edit" title="수정" onclick="openEditAccess('${a.id}')">${ICO_EDIT}</button>
         <button class="icon-btn del" title="삭제" onclick="deleteAccess('${a.id}')">${ICO_DEL}</button>
-      </td>
-    </tr>`).join('')}
-  </tbody></table>`;
+      </td></tr>`).join('')}
+  </tbody></table></div>
+  <div class="dev-foot">${list.length !== items.length ? `${list.length} / ${items.length}건 표시 · ` : `${items.length}건 · `}줄을 누르면 수정 · 비밀번호는 30초 뒤 자동으로 가려집니다</div>`;
 }
 async function _fetchPw(id){
   const r = await _apiSend('GET', `/api/engineers/${ENG_ID}/sites/${currentSiteId}/accesses/${id}/password`);
@@ -1290,23 +1321,34 @@ async function deleteAccess(id){
 }
 
 // ── Reports ───────────────────────────────
+let _siteReps = [];
 async function loadReports(){
   const sid = currentSiteId;
   const items=await api.get(`/api/engineers/${ENG_ID}/sites/${sid}/reports`);
   if(sid !== currentSiteId) return;
-  const el=$('report-table');
-  if(!items.length){el.innerHTML='<div class="empty">업로드된 파일 없음</div>';return}
-  el.innerHTML=`<table class="tbl"><thead><tr><th>파일명</th><th>업로드일</th><th>크기</th><th></th></tr></thead><tbody>
-    ${items.map(r=>`<tr>
-      <td>📄 ${esc(r.filename)}</td>
-      <td style="color:#888;font-size:12px">${esc(r.uploaded_at)}</td>
-      <td style="color:#888;font-size:12px">${esc(r.size)}</td>
-      <td style="display:flex;gap:4px">
+  _siteReps = items;
+  _siteTabCnt('reports', items.length);
+  drawReports();
+}
+function drawReports(){
+  const el = $('report-table'), items = _siteReps, sid = currentSiteId;
+  if(!items.length){ el.innerHTML = '<div class="empty">업로드된 파일이 없습니다. [↑ 파일 업로드]로 점검표를 올려 두세요</div>'; return; }
+  const q = ($('rep-search').value || '').trim().toLowerCase();
+  const list = items.filter(r => !q || (r.filename || '').toLowerCase().includes(q));
+  if(!list.length){ el.innerHTML = '<div class="empty">조건에 맞는 파일이 없습니다</div>'; return; }
+  el.innerHTML = `<div class="dev-wrap"><table class="dev-tbl">
+    <colgroup><col><col style="width:120px"><col style="width:90px"><col style="width:130px"></colgroup>
+    <thead><tr><th>파일명</th><th>업로드일</th><th>크기</th><th></th></tr></thead><tbody>
+    ${list.map(r => `<tr>
+      <td class="dev-name" title="${esc(r.filename)}">${esc(r.filename)}</td>
+      <td>${esc(r.uploaded_at)}</td>
+      <td>${esc(r.size)}</td>
+      <td class="dev-act">
         <a href="/api/engineers/${ENG_ID}/sites/${sid}/reports/${r.id}/download" class="btn btn-sm" download>↓ 다운로드</a>
         <button class="icon-btn del" title="삭제" onclick="deleteReport('${r.id}')">${ICO_DEL}</button>
-      </td>
-    </tr>`).join('')}
-  </tbody></table>`;
+      </td></tr>`).join('')}
+  </tbody></table></div>
+  <div class="dev-foot">${list.length !== items.length ? `${list.length} / ${items.length}개 표시` : `${items.length}개`}</div>`;
 }
 async function uploadReport(event){
   const file=event.target.files[0]; if(!file)return;
@@ -1327,17 +1369,28 @@ async function loadNotes(){
   const items=await api.get(`/api/engineers/${ENG_ID}/sites/${sid}/notes`);
   if(sid !== currentSiteId) return;
   _siteNotes = items;
-  const el=$('notes-list');
-  if(!items.length){el.innerHTML='<div class="empty">특이사항 없음</div>';return}
-  el.innerHTML=items.map(n=>`
-    <div style="display:flex;gap:12px;padding:9px 2px;border-bottom:1px solid #f0f0ee">
-      <div style="font-size:11px;color:#aaa;min-width:78px;padding-top:2px">${esc(n.date||'')}</div>
-      <div style="flex:1;min-width:0"><div style="font-weight:500;margin-bottom:2px">${esc(n.title||'(제목 없음)')}</div><div style="font-size:13px;color:#666;white-space:pre-wrap">${esc(n.body)}</div></div>
-      <div style="display:flex;gap:3px;align-items:flex-start">
+  _siteTabCnt('notes', items.length);
+  drawNotes();
+}
+function drawNotes(){
+  const el = $('notes-list'), items = _siteNotes;
+  if(!items.length){ el.innerHTML = '<div class="empty">특이사항이 없습니다</div>'; return; }
+  const q = ($('note-search').value || '').trim().toLowerCase();
+  const list = items.filter(n => !q || [n.title, n.body].some(v => (v || '').toLowerCase().includes(q)));
+  if(!list.length){ el.innerHTML = '<div class="empty">조건에 맞는 특이사항이 없습니다</div>'; return; }
+  el.innerHTML = `<div class="dev-wrap"><table class="dev-tbl note-tbl">
+    <colgroup><col style="width:100px"><col style="width:24%"><col><col style="width:62px"></colgroup>
+    <thead><tr><th>날짜</th><th>제목</th><th>내용</th><th></th></tr></thead><tbody>
+    ${list.map(n => `<tr class="clickable" onclick="openEditNote('${n.id}')">
+      <td>${n.date ? esc(n.date) : '<span class="dev-muted">-</span>'}</td>
+      <td class="dev-name note-wrap">${esc(n.title || '(제목 없음)')}</td>
+      <td class="note-wrap">${esc(n.body)}</td>
+      <td class="dev-act" onclick="event.stopPropagation()">
         <button class="icon-btn edit" title="수정" onclick="openEditNote('${n.id}')">${ICO_EDIT}</button>
         <button class="icon-btn del" title="삭제" onclick="deleteNote('${n.id}')">${ICO_DEL}</button>
-      </div>
-    </div>`).join('');
+      </td></tr>`).join('')}
+  </tbody></table></div>
+  <div class="dev-foot">${list.length !== items.length ? `${list.length} / ${items.length}건 표시 · ` : `${items.length}건 · `}줄을 누르면 수정</div>`;
 }
 function openAddNote(){
   $('note-modal-title').textContent = '특이사항 추가';
