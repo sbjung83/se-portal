@@ -4,7 +4,7 @@
   B1          "YYYY년 MM월 DD일 ~ YYYY년 MM월 DD일 주간보고서"
   3행         머리글
   4~12행      데이터 (사이트+일자 1행). 부족하면 행을 추가하고 아래 블록을 밀어낸다.
-  13~14행     B 특이사항 라벨 / C13:H14 특이사항 / I13:O14 확정사항(다음 주 등록 점검일정)
+  13~14행     B 특이사항 라벨 / C13:H14 특이사항 / I13:O14 확정사항(다음 주 등록 점검·기술지원·장애처리)
   15행        합계 (F~L 열 SUM, O = F~L 합)
 """
 from fastapi import APIRouter, Depends, HTTPException
@@ -175,13 +175,29 @@ def build_weekly(eng_id: str, start: Optional[str], db: Session):
     for i in db.query(Incident).filter(Incident.engineer_id == eng_id, Incident.status != "완료").order_by(Incident.occurred_at).all():
         notes.append(f"- {i.site} : {i.title} 장애 {i.status}")
 
-    # 확정사항 기본값: 다음 주(월~일)에 등록된 점검일정만
-    nxt = []
+    # 확정사항 기본값: 다음 주(월~일)에 등록된 점검 · 기술지원 · 장애처리 (구분은 [점검·장애처리] 처럼 함께 표시)
+    # 점검·기술지원과 함께 등록한 장애는 그 일정 줄에 구분만 붙이고, 장애처리만 한 건은 따로 한 줄
+    nxt = []      # (날짜, 사이트, 제목, 구분 목록, 일정 id)
     for s in db.query(Schedule).filter(Schedule.engineer_id == eng_id).all():
         if _in(s.sched_date, nmon, nsun):
-            nxt.append((s.sched_date[:10], sites[s.site_id].name if s.site_id in sites else "", s.title))
-    nxt.sort()
-    confirmed = [f"{n}. {site} : {title} ({d[5:7].lstrip('0')}/{d[8:10].lstrip('0')})" for n, (d, site, title) in enumerate(nxt, 1)]
+            nxt.append((s.sched_date[:10], sites[s.site_id].name if s.site_id in sites else "", s.title,
+                        ["점검"] + [t for t in (s.extra_types or "").split(",") if t], s.id))
+    for p in support_only(db.query(WorkPlan).filter(WorkPlan.engineer_id == eng_id)).all():
+        if _in(p.work_date, nmon, nsun):
+            nxt.append((p.work_date[:10], p.site or "", p.title,
+                        [t for t in (p.support_type or "").split(",") if t] or ["기술지원"], p.id))
+    by_id = {x[4]: x for x in nxt}
+    for i in db.query(Incident).filter(Incident.engineer_id == eng_id).all():
+        if not _in(i.occurred_at, nmon, nsun):
+            continue
+        if i.entry_id and i.entry_id in by_id:
+            if "장애처리" not in by_id[i.entry_id][3]:
+                by_id[i.entry_id][3].append("장애처리")
+        else:
+            nxt.append((i.occurred_at[:10], i.site or "", i.title, ["장애처리"], i.id))
+    nxt.sort(key=lambda x: (x[0], x[1], x[2]))
+    confirmed = [f"{n}. [{'·'.join(kinds)}] {site} : {title} ({d[5:7].lstrip('0')}/{d[8:10].lstrip('0')})"
+                 for n, (d, site, title, kinds, _id) in enumerate(nxt, 1)]
 
     totals = {c: sum(r["counts"][c] for r in out) for c in COUNT_COLS}
     return {

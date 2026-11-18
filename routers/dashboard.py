@@ -91,7 +91,7 @@ def get_dashboard(eng_id: str, db: Session = Depends(get_db)):
                            "status": p.status, "impact": p.impact or "", "purpose": p.purpose or ""} for p in week_plans],
             "incidents": [{"id": i.id, "title": i.title, "occurred_at": i.occurred_at,
                            "recovered_at": i.recovered_at or "", "site": i.site,
-                           "severity": i.severity, "status": i.status} for i in open_incidents],
+                           "severity": i.severity, "status": i.status, "entry_id": i.entry_id or ""} for i in open_incidents],
         },
     }
 

@@ -1123,7 +1123,9 @@ tr.done .inc-down{color:#64748b}
 .inc-parts .ip-no{color:#64748b}
 
 /* 서비스 지원 목록 공통 (점검 일정 · 기술지원 · 장애처리) */
-.b-link{background:#fff;color:#475569;border:1px dashed #94a3b8}
+/* 서비스 지원 구분 배지 (점검 / 장애처리, 지원 구분은 b-purple) */
+.b-k-check{background:#f0fdfa;color:#0f766e;border:1px solid #99f6e4}
+.b-k-inc{background:#fdf2f8;color:#be185d;border:1px solid #fbcfe8}
 .svc-kind{display:flex;flex-wrap:wrap;gap:4px;justify-content:center}
 .svc-kind .badge{margin:0}
 .cl-act .ph{visibility:hidden}

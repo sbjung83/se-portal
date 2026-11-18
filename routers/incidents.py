@@ -71,7 +71,22 @@ def list_incidents(eng_id: str, month: Optional[str] = None, status: Optional[st
     if q:
         like = f"%{q}%"
         query = query.filter(or_(Incident.title.like(like), Incident.site.like(like), Incident.device.like(like)))
-    return [_inc_dict(i) for i in query.order_by(Incident.occurred_at.desc()).all()]
+    rows = query.order_by(Incident.occurred_at.desc()).all()
+    kinds = _entry_kinds(db, eng_id, {i.entry_id for i in rows if i.entry_id})
+    return [{**_inc_dict(i), "entry_types": kinds.get(i.entry_id, [])} for i in rows]
+
+
+def _entry_kinds(db, eng_id: str, ids: set) -> dict:
+    """함께 등록된 일정 id → 그 일정의 구분 목록 (점검 일정: ['점검', +함께 한 지원], 기술지원: 지원 구분들)."""
+    if not ids:
+        return {}
+    from database import Schedule, WorkPlan
+    out = {}
+    for s in db.query(Schedule).filter(Schedule.engineer_id == eng_id, Schedule.id.in_(ids)):
+        out[s.id] = ["점검"] + [t for t in (s.extra_types or "").split(",") if t]
+    for w in db.query(WorkPlan).filter(WorkPlan.engineer_id == eng_id, WorkPlan.id.in_(ids), WorkPlan.id.startswith("wp-")):
+        out[w.id] = [t for t in (w.support_type or "").split(",") if t] or ["기술지원"]
+    return out
 
 
 class IncidentIn(BaseModel):
