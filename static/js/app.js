@@ -464,11 +464,11 @@ function showIssuePopup(i){
     <div class="issue-popup-meta">
       <span class="badge ${ISS_SEV_CLS[i.severity]||'b-gray'}">${esc(i.severity)}</span>
       <span class="badge ${ISS_ST_CLS[i.status]||'b-gray'}">${esc(i.status)}</span>
-      <span style="font-size:12px;color:#888">${esc(i.site_name)}</span>
-      <span style="font-size:11px;color:#bbb;margin-left:auto">${esc(i.created_at||'')}${age!==null?` (D+${age})`:''}</span>
+      <span style="font-size:12px;color:#64748b">${esc(i.site_name)}</span>
+      <span style="font-size:11px;color:#94a3b8;margin-left:auto">${esc(i.created_at||'')}${age!==null?` (D+${age})`:''}</span>
     </div>
     <div class="issue-popup-body">${i.body ? esc(i.body) : '(내용 없음)'}</div>
-    <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:14px;padding-top:12px;border-top:1px solid #f0f0ee">
+    <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:14px;padding-top:12px;border-top:1px solid #f1f5f9">
       <button class="icon-btn edit" title="수정" style="width:32px;height:32px" onclick="closeModal('modal-issue-popup');openEditIssue('${i.id}')">${ICO_EDIT}</button>
       <button class="btn" onclick="closeModal('modal-issue-popup')">닫기</button>
     </div>`;
@@ -1706,6 +1706,7 @@ function drawWorkPlans() {
   const isLate = p => _wpIsOverdue(p, today);
   const month = all.filter(p => (p.work_date || '').startsWith(_wpYM));
   $('wp-label').textContent = `${year}년 ${mon}월`;
+  $('wp-ym').value = _wpYM;
   $('wp-today-btn').style.visibility = _wpYM === nowYM ? 'hidden' : 'visible';
   $('wp-others').innerHTML = _svcOthers(all.filter(isLate).map(_wpDay), _wpYM, 'wpGo', '지연', '기술지원');
 
@@ -2095,6 +2096,7 @@ function drawIncidents(){
   const isLate = i => isOpen(i) && (i.occurred_at || '').slice(0, 10) < today;     // 발생일이 지났는데 아직 처리 중
   const month = all.filter(i => (i.occurred_at || '').startsWith(_incYM));
   $('inc-label').textContent = `${year}년 ${mon}월`;
+  $('inc-ym').value = _incYM;
   $('inc-today-btn').style.visibility = _incYM === nowYM ? 'hidden' : 'visible';
 
   // 다른 달에 남아 있는 미완료 장애 (가장 오래된 달로 이동)
@@ -2200,6 +2202,8 @@ $('svh-month').addEventListener('change', renderServiceHistory);
 // 제목 옆 "2026년 11월"을 누르면 달 고르는 창을 연다. 달 고르기를 지원하지 않는 브라우저(Firefox)에서는 ◀ ▶ 로만 이동
 if($('svh-month').type !== 'month') $('svh-month').style.display = 'none';
 else $('svh-month').addEventListener('click', () => { try { $('svh-month').showPicker(); } catch(e){} });
+// 점검·기술지원·장애처리 제목 옆 '년도 월'도 같은 방식 (지원하지 않는 브라우저는 ◀ ▶ 로만)
+['sm-ym','wp-ym','inc-ym'].forEach(id => { if($(id).type !== 'month') $(id).style.display = 'none'; });
 // 월별 이력의 탭만 대상으로 한다 (.svh-tab 모양은 대시보드·체크리스트 등 다른 화면의 탭도 같이 쓴다)
 document.querySelectorAll('.svh-tab[data-svh]').forEach(t => t.addEventListener('click', () => {
   document.querySelectorAll('.svh-tab[data-svh]').forEach(x => x.classList.toggle('active', x === t));
@@ -2396,6 +2400,42 @@ function wrSaveText(which){
   try { localStorage.setItem('wrTexts', JSON.stringify(out)); } catch(e){}
   $(`wr-${which}-ed`).classList.toggle('on', which in cur);
 }
+// 주차: 월요일 기준 — 그 주 월요일이 든 달의 n번째 월요일 = n주차
+function _wrWeekNo(start){ const [y, m, d] = start.split('-').map(Number); return {y, m, no: Math.ceil(d / 7)}; }
+// '2026년 11월 3주차'를 누르면 여는 주차 고르기 창 (해 ◀ ▶ / 12개월 / 그 달 주차 목록 + 건수)
+let _wrPickY = 0, _wrPickM = 0, _wrPickSeq = 0;
+function wrPickToggle(){
+  const p = $('wr-pick');
+  if(!p.hidden){ p.hidden = true; return; }
+  const wk = _wrWeekNo(_wrStart || _ymd(_wrMonday(new Date())));
+  _wrPickY = wk.y; _wrPickM = wk.m; p.hidden = false; wrPickDraw();
+}
+function wrPickYear(delta){ _wrPickY += delta; wrPickDraw(); }
+function wrPickMonth(m){ _wrPickM = m; wrPickDraw(); }
+function wrPickGo(start){ $('wr-pick').hidden = true; _wrStart = start; renderWeeklyReport(); }
+async function wrPickDraw(){
+  const now = new Date(), nowY = now.getFullYear(), nowM = now.getMonth() + 1, thisMon = _ymd(_wrMonday(now));
+  const cur = _wrStart ? _wrWeekNo(_wrStart) : null;
+  $('wr-pick').innerHTML = `
+    <div class="wr-pick-y"><button class="btn btn-sm" onclick="wrPickYear(-1)">◀</button><b>${_wrPickY}년</b><button class="btn btn-sm" onclick="wrPickYear(1)">▶</button></div>
+    <div class="wr-pick-m">${Array.from({length: 12}, (_, i) => i + 1).map(m =>
+      `<button class="${m === _wrPickM ? 'on' : ''}${_wrPickY === nowY && m === nowM ? ' cur' : ''}" onclick="wrPickMonth(${m})">${m}월</button>`).join('')}</div>
+    <div class="wr-pick-w" id="wr-pick-w"><div class="wr-pick-load">불러오는 중…</div></div>`;
+  const seq = ++_wrPickSeq, ym = `${_wrPickY}-${String(_wrPickM).padStart(2, '0')}`;
+  let weeks;
+  try { weeks = await _apiSend('GET', `/api/engineers/${ENG_ID}/reports/weekly/weeks?month=${ym}`); }
+  catch(e){ if(seq === _wrPickSeq) $('wr-pick-w').innerHTML = `<div class="wr-pick-load" style="color:var(--red-600)">${esc(e.message)}</div>`; return; }
+  if(seq !== _wrPickSeq) return;      // 그 사이 다른 달을 눌렀으면 버림
+  const fmt = x => `${Number(x.slice(5,7))}/${Number(x.slice(8,10))}`, texts = _wrTextStore();
+  $('wr-pick-w').innerHTML = weeks.map(w => `
+    <button class="${w.start === _wrStart ? 'on' : ''}${w.total ? '' : ' zero'}" onclick="wrPickGo('${w.start}')">
+      <span class="n">${_wrPickM}월 ${w.no}주차</span><span class="d">${fmt(w.start)} ~ ${fmt(w.end)}</span>
+      ${w.start === thisMon ? '<span class="wr-now">이번 주</span>' : ''}${texts[w.start] ? '<span class="ed" title="특이사항·확정사항을 직접 고친 주">✎</span>' : ''}
+      <span class="c">${w.total ? w.total + '건' : '-'}</span></button>`).join('');
+}
+document.addEventListener('click', e => {
+  const w = $('wr-pick-wrap'); if(w && !$('wr-pick').hidden && !w.contains(e.target)) $('wr-pick').hidden = true;
+});
 function wrGrow(el){ el.style.height = 'auto'; el.style.height = Math.max(34, el.scrollHeight + 2) + 'px'; }
 async function renderWeeklyReport(){
   if(!_wrStart) _wrStart = _ymd(_wrMonday(new Date()));
@@ -2406,7 +2446,8 @@ async function renderWeeklyReport(){
   _wrData = d;
   const fmt = x => `${Number(x.slice(5,7))}/${Number(x.slice(8,10))}`;
   const thisWeek = d.start === _ymd(_wrMonday(new Date()));
-  $('wr-range').innerHTML = `${d.start.slice(0,4)}년 ${fmt(d.start)} (월) ~ ${fmt(d.end)} (일)${thisWeek ? ' <span class="wr-now">이번 주</span>' : ''}`;
+  const wk = _wrWeekNo(d.start);
+  $('wr-range').innerHTML = `${wk.y}년 ${wk.m}월 ${wk.no}주차 <span class="wr-dates">${fmt(d.start)} (월) ~ ${fmt(d.end)} (일)</span>${thisWeek ? ' <span class="wr-now">이번 주</span>' : ''}<span class="wr-caret">▾</span>`;
   $('wr-today').disabled = thisWeek;
   ['notes', 'confirmed'].forEach(w => {
     const saved = _wrText(w);
@@ -2534,6 +2575,7 @@ function drawSchedMgmt(){
   const isLate = s => s.status !== '완료' && s.sched_date.slice(0, 10) < today;
   const month = all.filter(s => s.sched_date.startsWith(_smYM));
   $('sm-label').textContent = `${year}년 ${mon}월`;
+  $('sm-ym').value = _smYM;
   $('sm-today-btn').style.visibility = _smYM === nowYM ? 'hidden' : 'visible';
   $('sm-others').innerHTML = _svcOthers(all.filter(isLate).map(s => s.sched_date.slice(0, 10)), _smYM, 'smGo', '지연', '점검');
 

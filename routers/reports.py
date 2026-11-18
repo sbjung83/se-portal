@@ -220,6 +220,22 @@ def weekly_preview(eng_id: str, start: Optional[str] = None, db: Session = Depen
     return build_weekly(eng_id, start, db)
 
 
+@router.get("/weekly/weeks")
+def weekly_weeks(eng_id: str, month: str, db: Session = Depends(get_db)):
+    """그 달의 주차 목록 (월요일 기준: 월요일이 그 달에 있는 주 = 그 달 n주차)과 주별 집계 건수."""
+    try:
+        first = datetime.strptime(month, "%Y-%m").date()
+    except ValueError:
+        raise HTTPException(400, detail="월 형식이 올바르지 않습니다 (YYYY-MM)")
+    mon = first + timedelta(days=(7 - first.weekday()) % 7)      # 그 달 첫 월요일
+    out = []
+    while mon.month == first.month:
+        d = build_weekly(eng_id, mon.isoformat(), db)
+        out.append({"no": len(out) + 1, "start": d["start"], "end": d["end"], "total": d["total"]})
+        mon += timedelta(days=7)
+    return out
+
+
 class WeeklyExportIn(BaseModel):
     start:     Optional[str] = None
     notes:     Optional[str] = None   # None 이면 기본값 사용
