@@ -40,6 +40,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .dash-card-title{font-size:15px;font-weight:800;color:#1e293b;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;border-bottom:1px solid #f1f5f9}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.grid-auto{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}  /* 숨긴(display:none) 칸은 자리를 차지하지 않음 */
 .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
 .metric{background:#ffffff;border-radius:12px;padding:16px 20px;border:1px solid #eef0f4;box-shadow:0 2px 8px rgba(0,0,0,.02)}
 .metric-label{font-size:12px;color:#64748b;margin-bottom:8px;font-weight:600;letter-spacing:0.3px}
@@ -54,9 +55,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .b-purple{background:#faf5ff;color:#9333ea;border:1px solid #e9d5ff}
 .b-gray{background:#f8fafc;color:#475569;border:1px solid #e2e8f0}
 /* 점검 유형 전용 배지 */
-.b-monthly{background:#0ea5e9;color:#fff;font-weight:600;border:none}
-.b-quarterly{background:#8b5cf6;color:#fff;font-weight:600;border:none}
-.b-special{background:#f59e0b;color:#fff;font-weight:600;border:none}
+.b-monthly{background:#f0f9ff;color:#0284c7;border:1px solid #bae6fd}
+.b-quarterly{background:#f5f3ff;color:#7c3aed;border:1px solid #ddd6fe}
+.b-special{background:#fff7ed;color:#ea580c;border:1px solid #fed7aa}
 /* 점검 상태 전용 배지 */
 .b-planned{background:#f8fafc;color:#64748b;border:1px solid #cbd5e1}
 .b-done{background:#22c55e;color:#fff;font-weight:600;border:none}
@@ -1112,3 +1113,17 @@ tr.done .inc-down{color:#64748b}
 .eos-new{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}
 .eos-legend{border:1px solid #d5dce6;border-top:none;background:#f8fafc;padding:7px 12px;font-size:11.5px;color:#64748b;line-height:1.55}
 @media (max-width:700px){.eos-info{flex-direction:column;align-items:stretch}.eos-filter{flex-direction:column}.eos-ph{flex-wrap:wrap}}
+
+/* 장애처리 보고서 — 사용 파트 */
+.inc-parts{font-size:12.5px}
+.inc-parts th{padding:6px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.inc-parts td{padding:4px 5px}
+.inc-parts input{width:100%;box-sizing:border-box;padding:5px 7px;border:1px solid #d4d4d0;border-radius:5px;font-size:12.5px;font-family:inherit;background:#fff}
+.inc-parts input[type=number]{text-align:right;padding-right:4px}
+.inc-parts .ip-no{color:#64748b}
+
+/* 서비스 지원 목록 공통 (점검 일정 · 기술지원 · 장애처리) */
+.b-link{background:#fff;color:#475569;border:1px dashed #94a3b8}
+.svc-kind{display:flex;flex-wrap:wrap;gap:4px;justify-content:center}
+.svc-kind .badge{margin:0}
+.cl-act .ph{visibility:hidden}

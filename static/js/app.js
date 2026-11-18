@@ -1538,6 +1538,37 @@ function mopGet(id){
   return rows.length ? JSON.stringify(rows) : '';
 }
 
+// ── 서비스 지원 목록 공통 (점검 일정 · 기술지원 · 장애처리) ──────────
+// 세 목록은 열 구성(날짜 / 사이트 / 제목+상세 / 구분 / 작업자 / [장애 시간] / 상태 / 관리)·너비·버튼 자리를 같게 쓴다.
+function _svcCols(extra = ''){
+  return `<colgroup><col style="width:165px"><col style="width:15%"><col><col style="width:140px"><col style="width:10%">${extra}<col style="width:64px"><col style="width:136px"></colgroup>`;
+}
+// 관리 칸: [Excel] [수정] [삭제] — 없는 버튼도 자리를 비워 두어 줄마다 위치가 같다
+function _svcActs(xls, edit, del){
+  const ph = '<button class="btn btn-sm sm-xls ph" tabindex="-1" aria-hidden="true">Excel</button>';
+  return `<td class="c cl-act" onclick="event.stopPropagation()">${xls ? `<button class="btn btn-sm sm-xls" title="${xls.title}" onclick="${xls.fn}">Excel</button>` : ph}`
+    + `<button class="icon-btn edit" title="수정" onclick="${edit}">${ICO_EDIT}</button>`
+    + (del ? `<button class="icon-btn del" title="삭제" onclick="${del}">${ICO_DEL}</button>` : `<button class="icon-btn del ph" tabindex="-1" aria-hidden="true">${ICO_DEL}</button>`) + '</td>';
+}
+// 날짜 칸: "11/18 (수) 10:00" + 오늘 / 지연 D+n
+function _svcDate(day, time, isDone, today, lateWord = '지연'){
+  const late = !isDone && day && day < today ? _daysBetween(day, today) : 0;
+  return `<td class="sm-d">${day ? _smDateLabel(day) : '-'}${time && time !== '00:00' ? ` <span class="wp-time">${time}</span>` : ''}`
+    + `${day === today && !isDone ? '<span class="badge b-blue">오늘</span>' : ''}${late ? `<span class="badge b-red">${lateWord} D+${late}</span>` : ''}</td>`;
+}
+const _svcLink = (label, title) => `<span class="badge b-link" title="${esc(title)}">${label}</span>`;
+const _svcCheck = (isDone, fn) => `<td class="c" onclick="event.stopPropagation()"><button class="ds-check-btn ${isDone ? 'checked' : ''}" onclick="${fn}" title="${isDone ? '완료 취소' : '완료 처리'}">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14" ${isDone ? '' : 'style="opacity:.3"'}><polyline points="20 6 9 17 4 12"/></svg></button></td>`;
+// 점검 일정·기술지원에 함께 등록된 장애 (일정 id → 장애) — '장애 연결' 표시용
+let _incByEntry = {};
+async function _loadIncLinks(){
+  try {
+    const list = await api.get(`/api/engineers/${ENG_ID}/incidents`);
+    _incByEntry = {}; list.forEach(i => { if(i.entry_id) _incByEntry[i.entry_id] = i; });
+  } catch(e){}
+}
+const _svcIncLink = id => { const i = _incByEntry[id]; return i ? _svcLink('장애 연결', `함께 등록된 장애: ${i.title} (${i.status})`) : ''; };
+
 // ── WORK PLANS ──────────────────────────────
 // _allWorkPlans  : 기술지원 (scope=support, id "wp-*")
 // _schedWorkPlans: 점검일정 모달의 작업자/결재자/MOP 보관 레코드 (scope=schedule, id = 일정 id) — 기술지원 실적 제외
@@ -1590,7 +1621,8 @@ function wpSetOnly(k){ _wpOnly = _wpOnly === k ? '' : k; drawWorkPlans(); }
 
 async function renderWorkPlans() {
   try {
-    _allWorkPlans = (await api.get(`/api/engineers/${ENG_ID}/workplans`)).filter(isSupportPlan);
+    [_allWorkPlans] = await Promise.all([api.get(`/api/engineers/${ENG_ID}/workplans`), _loadIncLinks()]);
+    _allWorkPlans = _allWorkPlans.filter(isSupportPlan);
   } catch (e) {
     console.error("Failed to load work plans:", e);
     $('wp-list').innerHTML = '<div class="empty" style="color:#dc2626">기술지원 목록을 불러오지 못했습니다</div>';
@@ -1638,33 +1670,31 @@ function drawWorkPlans() {
   const q = $('wp-search').value.toLowerCase().trim();
 
   const list = month.filter(p => (!_wpType || _wpTypes(p).includes(_wpType)) && (!sel.value || (p.site || '').trim() === sel.value)
-      && (!q || [p.title, p.site, p.worker, p.reviewer, p.purpose].some(v => (v || '').toLowerCase().includes(q)))
+      && (!q || [p.title, p.site, p.worker, p.reviewer, p.purpose, ..._wpTypes(p)].some(v => (v || '').toLowerCase().includes(q)))
       && (!_wpOnly || (_wpOnly === 'done' ? p.status === '완료' : _wpOnly === 'late' ? isLate(p) : p.status !== '완료')))
     .sort((a, b) => (a.work_date || '').localeCompare(b.work_date || '') || (a.site || '').localeCompare(b.site || '', 'ko'));
 
   const row = p => {
     const isDone = p.status === '완료', day = _wpDay(p), time = (p.work_date || '').slice(11, 16);
-    const lateDays = isLate(p) ? _daysBetween(day, today) : 0;
     return `<tr class="${isDone ? 'done' : ''} ${day === today ? 'today' : ''}" onclick="openEditWorkPlan('${p.id}')" style="cursor:pointer">
-      <td class="sm-d">${day ? _smDateLabel(day) : '-'}${time && time !== '00:00' ? ` <span class="wp-time">${time}</span>` : ''}${day === today && !isDone ? '<span class="badge b-blue">오늘</span>' : ''}${lateDays ? `<span class="badge b-red">지연 D+${lateDays}</span>` : ''}</td>
+      ${_svcDate(day, time, isDone, today)}
       <td class="sm-s" title="${esc(p.site)}">${esc(p.site || '-')}</td>
-      <td class="sm-t">${esc(p.title)}${p.from_schedule ? ' <span class="badge b-green" title="점검 일정에 함께 등록된 건">점검과 함께</span>' : ''}${_wpImpactBadge(p.impact) ? ' ' + _wpImpactBadge(p.impact) : ''}
+      <td class="sm-t">${esc(p.title)}${_wpImpactBadge(p.impact) ? ' ' + _wpImpactBadge(p.impact) : ''}
         ${p.purpose ? `<div class="wp-purpose" title="${esc(p.purpose)}">${esc(p.purpose)}</div>` : ''}</td>
-      <td class="c">${_wpTypes(p).map(t => `<span class="badge b-purple">${esc(t)}</span>`).join(' ')}</td>
+      <td class="c"><div class="svc-kind">${_wpTypes(p).map(t => `<span class="badge b-purple">${esc(t)}</span>`).join('')}${p.from_schedule ? _svcLink('점검 연결', '점검 일정에 함께 등록된 건 — 삭제는 점검 일정에서') : ''}${_svcIncLink(p.id)}</div></td>
       <td class="wp-worker" title="${esc(p.worker)}">${esc(p.worker || '-')}</td>
-      <td class="c" onclick="event.stopPropagation()"><button class="ds-check-btn ${isDone ? 'checked' : ''}" onclick="changeWorkPlanStatus('${p.id}', '${isDone ? '예정' : '완료'}')" title="${isDone ? '완료 취소' : '완료 처리'}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14" ${isDone ? '' : 'style="opacity:.3"'}><polyline points="20 6 9 17 4 12"/></svg></button></td>
-      <td class="c cl-act" onclick="event.stopPropagation()">${p.has_plan ? `<button class="btn btn-sm sm-xls" title="작업계획서 엑셀 내려받기" onclick="downloadWorkPlanExcel('${p.id}')">Excel</button>` : ''}<button class="icon-btn edit" title="수정" onclick="openEditWorkPlan('${p.id}')">${ICO_EDIT}</button>${p.from_schedule ? '' : `<button class="icon-btn del" title="삭제" onclick="deleteWorkPlan('${p.id}')">${ICO_DEL}</button>`}</td>
+      ${_svcCheck(isDone, `changeWorkPlanStatus('${p.id}', '${isDone ? '예정' : '완료'}')`)}
+      ${_svcActs(p.has_plan ? {title: '작업계획서 엑셀 내려받기', fn: `downloadWorkPlanExcel('${p.id}')`} : null, `openEditWorkPlan('${p.id}')`, p.from_schedule ? '' : `deleteWorkPlan('${p.id}')`)}
     </tr>`;
   };
   const emptyMsg = !month.length ? `${mon}월에 등록된 기술지원이 없습니다` : '조건에 맞는 기술지원이 없습니다';
-  const cols = '<colgroup><col style="width:205px"><col style="width:18%"><col><col style="width:110px"><col style="width:12%"><col style="width:64px"><col style="width:140px"></colgroup>';
+  const cols = _svcCols();
   $('wp-panel-title').textContent = `${mon}월 기술지원`;
   $('wp-panel-info').innerHTML = (list.length !== month.length ? `<span class="sh-mon-note">${list.length}건 표시 중</span>` : '')
     + (late ? `<span class="sh-mon-cnt late">지연 ${late}건</span>` : '')
     + (month.length ? `<span class="sh-mon-cnt">${done}/${month.length} 완료</span>` : '');
   $('wp-list').innerHTML = `<table class="cl-table sm-table sh-table sh-inhead">${cols}
-    <thead><tr><th>작업일</th><th>사이트</th><th>제목</th><th class="c">구분</th><th>작업자</th><th class="c">완료</th><th class="c">관리</th></tr></thead>
+    <thead><tr><th>날짜</th><th>사이트</th><th>제목</th><th class="c">구분</th><th>작업자</th><th class="c">완료</th><th class="c">관리</th></tr></thead>
     <tbody>${list.length ? list.map(row).join('') : `<tr class="cl-msg"><td colspan="7">${emptyMsg}</td></tr>`}</tbody></table>`;
 }
 async function changeWorkPlanStatus(id, status){
@@ -1674,6 +1704,7 @@ async function changeWorkPlanStatus(id, status){
     // 점검 일정에 함께 등록된 건은 점검 일정의 상태를 바꾼다
     await _apiSend('PATCH', `/api/engineers/${ENG_ID}/${p.from_schedule ? 'schedules' : 'workplans'}/${id}`, { status });
     p.status = status;
+    if(_incByEntry[id]) await _loadIncLinks();     // 함께 등록된 장애의 상태도 바뀐다
     toast(status === '완료' ? '완료 처리됨' : '완료 취소됨');
   } catch(e) {
     toast('변경 실패: ' + e.message);
@@ -1703,12 +1734,22 @@ const ENTRY_INC_IDS = ['inc-title', 'inc-device', 'inc-recovered', 'inc-symptom'
 function entryTypesChanged(){
   const types = _entryTypes();
   const isCheck = types.includes('점검'), hasInc = types.includes('장애처리'), incOnly = hasInc && types.length === 1;
-  $('wp-sched-type-row').style.visibility = isCheck ? 'visible' : 'hidden';
+  const kind = isCheck ? '점검 일정' : incOnly ? '장애' : hasInc && !types.some(t => t !== '장애처리' && t !== '기술지원') ? '기술지원 · 장애' : '기술지원';
+  $('wp-modal-title').textContent = `${kind} ${$('wp-id').value ? '수정' : '등록'}`;
+  $('wp-title').placeholder = incOnly ? '예: DB 서버 디스크 장애로 서비스 지연' : isCheck ? '예: 11월 정기점검 (PM)' : '예: vCenter 통합 작업';
   $('wp-site-req').style.display = isCheck ? '' : 'none';
-  // 장애처리만 하는 건은 장애 기록 1건만 남으므로 일정 쪽 칸(상태·결재자·메모·세부 작업계획)은 감춘다
-  $('wp-status-row').style.visibility = $('wp-reviewer-row').style.visibility = incOnly ? 'hidden' : 'visible';
+  // 숨기는 칸은 display:none — 남은 칸이 줄을 채운다(grid-auto)
+  $('wp-sched-type-row').style.display = isCheck ? '' : 'none';
+  // 장애처리만 하는 건은 장애 기록 1건만 남으므로 일정 쪽 칸(결재자·메모·세부 작업계획)과 따로 받던 발생 일시는 감춘다
+  $('wp-reviewer-row').style.display = incOnly ? 'none' : '';
   $('wp-purpose-row').style.display = incOnly ? 'none' : '';
   $('inc-title-row').style.display = incOnly ? 'none' : '';
+  $('inc-occ-row').style.display = incOnly ? 'none' : '';
+  $('wp-day-lbl').textContent = incOnly ? '발생 날짜' : '날짜';
+  $('wp-time-lbl').textContent = incOnly ? '발생 시간' : '시간';
+  _entryStatusOpts(hasInc);
+  $('wp-status-hint').textContent = hasInc && !incOnly ? '장애 처리 상태 — 완료하면 일정도 완료' : '';
+  $('wp-inc-excel').style.display = _entryIncId && hasInc ? '' : 'none';
   $('wp-tab-plan').style.display = incOnly ? 'none' : '';
   $('wp-tab-report').style.display = hasInc ? '' : 'none';
   $('wp-excel').style.display = $('wp-id').value && _entryHasPlan && !incOnly ? '' : 'none';
@@ -1718,6 +1759,15 @@ function entryTypesChanged(){
   else if(!hasInc && _entryTab === 'report') entryTab('', true);
   else if(incOnly && _entryTab === 'plan') entryTab('report', true);
   _entryHadInc = hasInc;
+}
+// 상태는 하나: 장애처리를 체크하면 접수/처리중/완료(일정은 완료일 때만 완료), 아니면 예정/완료
+function _entryStatusOpts(hasInc){
+  const sel = $('wp-status');
+  if(sel.dataset.mode === String(hasInc)) return;
+  const cur = sel.value;
+  sel.innerHTML = (hasInc ? ['접수', '처리중', '완료'] : ['예정', '완료']).map(o => `<option>${o}</option>`).join('');
+  sel.value = cur === '완료' ? '완료' : hasInc ? '접수' : '예정';
+  sel.dataset.mode = String(hasInc);
 }
 // 탭을 누르면 펼치고, 펼쳐진 탭을 다시 누르면 접는다
 function entryTab(name, force){
@@ -1733,9 +1783,41 @@ function entryTab(name, force){
 // 내용이 적힌 탭에 점을 찍어 준다
 function _entryMarkTabs(){
   const plan = ENTRY_PLAN_IDS.some(id => $(id).value.trim()) || !!mopGet('wp-mop') || $('wp-impact').value !== '없음';
-  const rep = ['inc-device', 'inc-symptom', 'inc-cause', 'inc-action', 'inc-prevention'].some(id => $(id).value.trim());
+  const rep = ['inc-device', 'inc-symptom', 'inc-cause', 'inc-action', 'inc-prevention'].some(id => $(id).value.trim()) || incGetParts().length > 0;
   $('wp-tab-plan').classList.toggle('filled', plan);
   $('wp-tab-report').classList.toggle('filled', rep);
+}
+// 사용 파트 표 (장애처리 보고서)
+const INC_PART_F = ['name', 'part_no', 'qty', 'old_sn', 'new_sn', 'note'];
+function _incPartRow(p = {}){
+  const t = (f, ph) => `<td><input type="text" class="ip-${f}" value="${esc(p[f] || '')}" placeholder="${ph}" oninput="_entryMarkTabs()"></td>`;
+  return `<tr><td class="c ip-no"></td>${t('name', '예: 600GB SAS HDD')}${t('part_no', '예: 00YK013')}
+    <td><input type="number" class="ip-qty" min="1" step="1" value="${p.qty || 1}"></td>
+    ${t('old_sn', '')}${t('new_sn', '')}${t('note', '예: Slot 3, RMA 번호')}
+    <td class="c"><button type="button" class="icon-btn del" title="이 줄 삭제" onclick="incDelPart(this)">${ICO_DEL}</button></td></tr>`;
+}
+function _incPartsNo(){ [...$('inc-parts').children].forEach((tr, n) => tr.querySelector('.ip-no').textContent = n + 1); }
+function incSetParts(list){
+  $('inc-parts').innerHTML = (list && list.length ? list : [{}]).map(_incPartRow).join('');
+  _incPartsNo();
+}
+function incAddPart(){
+  if($('inc-parts').children.length >= 50){ toast('파트는 50줄까지 넣을 수 있습니다'); return; }
+  $('inc-parts').insertAdjacentHTML('beforeend', _incPartRow());
+  _incPartsNo();
+  $('inc-parts').lastElementChild.querySelector('.ip-name').focus();
+}
+function incDelPart(btn){
+  btn.closest('tr').remove();
+  if(!$('inc-parts').children.length) incSetParts([]);
+  _incPartsNo(); _entryMarkTabs();
+}
+function incGetParts(){
+  return [...$('inc-parts').children].map(tr => {
+    const p = {}; INC_PART_F.forEach(f => p[f] = tr.querySelector('.ip-' + f).value.trim());
+    p.qty = Math.max(parseInt(p.qty, 10) || 1, 1);
+    return p;
+  }).filter(p => p.name || p.part_no || p.old_sn || p.new_sn);
 }
 function entrySyncOccurred(){
   if(!_entryOccAuto) return;
@@ -1768,7 +1850,7 @@ async function openEntry(id, types = ['기술지원'], tab){
   $('wp-site-manual').style.display = manualName ? '' : 'none';
   $('wp-title').value = e.title;
   $('wp-day').value = e.day; $('wp-time').value = e.time || '';
-  $('wp-status').value = e.status; $('wp-sched-type').value = e.sched_type || '월간';
+  $('wp-sched-type').value = e.sched_type || '월간';
   $('wp-worker').value = e.worker || ''; $('wp-reviewer').value = e.reviewer || '';
   $('wp-purpose').value = e.memo || '';
   $('wp-impact').value = e.impact || '없음';
@@ -1782,9 +1864,12 @@ async function openEntry(id, types = ['기술지원'], tab){
   _entryIncId = e.inc_id || '';
   $('inc-title').value = e.inc_title && e.inc_title !== e.title ? e.inc_title : '';
   $('inc-device').value = e.inc_device || '';
-  $('inc-severity').value = e.inc_severity || '보통'; $('inc-status').value = e.inc_status || '접수';
+  $('inc-severity').value = e.inc_severity || '보통';
+  $('wp-status').dataset.mode = ''; _entryStatusOpts(hasInc);
+  $('wp-status').value = hasInc ? (e.inc_status || '접수') : (e.status || '예정');
   $('inc-occurred').value = e.inc_occurred_at || ''; $('inc-recovered').value = e.inc_recovered_at || '';
   ['symptom', 'cause', 'action', 'prevention'].forEach(f => $('inc-' + f).value = e[f] || '');
+  incSetParts(e.inc_parts || []);
   _entryOccAuto = !e.inc_occurred_at || e.inc_occurred_at === `${e.day}T${e.time}`;
   _entryHasPlan = !!e.has_plan;
   _entryHadInc = hasInc;
@@ -1799,17 +1884,19 @@ async function openEntry(id, types = ['기술지원'], tab){
 
 function _entryPayload(){
   const manual = $('wp-site').value === ENTRY_SITE_MANUAL;
+  const types = _entryTypes(), hasInc = types.includes('장애처리'), incOnly = hasInc && types.length === 1, st = $('wp-status').value;
   return {
     types: _entryTypes(), title: $('wp-title').value.trim(), day: $('wp-day').value, time: $('wp-time').value,
     site_id: manual ? '' : $('wp-site').value, site_name: manual ? $('wp-site-manual').value.trim() : '',
-    sched_type: $('wp-sched-type').value, status: $('wp-status').value, memo: $('wp-purpose').value,
+    sched_type: $('wp-sched-type').value, status: hasInc ? (st === '완료' ? '완료' : '예정') : st, memo: $('wp-purpose').value,
     worker: $('wp-worker').value.trim(), reviewer: $('wp-reviewer').value.trim(),
     impact: $('wp-impact').value, prerequisites: $('wp-prerequisites').value, mop_content: mopGet('wp-mop'),
     verification: $('wp-verification').value, rollback_plan: $('wp-rollback').value,
     inc_title: $('inc-title').value.trim(), inc_device: $('inc-device').value.trim(),
-    inc_severity: $('inc-severity').value, inc_status: $('inc-status').value,
-    inc_occurred_at: $('inc-occurred').value, inc_recovered_at: $('inc-recovered').value,
+    inc_severity: $('inc-severity').value, inc_status: hasInc ? st : '접수',
+    inc_occurred_at: incOnly ? '' : $('inc-occurred').value, inc_recovered_at: $('inc-recovered').value,     // 장애만이면 발생 = 위의 날짜·시간
     symptom: $('inc-symptom').value, cause: $('inc-cause').value, action: $('inc-action').value, prevention: $('inc-prevention').value,
+    inc_parts: incGetParts(),
   };
 }
 
@@ -1821,8 +1908,8 @@ async function _entrySave(){
   if(!body.day){ toast('날짜를 입력해주세요'); return null; }
   if(body.types.includes('점검') && !body.site_id){ toast('점검은 목록에 등록된 사이트를 골라주세요'); return null; }
   if(body.types.includes('장애처리')){
-    if(body.inc_recovered_at && !body.inc_occurred_at){ entryTab('report', true); toast('장애 발생 일시를 입력해주세요'); return null; }
-    if(body.inc_recovered_at && body.inc_recovered_at < body.inc_occurred_at){ entryTab('report', true); toast('복구 일시가 발생 일시보다 빠릅니다'); return null; }
+    const occ = body.inc_occurred_at || (body.day + (body.time ? 'T' + body.time : ''));
+    if(body.inc_recovered_at && body.inc_recovered_at < occ){ entryTab('report', true); toast('복구 일시가 발생 일시보다 빠릅니다'); return null; }
   } else if(_entryIncId && !confirm('장애처리 체크를 풀고 저장하면 작성해 둔 장애처리 보고서가 지워집니다. 계속할까요?')) return null;
   const id = $('wp-id').value;
   try {
@@ -1859,10 +1946,21 @@ async function downloadEntryExcel(){
   window.location.href = `/api/engineers/${ENG_ID}/workplans/${r.id}/download`;
 }
 
+// 창에 적힌 내용을 먼저 저장한 뒤 장애처리 보고서 엑셀을 내려받는다
+async function downloadEntryIncReport(){
+  const r = await _entrySave();
+  if(!r) return;
+  $('wp-id').value = r.id; _entryIncId = r.inc_id || '';
+  entryTypesChanged(); _entryRefresh();
+  if(_entryIncId) downloadIncidentReport(_entryIncId);
+}
+
 async function deleteWorkPlan(id) {
-  if(!confirm('해당 기술지원을 삭제하시겠습니까?')) return;
-  await api.del(`/api/engineers/${ENG_ID}/workplans/${id}`);
-  renderWorkPlans(); _refreshSvcHistory(); toast('삭제됨');
+  const p = _allWorkPlans.find(x => x.id === id);
+  if(!confirm(`${p ? `"${p.site ? p.site + ' - ' : ''}${p.title}" ` : ''}기술지원을 삭제하시겠습니까?${_incByEntry[id] ? '\n함께 등록된 장애 기록은 장애처리에 그대로 남습니다.' : ''}`)) return;
+  try { await _apiSend('DELETE', `/api/engineers/${ENG_ID}/workplans/${id}`); }
+  catch(e){ toast('삭제 실패: ' + e.message); return; }
+  renderWorkPlans(); _refreshSvcHistory(); _refreshDash(); toast('삭제됨');
 }
 
 function downloadWorkPlanExcel(id) {
@@ -1923,7 +2021,9 @@ function drawIncidents(){
   const year = _incYM.slice(0, 4), mon = Number(_incYM.slice(5, 7));
   const nowYM = _ymd(new Date()).slice(0, 7);
   const all = _allIncidents;
+  const today = _ymd(new Date());
   const isOpen = i => i.status !== '완료', isHigh = i => i.severity === '긴급' || i.severity === '높음';
+  const isLate = i => isOpen(i) && (i.occurred_at || '').slice(0, 10) < today;     // 발생일이 지났는데 아직 처리 중
   const month = all.filter(i => (i.occurred_at || '').startsWith(_incYM));
   $('inc-label').textContent = `${year}년 ${mon}월`;
   $('inc-today-btn').style.visibility = _incYM === nowYM ? 'hidden' : 'visible';
@@ -1949,7 +2049,7 @@ function drawIncidents(){
   $('inc-months').innerHTML = Array.from({length: 12}, (_, n) => {
     const ym = `${year}-${String(n + 1).padStart(2, '0')}`;
     const its = all.filter(i => (i.occurred_at || '').startsWith(ym)), dn = its.filter(i => !isOpen(i)).length;
-    const cls = [ym === _incYM ? 'active' : '', ym === nowYM ? 'cur' : '', !its.length ? 'none' : dn === its.length ? 'full' : 'late'].join(' ');
+    const cls = [ym === _incYM ? 'active' : '', ym === nowYM ? 'cur' : '', !its.length ? 'none' : dn === its.length ? 'full' : its.some(isLate) ? 'late' : ''].join(' ');
     return `<button class="sm-mon ${cls}" onclick="incGo('${ym}')" title="${n + 1}월${its.length ? ` · 완료 ${dn}/${its.length}` : ' · 장애 없음'}">
       <span class="sm-mon-name">${n + 1}월</span><span class="sm-mon-cnt">${its.length ? `${dn}/${its.length}` : '-'}</span></button>`;
   }).join('');
@@ -1964,35 +2064,42 @@ function drawIncidents(){
   const q = $('inc-search').value.toLowerCase().trim();
 
   const list = month.filter(i => (!_incSt || i.status === _incSt) && (!sel.value || (i.site || '').trim() === sel.value)
-      && (!q || [i.title, i.site, i.device, i.worker, i.symptom, i.cause, i.action].some(v => (v || '').toLowerCase().includes(q)))
+      && (!q || [i.title, i.site, i.device, i.worker, i.symptom, i.cause, i.action, i.severity,
+          ...(i.parts || []).flatMap(p => [p.name, p.part_no, p.old_sn, p.new_sn])].some(v => (v || '').toLowerCase().includes(q)))
       && (!_incOnly || (_incOnly === 'done' ? !isOpen(i) : _incOnly === 'open' ? isOpen(i) : isHigh(i))))
-    .sort((a, b) => (b.occurred_at || '').localeCompare(a.occurred_at || ''));
+    .sort((a, b) => (a.occurred_at || '').localeCompare(b.occurred_at || '') || (a.site || '').localeCompare(b.site || '', 'ko'));
+  const late = month.filter(isLate).length;
 
   const row = i => {
     const day = (i.occurred_at || '').slice(0, 10), time = (i.occurred_at || '').slice(11, 16);
-    const sub = [i.device ? `장비: ${i.device}` : '', i.cause ? `원인: ${i.cause}` : ''].filter(Boolean).join(' · ');
-    return `<tr class="${isOpen(i) ? '' : 'done'}" onclick="openEditIncident('${i.id}')" style="cursor:pointer">
-      <td class="sm-d">${day ? _smDateLabel(day) : '-'}${time ? ` <span class="wp-time">${time}</span>` : ''}</td>
+    const link = i.entry_id ? _svcLink(i.entry_id.startsWith('wp-') ? '기술지원 연결' : '점검 연결', '점검 일정/기술지원과 함께 등록된 건 — 누르면 그 일정이 함께 열립니다') : '';
+    const parts = i.parts || [];
+    const partTxt = parts.length ? `파트: ${parts.map(p => (p.name || p.part_no) + (p.qty > 1 ? ` ×${p.qty}` : '')).join(', ')}` : '';
+    const sub = [i.device ? `장비: ${i.device}` : '', partTxt, i.cause ? `원인: ${i.cause}` : ''].filter(Boolean).join(' · ');
+    return `<tr class="${isOpen(i) ? '' : 'done'} ${day === today ? 'today' : ''}" onclick="openEditIncident('${i.id}')" style="cursor:pointer">
+      ${_svcDate(day, time, !isOpen(i), today, '미처리')}
       <td class="sm-s" title="${esc(i.site)}">${esc(i.site || '-')}</td>
-      <td class="sm-t">${esc(i.title)}${i.entry_id ? ' <span class="badge b-green" title="점검 일정/기술지원과 함께 등록된 건 — 누르면 그 일정이 열립니다">일정과 함께</span>' : ''}${sub ? `<div class="wp-purpose" title="${esc(sub)}">${esc(sub)}</div>` : ''}</td>
-      <td class="c"><span class="badge ${INC_SEV_CLS[i.severity] || 'b-gray'}">${esc(i.severity)}</span></td>
+      <td class="sm-t">${esc(i.title)}${sub ? `<div class="wp-purpose" title="${esc(sub)}">${esc(sub)}</div>` : ''}</td>
+      <td class="c"><div class="svc-kind"><span class="badge ${INC_SEV_CLS[i.severity] || 'b-gray'}" title="장애 등급">${esc(i.severity)}</span>${link}</div></td>
       <td class="wp-worker" title="${esc(i.worker)}">${esc(i.worker || '-')}</td>
       <td class="inc-down" title="${i.recovered_at ? `복구 ${esc(fmtDT(i.recovered_at))}` : '복구 일시가 아직 없습니다'}">${i.downtime_min !== null && i.downtime_min !== undefined ? fmtDuration(i.downtime_min) : '<span class="inc-nodown">복구 전</span>'}</td>
       <td class="c"><span class="badge ${INC_ST_CLS[i.status] || 'b-gray'}">${esc(i.status)}</span></td>
-      <td class="c cl-act" onclick="event.stopPropagation()"><button class="icon-btn edit" title="수정" onclick="openEditIncident('${i.id}')">${ICO_EDIT}</button><button class="icon-btn del" title="삭제" onclick="deleteIncident('${i.id}')">${ICO_DEL}</button></td>
+      ${_svcActs({title: '장애처리 보고서 엑셀 내려받기', fn: `downloadIncidentReport('${i.id}')`}, `openEditIncident('${i.id}')`, `deleteIncident('${i.id}')`)}
     </tr>`;
   };
   const emptyMsg = !month.length ? `${mon}월에 발생한 장애가 없습니다` : '조건에 맞는 장애가 없습니다';
-  const cols = '<colgroup><col style="width:160px"><col style="width:18%"><col><col style="width:76px"><col style="width:11%"><col style="width:110px"><col style="width:88px"><col style="width:96px"></colgroup>';
+  const cols = _svcCols('<col style="width:96px">');
   $('inc-panel-title').textContent = `${mon}월 장애처리`;
   $('inc-panel-info').innerHTML = (list.length !== month.length ? `<span class="sh-mon-note">${list.length}건 표시 중</span>` : '')
+    + (late ? `<span class="sh-mon-cnt late">미처리 ${late}건</span>` : '')
     + (downSum ? `<span class="sh-mon-cnt late">장애 시간 ${fmtDuration(downSum)}</span>` : '')
     + (month.length ? `<span class="sh-mon-cnt">${done}/${month.length} 완료</span>` : '');
   $('inc-list').innerHTML = `<table class="cl-table sm-table sh-table sh-inhead">${cols}
-    <thead><tr><th>발생 일시</th><th>사이트</th><th>장애명</th><th class="c">등급</th><th>처리자</th><th>장애 시간</th><th class="c">상태</th><th class="c">관리</th></tr></thead>
+    <thead><tr><th>발생 일시</th><th>사이트</th><th>장애명</th><th class="c">등급 · 구분</th><th>작업자</th><th>장애 시간</th><th class="c">상태</th><th class="c">관리</th></tr></thead>
     <tbody>${list.length ? list.map(row).join('') : `<tr class="cl-msg"><td colspan="8">${emptyMsg}</td></tr>`}</tbody></table>`;
 }
 $('inc-search').addEventListener('input', () => { clearTimeout(window._incT); window._incT = setTimeout(drawIncidents, 200); });
+$('sm-search').addEventListener('input', () => { clearTimeout(window._smT); window._smT = setTimeout(drawSchedMgmt, 200); });
 
 // 장애 등록·수정은 일정 공통 입력 창을 쓴다 (구분 '장애처리' + "장애처리 보고서" 탭).
 // 점검/기술지원과 함께 등록된 장애는 그 일정을 열어 보고서 탭을 보여 준다.
@@ -2000,10 +2107,13 @@ function openAddIncident(){ return openEntry(null, ['장애처리']); }
 function openEditIncident(id){ return openEntry(id, undefined, 'report'); }
 
 async function deleteIncident(id){
-  if(!confirm('해당 장애 기록을 삭제하시겠습니까?')) return;
-  await api.del(`/api/engineers/${ENG_ID}/incidents/${id}`);
-  renderIncidents(); _refreshSvcHistory(); toast('삭제됨');
+  const i = _allIncidents.find(x => x.id === id);
+  if(!confirm(`${i ? `"${i.site ? i.site + ' - ' : ''}${i.title}" ` : ''}장애 기록을 삭제하시겠습니까?${i && i.entry_id ? '\n함께 등록된 점검 일정/기술지원은 그대로 남습니다.' : ''}`)) return;
+  try { await _apiSend('DELETE', `/api/engineers/${ENG_ID}/incidents/${id}`); }
+  catch(e){ toast('삭제 실패: ' + e.message); return; }
+  renderIncidents(); _refreshSvcHistory(); _refreshDash(); toast('삭제됨');
 }
+function downloadIncidentReport(id){ window.location.href = `/api/engineers/${ENG_ID}/incidents/${id}/report`; }
 
 // ── 서비스 지원 이력 (점검·기술지원·장애처리를 월 단위로, 검색은 그 해 전체) ─────────────
 let _svhTab = 'all';
@@ -2067,7 +2177,7 @@ async function renderServiceHistory(reuse){
   const yIncs = incs.filter(i => (i.occurred_at || '').startsWith(ty)), yPlans = plans.filter(p => (p.work_date || '').startsWith(ty));
   const fChk = q ? scheds.filter(c => hit(c.site_name, c.title, c.memo)) : null;
   const fSup = q ? yPlans.filter(p => hit(p.site, p.title, p.purpose, p.worker)) : null;
-  const fInc = q ? yIncs.filter(i => hit(i.site, i.title, i.symptom, i.cause, i.action, i.worker)) : null;
+  const fInc = q ? yIncs.filter(i => hit(i.site, i.title, i.symptom, i.cause, i.action, i.worker, ...(i.parts || []).flatMap(p => [p.name, p.part_no, p.old_sn, p.new_sn]))) : null;
   incs = incs.filter(i => (i.occurred_at || '').startsWith(ym));
   const sup = plans.filter(p => (p.work_date || '').startsWith(ym));
   const chk = scheds.filter(x => (x.sched_date || '').startsWith(ym));
@@ -2314,6 +2424,8 @@ async function downloadWeeklyReport(){
 // ── 점검 일정 관리 페이지 ──────────────────
 let _smYM = _ymd(new Date()).slice(0, 7);   // 보고 있는 달 "YYYY-MM"
 let _smType = '';                            // 유형 탭 ('' = 전체)
+let _smOnly = '';                            // 요약 카드로 고른 조건 ('' | done | todo | late)
+function smSetOnly(k){ _smOnly = _smOnly === k ? '' : k; drawSchedMgmt(); }
 const _smData = {};                          // 연도별 일정 캐시
 const SCHED_TYPE_CLS = {월간:'b-monthly', 분기:'b-quarterly', 특별:'b-special'};
 const _schedBase = () => `/api/engineers/${ENG_ID}/schedules`;
@@ -2331,14 +2443,14 @@ function smMove(delta){
   const [y, m] = _smYM.split('-').map(Number);
   smGo(_ymd(new Date(y, m - 1 + delta, 1)).slice(0, 7));
 }
-function smGo(ym){ _smYM = ym; renderSchedMgmt(false); }
+function smGo(ym){ _smYM = ym; _smOnly = ''; renderSchedMgmt(false); }
 function smToday(){ smGo(_ymd(new Date()).slice(0, 7)); }
 function smSetType(t){ _smType = t; drawSchedMgmt(); }
 
 async function renderSchedMgmt(force = true){
   const year = _smYM.slice(0, 4);
   try {
-    await _smLoad(year, force);
+    await Promise.all([_smLoad(year, force), _loadIncLinks()]);
     await loadSchedWorkPlans();
   } catch(e){
     $('sm-content').innerHTML = `<div class="empty">점검 일정을 불러오지 못했습니다: ${esc(e.message)}</div>`;
@@ -2359,12 +2471,13 @@ function drawSchedMgmt(){
   // 이 달 요약
   const done = month.filter(s => s.status === '완료').length, late = month.filter(isLate).length;
   const pct = month.length ? Math.round(done / month.length * 100) : 0;
+  const act = k => _smOnly === k ? ' active' : '';
   $('sm-summary').innerHTML = `
-    <div class="metric m-gray"><div class="metric-label">${mon}월 전체</div><div class="metric-value">${month.length}<small>건</small></div></div>
-    <div class="metric m-green"><div class="metric-label">완료</div><div class="metric-value">${done}<small>건 (${pct}%)</small></div>
+    <div class="metric m-gray${act('')}" onclick="smSetOnly('')" title="전체 보기"><div class="metric-label">${mon}월 전체</div><div class="metric-value">${month.length}<small>건</small></div></div>
+    <div class="metric m-green${act('done')}" onclick="smSetOnly('done')" title="완료한 건만 보기"><div class="metric-label">완료</div><div class="metric-value">${done}<small>건 (${pct}%)</small></div>
       <div class="prog-wrap"><div class="prog-bar" style="width:${pct}%;background:#22c55e"></div></div></div>
-    <div class="metric m-blue"><div class="metric-label">남음</div><div class="metric-value">${month.length - done}<small>건</small></div></div>
-    <div class="metric m-red"><div class="metric-label">지연</div><div class="metric-value" style="${late ? 'color:#dc2626' : ''}">${late}<small>건</small></div></div>`;
+    <div class="metric m-blue${act('todo')}" onclick="smSetOnly('todo')" title="남은 건만 보기"><div class="metric-label">남음</div><div class="metric-value">${month.length - done}<small>건</small></div></div>
+    <div class="metric m-red${act('late')}" onclick="smSetOnly('late')" title="점검일이 지났는데 완료하지 않은 건만 보기"><div class="metric-label">지연</div><div class="metric-value" style="${late ? 'color:#dc2626' : ''}">${late}<small>건</small></div></div>`;
 
   // 12개월 띠
   $('sm-months').innerHTML = Array.from({length: 12}, (_, i) => {
@@ -2383,35 +2496,37 @@ function drawSchedMgmt(){
   sel.innerHTML = '<option value="">전체 사이트</option>' + sites.map(([id, name]) => `<option value="${id}">${esc(name)}</option>`).join('');
   if(sites.some(([id]) => id === prev)) sel.value = prev;
 
-  const list = month.filter(s => (!_smType || s.sched_type === _smType) && (!sel.value || s.site_id === sel.value))
+  const plans = {}; _schedWorkPlans.forEach(p => { plans[p.id] = p; });     // 일정 id → 작업자·작업계획 보관 레코드
+  const q = $('sm-search').value.toLowerCase().trim();
+  const list = month.filter(s => (!_smType || s.sched_type === _smType) && (!sel.value || s.site_id === sel.value)
+      && (!q || [s.title, s.site_name, s.memo, (plans[s.id] || {}).worker, ...(s.extra_types || [])].some(v => (v || '').toLowerCase().includes(q)))
+      && (!_smOnly || (_smOnly === 'done' ? s.status === '완료' : _smOnly === 'late' ? isLate(s) : s.status !== '완료')))
     .sort((a, b) => a.sched_date.localeCompare(b.sched_date) || a.site_name.localeCompare(b.site_name, 'ko'));
 
   const row = s => {
-    const isDone = s.status === '완료', day = s.sched_date.slice(0, 10);
-    const lateDays = isLate(s) ? _daysBetween(day, today) : 0;
-    const hasPlan = _schedWorkPlans.some(p => p.id === s.id);
-    return `<tr class="${isDone ? 'done' : ''} ${day === today ? 'today' : ''}">
-      <td class="sm-d">${_smDateLabel(day)}${day === today && !isDone ? '<span class="badge b-blue">오늘</span>' : ''}${lateDays ? `<span class="badge b-red">지연 D+${lateDays}</span>` : ''}</td>
+    const isDone = s.status === '완료', day = s.sched_date.slice(0, 10), time = s.sched_date.slice(11, 16);
+    const plan = plans[s.id], worker = plan ? plan.worker : '';
+    return `<tr class="${isDone ? 'done' : ''} ${day === today ? 'today' : ''}" onclick="openEditSched('${s.id}')" style="cursor:pointer">
+      ${_svcDate(day, time, isDone, today)}
       <td class="sm-s" title="${esc(s.site_name)}">${esc(s.site_name)}</td>
-      <td class="sm-t">${esc(s.title)}${(s.extra_types || []).map(t => ` <span class="badge b-purple">${esc(t)}</span>`).join('')}</td>
-      <td class="c"><span class="badge ${SCHED_TYPE_CLS[s.sched_type] || 'b-gray'}">${esc(s.sched_type || '-')}</span></td>
-      <td class="sm-memo" title="${esc(s.memo)}">${esc(s.memo)}</td>
-      <td class="c"><button class="ds-check-btn ${isDone ? 'checked' : ''}" onclick="toggleSchedStatusMgmt('${s.id}')" title="${isDone ? '완료 취소' : '완료 처리'}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14" ${isDone ? '' : 'style="opacity:.3"'}><polyline points="20 6 9 17 4 12"/></svg></button></td>
-      <td class="c cl-act">${hasPlan ? `<button class="btn btn-sm sm-xls" title="작업계획서 엑셀 내려받기" onclick="downloadWorkPlanExcel('${s.id}')">Excel</button>` : ''}<button class="icon-btn edit" title="수정" onclick="openEditSched('${s.id}')">${ICO_EDIT}</button><button class="icon-btn del" title="삭제" onclick="deleteSchedAndRefresh('${s.id}')">${ICO_DEL}</button></td>
+      <td class="sm-t">${esc(s.title)}${s.memo ? `<div class="wp-purpose" title="${esc(s.memo)}">${esc(s.memo)}</div>` : ''}</td>
+      <td class="c"><div class="svc-kind"><span class="badge ${SCHED_TYPE_CLS[s.sched_type] || 'b-gray'}" title="점검 유형">${esc(s.sched_type || '-')}</span>${(s.extra_types || []).map(t => `<span class="badge b-purple">${esc(t)}</span>`).join('')}${_svcIncLink(s.id)}</div></td>
+      <td class="wp-worker" title="${esc(worker)}">${esc(worker || '-')}</td>
+      ${_svcCheck(isDone, `toggleSchedStatusMgmt('${s.id}')`)}
+      ${_svcActs(plan && plan.has_plan ? {title: '작업계획서 엑셀 내려받기', fn: `downloadWorkPlanExcel('${s.id}')`} : null, `openEditSched('${s.id}')`, `deleteSchedAndRefresh('${s.id}')`)}
     </tr>`;
   };
   const emptyMsg = !month.length
     ? `${mon}월에 등록된 점검 일정이 없습니다<br><button class="btn btn-sm" style="margin-top:10px" onclick="openSchedCopy()">이전 달 일정 복사</button>`
     : '조건에 맞는 일정이 없습니다';
   // 표 상자 하나: 위쪽 줄(일정 목록 제목 + 유형·사이트 필터 + 진행 상황) → 열 제목 → 일정
-  const cols = '<colgroup><col style="width:140px"><col style="width:21%"><col><col style="width:74px"><col style="width:21%"><col style="width:64px"><col style="width:140px"></colgroup>';
+  const cols = _svcCols();
   $('sm-panel-title').textContent = `${mon}월 점검 일정`;
   $('sm-panel-info').innerHTML = (list.length !== month.length ? `<span class="sh-mon-note">${list.length}건 표시 중</span>` : '')
     + (late ? `<span class="sh-mon-cnt late">지연 ${late}건</span>` : '')
     + (month.length ? `<span class="sh-mon-cnt">${done}/${month.length} 완료</span>` : '');
   $('sm-content').innerHTML = `<table class="cl-table sm-table sh-table sh-inhead">${cols}
-    <thead><tr><th>점검일</th><th>사이트</th><th>제목</th><th class="c">유형</th><th>메모</th><th class="c">완료</th><th class="c">관리</th></tr></thead>
+    <thead><tr><th>날짜</th><th>사이트</th><th>제목</th><th class="c">유형 · 구분</th><th>작업자</th><th class="c">완료</th><th class="c">관리</th></tr></thead>
     <tbody>${list.length ? list.map(row).join('') : `<tr class="cl-msg"><td colspan="7">${emptyMsg}</td></tr>`}</tbody></table>`;
 }
 
@@ -2428,7 +2543,7 @@ async function toggleSchedStatusMgmt(id){
 
 async function deleteSchedAndRefresh(id){
   const s = _schedById[id];
-  if(!confirm(`${s ? `"${s.site_name} - ${s.title}" ` : ''}점검 일정을 삭제하시겠습니까?`)) return;
+  if(!confirm(`${s ? `"${s.site_name} - ${s.title}" ` : ''}점검 일정을 삭제하시겠습니까?${_incByEntry[id] ? '\n함께 등록된 장애 기록은 장애처리에 그대로 남습니다.' : ''}`)) return;
   try { await _apiSend('DELETE', `${_schedBase()}/${id}`); }
   catch(e){ toast('삭제 실패: ' + e.message); return; }
   _schedWpLoaded = false;
@@ -3164,7 +3279,10 @@ function drawGcal(){
   const rest = evs.filter(e => e.state !== '확인 대기');
   const failed = (g.last_result || '').startsWith('실패');
   const typeOpts = sel => `<optgroup label="점검 일정">${GC_SCHED.map(t => `<option value="점검|${t}" ${sel === '점검|' + t ? 'selected' : ''}>점검 - ${t}</option>`).join('')}</optgroup>
-    <optgroup label="기술지원">${GC_SUPPORT.map(t => `<option value="기술지원|${t}" ${sel === '기술지원|' + t ? 'selected' : ''}>기술지원 - ${t}</option>`).join('')}</optgroup>`;
+    <optgroup label="기술지원">${GC_SUPPORT.map(t => `<option value="기술지원|${t}" ${sel === '기술지원|' + t ? 'selected' : ''}>기술지원 - ${t}</option>`).join('')}</optgroup>
+    <optgroup label="장애처리"><option value="장애처리|" ${sel === '장애처리|' ? 'selected' : ''}>장애처리</option></optgroup>`;
+  const placeLabel = e => e.kind === '장애처리' ? '장애처리'
+    : (e.kind === '점검' ? '점검 일정' : '기술지원') + ' - ' + (e.sub_type || '') + (e.with_incident ? ' + 장애' : '');
   const siteOpts = `<option value="">사이트 선택</option>` + _gcalSites.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
   const stCls = { '등록': 'ok', '무시': 'off', '포털에서 삭제': 'off' };
 
@@ -3191,10 +3309,10 @@ function drawGcal(){
       <table class="gc-guide">
         <tr><th>주소 찾는 곳</th><td>구글 캘린더 → 왼쪽 캘린더 이름 옆 ⋮ → 설정 및 공유 → 맨 아래 <b>iCal 형식의 비공개 주소</b>를 복사</td></tr>
         <tr><th>제목 규칙</th><td><code>[종류] 고객사이름 - 엔지니어이름</code> &nbsp;예: <code>[점검] A병원 - ${esc(g.engineer_name)}</code> · 여러 명이면 <code>${esc(g.engineer_name)}, 홍길동</code><br>엔지니어 이름에 <b>${esc(g.engineer_name)}</b> 이(가) 들어 있는 일정만 가져옵니다.</td></tr>
-        <tr><th>종류</th><td><code>[점검]</code> <code>[분기점검]</code> <code>[특별점검]</code> → 점검 일정 &nbsp;·&nbsp; <code>[기술지원]</code> <code>[납품]</code> <code>[원격]</code> <code>[이전]</code> <code>[기타]</code> → 기술지원<br><code>[점검 및 기술지원]</code> <code>[점검/납품]</code> 처럼 함께 적으면 점검 일정 한 건에 지원 구분이 같이 체크됩니다.</td></tr>
-        <tr><th>설명</th><td>캘린더 일정의 <b>설명</b> 칸 내용은 기술지원의 <b>작업 목적</b>에 들어갑니다 (점검 일정은 메모). 구글에서 설명을 고치면 반영하지만, 포털에서 직접 고친 내용은 덮어쓰지 않습니다.</td></tr>
+        <tr><th>종류</th><td><code>[점검]</code> <code>[분기점검]</code> <code>[특별점검]</code> → 점검 일정 &nbsp;·&nbsp; <code>[기술지원]</code> <code>[납품]</code> <code>[원격]</code> <code>[이전]</code> <code>[기타]</code> → 기술지원 &nbsp;·&nbsp; <code>[장애처리]</code> → 장애처리<br><code>[점검 및 기술지원]</code> <code>[점검/납품]</code> 처럼 함께 적으면 점검 일정 한 건에 지원 구분이 같이 체크됩니다. <code>[점검/장애처리]</code> <code>[기술지원 및 장애처리]</code>는 그 일정에 연결된 장애가 함께 생깁니다.</td></tr>
+        <tr><th>설명</th><td>캘린더 일정의 <b>설명</b> 칸 내용은 기술지원의 <b>작업 목적</b>에 들어갑니다 (점검 일정은 메모, 장애처리는 장애 증상). 구글에서 설명을 고치면 반영하지만, 포털에서 직접 고친 내용은 덮어쓰지 않습니다.</td></tr>
         <tr><th>이미 있는 일정</th><td>포털에 <b>같은 날짜 · 같은 사이트</b>로 이미 등록된 건이 있으면 새로 만들지 않고 그 건에 연결합니다. 이렇게 연결된 건은 구글에서 일정을 지워도 포털에서 지우지 않습니다.</td></tr>
-        <tr><th>반영 방식</th><td>${g.sync_minutes}분마다 자동으로 확인합니다. 구글에서 날짜를 바꾸거나 지우면 포털에도 반영하지만, 포털에서 <b>완료 처리한 건은 그대로</b> 둡니다. 포털에서 직접 지운 건은 다시 만들지 않으며, 아래 표의 "다시 가져오기"로 되살릴 수 있습니다.</td></tr>
+        <tr><th>반영 방식</th><td>${g.sync_minutes}분마다 자동으로 확인합니다. 구글에서 날짜를 바꾸거나 지우면 포털에도 반영하지만, 포털에서 <b>완료 처리한 건은 그대로</b> 둡니다. 장애처리는 원인·조치·파트 등 보고서를 쓰기 시작했거나 처리중으로 바꾼 건도 지우지 않습니다. 포털에서 직접 지운 건은 다시 만들지 않으며, 아래 표의 "다시 가져오기"로 되살릴 수 있습니다.</td></tr>
       </table>
     </div>
   </div>
@@ -3206,7 +3324,7 @@ function drawGcal(){
       ${wait.map(e => `<tr>
         <td class="gc-date">${esc(e.event_date)}</td>
         <td><div class="dv-task">${esc(e.summary)}</div><div class="dv-desc">${esc(e.reason)}</div></td>
-        <td><select class="filter-select gc-sel" id="gc-kind-${e.id}">${typeOpts(e.kind ? e.kind + '|' + (e.sub_type || (e.kind === '점검' ? '월간' : '기술지원')) : '점검|월간')}</select></td>
+        <td><select class="filter-select gc-sel" id="gc-kind-${e.id}">${typeOpts(e.kind ? e.kind + '|' + (e.kind === '장애처리' ? '' : (e.sub_type || (e.kind === '점검' ? '월간' : '기술지원'))) : '점검|월간')}</select></td>
         <td><select class="filter-select gc-sel" id="gc-site-${e.id}">${siteOpts}</select></td>
         <td class="gc-act"><button class="btn btn-sm btn-primary" onclick="gcalRegister('${e.id}')">등록</button><button class="btn btn-sm" onclick="gcalEvent('${e.id}','ignore')">무시</button></td>
       </tr>`).join('')}</tbody></table>` : '<div class="dv-empty">확인할 일정이 없습니다</div>'}
@@ -3218,7 +3336,7 @@ function drawGcal(){
       ${rest.map(e => `<tr>
         <td class="gc-date">${esc(e.event_date)}</td>
         <td><div class="dv-task">${esc(e.summary)}</div></td>
-        <td>${e.state === '무시' ? '<span class="dev-muted">-</span>' : esc((e.kind === '점검' ? '점검 일정' : '기술지원') + ' - ' + (e.sub_type || ''))}</td>
+        <td>${e.state === '무시' ? '<span class="dev-muted">-</span>' : esc(placeLabel(e))}</td>
         <td>${esc(e.site_name || (e.state === '무시' ? '' : e.customer))}</td>
         <td><span class="gc-state ${stCls[e.state] || 'off'}">${esc(e.state === '등록' && e.adopted ? '기존 일정 연결' : e.state)}</span>${e.state === '무시' ? ` <button class="btn btn-sm" onclick="gcalEvent('${e.id}','restore')">되돌리기</button>` : ''}${e.state === '포털에서 삭제' ? ` <button class="btn btn-sm" title="포털에서 지운 일정을 캘린더 내용으로 다시 등록합니다" onclick="gcalEvent('${e.id}','reimport')">다시 가져오기</button>` : ''}</td>
       </tr>`).join('')}</tbody></table>` : '<div class="dv-empty">아직 가져온 일정이 없습니다</div>'}
@@ -3251,7 +3369,7 @@ async function gcalSetStart(){
   await renderGcal();
 }
 async function gcalUnlink(){
-  if(!confirm('캘린더 연동을 해제하시겠습니까?\n이미 등록된 점검 일정과 기술지원은 그대로 남습니다.')) return;
+  if(!confirm('캘린더 연동을 해제하시겠습니까?\n이미 등록된 점검 일정·기술지원·장애처리는 그대로 남습니다.')) return;
   try { await _apiSend('DELETE', _gcalUrl() + '/link'); toast('연동을 해제했습니다'); }
   catch (e) { toast(e.message); }
   await renderGcal();
@@ -4069,7 +4187,7 @@ function drawEos(){
       <b>제조사 공식 지원 종료일</b> · 매일 1회 자동 갱신 ·
       마지막 갱신 <b>${esc(d.last_refresh ? d.last_refresh.slice(0, 16) : '없음')}</b>
       ${failed.length ? `<span class="eos-err" title="${esc(failed.map(p => p.label + ': ' + p.error).join('\n'))}">갱신 실패 ${failed.length}개 제품 — 마지막으로 받은 값을 표시 중</span>` : ''}
-      <div class="eos-info-s">자료: endoflife.date 오픈 데이터(제조사 발표 기준) · Microsoft 수명 주기 페이지(Hyper-V) · HPE 발표(HP-UX, 수동). 제품마다 <b>공식 정책 ↗</b> 링크로 원문을 확인할 수 있습니다.</div>
+      <div class="eos-info-s">자료: endoflife.date 오픈 데이터(제조사 발표 기준) · Microsoft 수명 주기 페이지(Hyper-V) · IBM FLRT(HMC·PowerVM VIOS) · IBM 수명 주기 페이지(PowerVC) · HPE 발표(HP-UX, 수동). 제품마다 <b>공식 정책 ↗</b> 링크로 원문을 확인할 수 있습니다.</div>
     </div>
     <button class="btn" onclick="eosRefresh(this)"${d.refreshing ? ' disabled' : ''}>${d.refreshing ? '갱신 중…' : '지금 갱신'}</button>`;
   if(!d.products.length){
@@ -4122,7 +4240,7 @@ function drawEos(){
   rows.forEach(x => { if(!byP.has(x.p)) byP.set(x.p, []); byP.get(x.p).push(x); });
   if(!byP.size){ $('eos-list').innerHTML = '<div class="empty doc-empty">조건에 맞는 버전이 없습니다</div>'; return; }
   const srcTxt = p => p.source === 'manual' ? '수동 입력 · 자동 갱신 안 됨'
-    : `${p.source === 'microsoft' ? 'Microsoft 공식 페이지' : 'endoflife.date'} · ${esc((p.fetched_at || '').slice(5, 16))} 갱신`;
+    : `${({microsoft: 'Microsoft 공식 페이지', flrt: 'IBM FLRT', ibm: 'IBM 공식 페이지'})[p.source] || 'endoflife.date'} · ${esc((p.fetched_at || '').slice(5, 16))} 갱신`;
   $('eos-list').innerHTML = [...byP.entries()].map(([p, list]) => {
     const t = p.terms || {}, link = _eosLink(p.policy_link);
     const terms = ['eoas', 'eol', 'eoes'].filter(f => t[f]).map(f => `${EOS_F[f]} = ${esc(t[f])}`).join(' · ');

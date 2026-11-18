@@ -3,6 +3,8 @@
 OS·버전별 지원 종료일을 하루 한 번 자동으로 받아 eos_products / eos_releases 에 저장한다 (엔지니어 공용 데이터).
 - 대부분: endoflife.date API (제조사 공식 발표를 모은 오픈소스 데이터, https://endoflife.date/api/v1/products/<이름>/)
 - Hyper-V Server: Microsoft 공식 수명 주기 페이지를 직접 읽는다 (날짜는 태평양 시간 오전 6:59 = 그 전날까지 지원)
+- IBM HMC / PowerVM(VIOS): IBM FLRT(Fix Level Recommendation Tool) JSON — 레벨별 발표일·서비스팩 지원 종료일(EoSPS)을 릴리스 단위로 묶는다
+- IBM PowerVC: IBM 공식 수명 주기 페이지(PowerVC Lifecycle Information) 표를 읽는다
 - HP-UX: HPE 사이트를 서버에서 읽을 수 없어 공식 발표 값을 아래 MANUAL 에 직접 둔다 (자동 갱신 안 됨)
 
 날짜 칸 값: "YYYY-MM-DD" / "Y"(종료됐지만 날짜 모름) / "N"(종료일 미발표) / ""(그 제품엔 해당 없음).
@@ -22,7 +24,7 @@ from database import EosProduct, EosRelease, get_db
 
 router = APIRouter(prefix="/api/eos", tags=["eos"])
 
-CATEGORIES = ["Windows", "Linux", "Unix", "가상화"]
+CATEGORIES = ["Windows", "Linux", "Unix", "가상화", "IBM"]
 REFRESH_HOURS = 24          # 자동 갱신 간격
 RETRY_MINUTES = 60          # 실패했을 때 다시 시도하는 간격
 MANUAL_MIN_GAP = 5 * 60     # '지금 갱신' 버튼 최소 간격(초)
@@ -44,6 +46,9 @@ PRODUCTS = [
     ("vcenter", "VMware vCenter Server", "가상화", "endoflife"),
     ("hyperv", "Microsoft Hyper-V Server", "가상화", "microsoft"),
     ("proxmox-ve", "Proxmox VE", "가상화", "endoflife"),
+    ("ibm-powervm", "IBM PowerVM (VIOS)", "IBM", "flrt"),
+    ("ibm-hmc", "IBM HMC", "IBM", "flrt"),
+    ("ibm-powervc", "IBM PowerVC", "IBM", "ibm"),
 ]
 
 PRODUCT_NOTES = {
@@ -51,7 +56,21 @@ PRODUCT_NOTES = {
     "hp-ux": "HPE 지원 표(Support Matrix) 공식 발표 기준으로 직접 입력한 값입니다 — 자동 갱신되지 않습니다.",
     "ibm-aix": "버전 = 릴리스.TL (예: 7.2.5 = AIX 7.2 TL5, oslevel 7200-05-xx).",
     "windows": "(W) = Home·Pro, (E) = Enterprise·Education.",
+    "ibm-powervm": "PowerVM 은 VIOS(Virtual I/O Server) 레벨 기준 — 버전 = VIOS x.y.z (예: 4.1.2 = 4.1.2.xx 레벨들). "
+                   "지원 종료 = 그 릴리스의 서비스팩 지원 종료일(EoSPS), 최신 = 그 릴리스의 최신 레벨. 시스템 펌웨어(하이퍼바이저)는 포함하지 않습니다.",
+    "ibm-hmc": "버전 = HMC 릴리스(V R). 지원 종료 = 그 릴리스의 서비스팩 지원 종료일(EoSPS), 최신 = 그 릴리스의 최신 레벨(M). "
+               "미발표 = IBM 이 아직 종료일을 정하지 않은 최신 릴리스.",
+    "ibm-powervc": "IBM PowerVC for Private Cloud. 일반 지원 종료 칸 = 서비스팩 지원 종료(EoSPS, 이후 수정 없음), 지원 종료 = EOS.",
 }
+
+# IBM FLRT (키 → FLRT prodKey, 화면에 붙일 이름, 릴리스로 묶는 정규식)
+FLRT = {
+    "ibm-powervm": ("vios", "VIOS ", r"^(\d+\.\d+\.\d+)"),
+    "ibm-hmc": ("hmc", "HMC ", r"^(V\d+\s*R\d+)"),
+}
+FLRT_URL = "https://esupport.ibm.com/customercare/flrt/liteTable?prodKey={}&format=json"
+FLRT_POLICY = "https://esupport.ibm.com/customercare/flrt/lite"
+POWERVC_URL = "https://www.ibm.com/support/pages/node/6856373"     # PowerVC Lifecycle Information
 
 # Hyper-V Server: Microsoft 수명 주기 페이지 (페이지 주소 끝, 버전 이름)
 HYPERV_PAGES = [("hyperv-server-2019", "2019"), ("hyperv-server-2016", "2016"), ("hyperv-server-2012-r2", "2012 R2")]
@@ -133,6 +152,92 @@ def _fetch_hyperv(client: httpx.Client):
     return {"eoas": "Mainstream Support", "eol": "Extended Support", "eoes": None}, HYPERV_POLICY, rels
 
 
+def _flrt_date(s: str) -> str:
+    """'2026.08.14' → '2026-08-14', 'NA' → 'N'(미발표)."""
+    s = (s or "").strip()
+    if re.fullmatch(r"\d{4}\.\d{2}\.\d{2}", s):
+        return s.replace(".", "-")
+    return "N" if s.upper() == "NA" else ""
+
+
+def _fetch_flrt(client: httpx.Client, key: str):
+    """IBM FLRT 레벨 목록(최신 순)을 릴리스 단위로 묶는다: 발표일 = 첫 레벨, 지원 종료 = 가장 늦은 EoSPS."""
+    prod, prefix, pat = FLRT[key]
+    r = client.get(FLRT_URL.format(prod))
+    r.raise_for_status()
+    groups = {}
+    for x in r.json().get("results") or []:
+        lvl = (x.get("input") or "").strip()
+        m = re.match(pat, lvl)
+        if not m:
+            continue
+        cyc = re.sub(r"\s+", " ", m.group(1))
+        groups.setdefault(cyc, []).append(x)
+    rels = []
+    for cyc, lv in groups.items():
+        gas = [d for d in (_flrt_date(x.get("ga")) for x in lv) if len(d) == 10]
+        eos = [_flrt_date(x.get("eosps")) for x in lv]
+        dated = [d for d in eos if len(d) == 10]
+        eol = "N" if "N" in eos else (max(dated) if dated else "")
+        link = (lv[0].get("inputurl") or "").replace("http://", "https://", 1)
+        rels.append({"cycle": cyc, "label": prefix + cyc, "lts": False, "release_date": min(gas) if gas else "",
+                     "eoas": "", "eol": eol, "eoes": "", "latest": (lv[0].get("input") or "").strip(),
+                     "link": link, "note": ""})
+    return {"eoas": None, "eol": "End of Service Pack Support (EoSPS)", "eoes": None}, FLRT_POLICY, rels
+
+
+def _ibm_date(s: str) -> str:
+    s = re.sub(r"\s+", " ", s.strip())
+    for f in ("%d %b %Y", "%d %B %Y", "%d-%b-%Y"):
+        try:
+            return datetime.strptime(s, f).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    return ""
+
+
+def _fetch_powervc(client: httpx.Client):
+    """PowerVC Lifecycle Information 표: 릴리스(2.3.x 등)마다 여러 줄(중간 릴리스·서비스팩).
+    줄마다 날짜가 [발표일, EoSPS, (EOS)] 순 → 릴리스별로 발표일 = 가장 이른 값, EoSPS·EOS = 가장 늦은 값."""
+    import html as _html
+    r = client.get(POWERVC_URL)
+    r.raise_for_status()
+    tables = re.findall(r"<table.*?</table>", r.text, re.S)
+    table = next((t for t in tables if "EoSPS" in t or "End of Service Pack" in t), None)
+    if not table:
+        raise ValueError("PowerVC 수명 주기 표를 찾지 못했습니다")
+    groups, cur = [], None
+    for tr in re.findall(r"<tr.*?</tr>", table, re.S):
+        cells = [_html.unescape(re.sub(r"<[^>]+>", " ", c)).strip()
+                 for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", tr, re.S)]
+        if not cells:
+            continue
+        m = re.match(r"^(\d+\.\d+)\.x", cells[0])
+        if m:
+            cur = {"cycle": m.group(1), "rel": [], "eosps": [], "eos": [], "vers": []}
+            groups.append(cur)
+        if cur is None:
+            continue
+        dates = [d for d in (_ibm_date(c) for c in cells) if d]
+        if dates:
+            cur["rel"].append(dates[0])
+        if len(dates) > 1:
+            cur["eosps"].append(dates[1])
+        if len(dates) > 2:
+            cur["eos"].append(dates[2])
+        cur["vers"] += re.findall(r"\b\d+\.\d+\.\d+(?:\.\d+)?\b", " ".join(cells))
+    rels = []
+    for g in groups:
+        if not g["eos"] and not g["eosps"]:
+            continue
+        vers = sorted(set(g["vers"]), key=lambda v: [int(n) for n in v.split(".")])
+        rels.append({"cycle": g["cycle"], "label": f"PowerVC {g['cycle']}", "lts": False,
+                     "release_date": min(g["rel"]) if g["rel"] else "",
+                     "eoas": max(g["eosps"]) if g["eosps"] else "", "eol": max(g["eos"]) if g["eos"] else "N",
+                     "eoes": "", "latest": vers[-1] if vers else "", "link": POWERVC_URL, "note": ""})
+    return {"eoas": "End of Service Pack Support (EoSPS)", "eol": "End of Support (EOS)", "eoes": None}, POWERVC_URL, rels
+
+
 def _store(db: Session, key: str, rels: list):
     """받은 버전 목록을 저장하고, 날짜가 바뀐 칸은 changes 에 이전 값을 남긴다."""
     today = datetime.now().strftime("%Y-%m-%d")
@@ -183,6 +288,10 @@ def refresh_all() -> dict:
                             terms, policy, rels = _fetch_endoflife(client, key)
                         elif src == "microsoft":
                             terms, policy, rels = _fetch_hyperv(client)
+                        elif src == "flrt":
+                            terms, policy, rels = _fetch_flrt(client, key)
+                        elif src == "ibm":
+                            terms, policy, rels = _fetch_powervc(client)
                         else:
                             m = MANUAL[key]
                             terms, policy, rels = m["terms"], m["policy"], [dict({"lts": False, "link": ""}, **x) for x in m["releases"]]
@@ -222,7 +331,8 @@ def refresh_due() -> bool:
 
 
 def _product_dict(p: EosProduct, rels: list) -> dict:
-    return {"key": p.key, "label": p.label, "category": p.category, "source": p.source, "policy_link": p.policy_link,
+    cur = {k: (label, cat) for k, label, cat, _ in PRODUCTS}.get(p.key, (p.label, p.category))   # 이름·분류는 코드 값 (갱신 전에도 바로 반영)
+    return {"key": p.key, "label": cur[0], "category": cur[1], "source": p.source, "policy_link": p.policy_link,
             "terms": json.loads(p.terms or "{}"), "note": p.note, "fetched_at": p.fetched_at, "checked_at": p.checked_at,
             "error": p.error,
             "releases": [{"id": r.id, "cycle": r.cycle, "label": r.label, "lts": bool(r.lts), "release_date": r.release_date,
@@ -232,7 +342,8 @@ def _product_dict(p: EosProduct, rels: list) -> dict:
 
 @router.get("")
 def get_eos(db: Session = Depends(get_db)):
-    prods = db.query(EosProduct).order_by(EosProduct.order_idx).all()
+    order = {k: i for i, (k, *_) in enumerate(PRODUCTS)}
+    prods = sorted(db.query(EosProduct).all(), key=lambda p: order.get(p.key, 999))
     rels = {}
     for r in db.query(EosRelease).order_by(EosRelease.product, EosRelease.order_idx).all():
         rels.setdefault(r.product, []).append(r)

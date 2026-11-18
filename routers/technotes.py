@@ -241,6 +241,9 @@ def update_work_plan(eng_id: str, plan_id: str, plan_update: WorkPlanUpdate, db:
     
     for k, v in plan_update.dict(exclude_none=True).items():
         setattr(plan, k, v)
+    if plan_update.status is not None:
+        from routers.incidents import sync_entry_status
+        sync_entry_status(db, eng_id, plan.id, plan_update.status)
     db.commit()
     return _wp_dict(plan)
 

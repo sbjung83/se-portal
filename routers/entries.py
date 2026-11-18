@@ -12,6 +12,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db, Site, Schedule, WorkPlan, CalendarEvent, Incident
+from routers.incidents import PartIn, clean_parts, load_parts
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
@@ -65,6 +66,7 @@ class EntryIn(BaseModel):
     cause: Optional[str] = ""
     action: Optional[str] = ""
     prevention: Optional[str] = ""
+    inc_parts: Optional[List[PartIn]] = None   # 사용(교체) 파트
 
 
 def _sites(db, eng_id):
@@ -75,7 +77,8 @@ def _inc_fields(inc) -> dict:
     d = {"inc_id": inc.id if inc else "", "inc_title": (inc.title if inc else "") or "",
          "inc_device": (inc.device if inc else "") or "", "inc_severity": (inc.severity if inc else "") or "보통",
          "inc_status": (inc.status if inc else "") or "접수", "inc_occurred_at": (inc.occurred_at if inc else "") or "",
-         "inc_recovered_at": (inc.recovered_at if inc else "") or ""}
+         "inc_recovered_at": (inc.recovered_at if inc else "") or "",
+         "inc_parts": load_parts(inc.parts) if inc else []}
     for f in INC_TEXT_FIELDS:
         d[f] = (getattr(inc, f) if inc else "") or ""
     return d
@@ -188,6 +191,8 @@ def _save(db, eng_id: str, data: EntryIn, entry_id: Optional[str]):
     supports = [t for t in types if t in SUPPORT_TYPES]
     inc_only = has_inc and not is_check and not supports
     if has_inc:
+        # 상태는 하나: 장애 처리 상태(접수/처리중/완료)를 따르고, 일정 쪽은 완료면 '완료' 아니면 '예정'
+        status = "완료" if (data.inc_status or "접수") == "완료" else "예정"
         if (data.inc_severity or "보통") not in INC_SEVERITIES:
             raise HTTPException(400, detail="장애 등급이 올바르지 않습니다 (긴급 / 높음 / 보통 / 낮음)")
         if (data.inc_status or "접수") not in INC_STATUSES:
@@ -264,6 +269,8 @@ def _save(db, eng_id: str, data: EntryIn, entry_id: Optional[str]):
         inc.occurred_at, inc.recovered_at = occurred, recovered
         for f in INC_TEXT_FIELDS:
             setattr(inc, f, getattr(data, f) or "")
+        if data.inc_parts is not None:                   # 안 보냈으면 기존 파트 기록 유지
+            inc.parts = clean_parts(data.inc_parts)
         inc.entry_id = "" if inc_only else new_id
         inc_id = inc.id
         if inc_only:
@@ -271,11 +278,12 @@ def _save(db, eng_id: str, data: EntryIn, entry_id: Optional[str]):
     elif old_inc is not None:                            # 체크를 풀었으면 보고서를 지운다
         db.delete(old_inc)
 
-    if base_id and new_id != base_id and not inc_only:   # 구글 캘린더 연결도 새 레코드로 옮긴다 (장애처리만 남기면 연결은 끊긴다)
-        for ev in db.query(CalendarEvent).filter(CalendarEvent.engineer_id == eng_id, CalendarEvent.target_id == base_id):
+    old_target = base_id or (old_inc.id if old_inc is not None else None)   # 구글 캘린더가 가리키던 레코드
+    if old_target and new_id != old_target:              # 구글 캘린더 연결도 새 레코드로 옮긴다 (장애처리만 남기면 장애로)
+        for ev in db.query(CalendarEvent).filter(CalendarEvent.engineer_id == eng_id, CalendarEvent.target_id == old_target):
             ev.target_id, ev.target_type = new_id, kind
-            ev.kind = CHECK if is_check else "기술지원"
-            ev.sub_type = sched_type if is_check else ",".join(supports)
+            ev.kind = CHECK if is_check else INCIDENT if inc_only else "기술지원"
+            ev.sub_type = sched_type if is_check else "" if inc_only else ",".join(supports)
             ev.site_id = site.id if site else ""
     db.commit()
     return {"ok": True, "id": new_id, "kind": kind, "inc_id": inc_id}

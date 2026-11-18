@@ -224,6 +224,7 @@ class Incident(Base):
     prevention   = Column(Text, default="")          # 재발 방지 대책
     created_at   = Column(String, default="")
     entry_id     = Column(String, default="")        # 함께 등록한 점검 일정/기술지원의 id (routers/entries.py). 비면 장애처리만 한 건
+    parts        = Column(Text, default="")          # 사용(교체) 파트 JSON 목록: [{name, part_no, qty, old_sn, new_sn, note}]
 
 class LabServer(Base):
     """사내 테스트 서버 접속 정보 (routers/lab.py)."""
@@ -530,6 +531,7 @@ def init_db():
     _ensure_column("leave_records", "apply_date", "VARCHAR DEFAULT ''")
     _ensure_column("users", "is_admin", "BOOLEAN DEFAULT 0")
     _ensure_column("incidents", "entry_id", "VARCHAR DEFAULT ''")
+    _ensure_column("incidents", "parts", "TEXT DEFAULT ''")
     _ensure_column("car_profiles", "driver_name", "VARCHAR DEFAULT ''")
     _ensure_column("car_profiles", "biz_no", "VARCHAR DEFAULT ''")
     _ensure_column("car_trips", "driver", "VARCHAR DEFAULT ''")

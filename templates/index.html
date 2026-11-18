@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=58">
+<link rel="stylesheet" href="/static/css/style.css?v=60">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -288,6 +288,7 @@
           <span class="sm-panel-title" id="sm-panel-title"></span>
           <div class="svh-tabs" id="sm-types"></div>
           <select id="sm-site" class="filter-select" onchange="drawSchedMgmt()"><option value="">전체 사이트</option></select>
+          <input type="text" id="sm-search" class="pj-search" placeholder="제목 · 작업자 · 메모 검색">
           <span style="flex:1"></span>
           <span id="sm-panel-info" class="sm-panel-info"></span>
         </div>
@@ -329,7 +330,7 @@
           <span class="sm-panel-title" id="wp-panel-title"></span>
           <div class="svh-tabs" id="wp-types"></div>
           <select id="wp-site-filter" class="filter-select" onchange="drawWorkPlans()"><option value="">전체 사이트</option></select>
-          <input type="text" id="wp-search" class="pj-search" placeholder="제목 · 작업자 · 내용 검색">
+          <input type="text" id="wp-search" class="pj-search" placeholder="제목 · 작업자 · 메모 검색">
           <span style="flex:1"></span>
           <span id="wp-panel-info" class="sm-panel-info"></span>
         </div>
@@ -358,7 +359,7 @@
           <span class="sm-panel-title" id="inc-panel-title"></span>
           <div class="svh-tabs" id="inc-sts"></div>
           <select id="inc-site-filter" class="filter-select" onchange="drawIncidents()"><option value="">전체 사이트</option></select>
-          <input type="text" id="inc-search" class="pj-search" placeholder="장애명 · 장비 · 내용 검색">
+          <input type="text" id="inc-search" class="pj-search" placeholder="장애명 · 작업자 · 장비 · 파트 검색">
           <span style="flex:1"></span>
           <span id="inc-panel-info" class="sm-panel-info"></span>
         </div>
@@ -1045,7 +1046,7 @@
 <div class="overlay" id="modal-add-workplan">
   <div class="modal modal-lg">
     <div class="modal-head"><div class="modal-title" id="wp-modal-title">일정 등록</div>
-      <div style="display:flex;gap:6px"><button class="btn btn-sm" id="wp-excel" style="display:none;color:#16a34a;border-color:#16a34a" onclick="downloadEntryExcel()">작업계획서 Excel</button><button class="btn btn-sm" onclick="closeModal('modal-add-workplan')">✕</button></div></div>
+      <div style="display:flex;gap:6px"><button class="btn btn-sm" id="wp-excel" style="display:none;color:#16a34a;border-color:#16a34a" onclick="downloadEntryExcel()">작업계획서 Excel</button><button class="btn btn-sm" id="wp-inc-excel" style="display:none;color:#b91c1c;border-color:#b91c1c" onclick="downloadEntryIncReport()">장애처리 보고서 Excel</button><button class="btn btn-sm" onclick="closeModal('modal-add-workplan')">✕</button></div></div>
     <input type="hidden" id="wp-id">
 
     <div class="form-section">
@@ -1066,11 +1067,11 @@
         <div class="form-row"><label>제목 *</label><input type="text" id="wp-title" placeholder="예: PM, vCenter 통합 작업"></div>
       </div>
       <div class="grid3">
-        <div class="form-row"><label>날짜 *</label><input type="date" id="wp-day" onchange="entrySyncOccurred()"></div>
-        <div class="form-row"><label>시간 <span class="en-hint">선택</span></label><input type="time" id="wp-time" onchange="entrySyncOccurred()"></div>
-        <div class="form-row" id="wp-status-row"><label>상태</label><select id="wp-status"><option>예정</option><option>완료</option></select></div>
+        <div class="form-row"><label><span id="wp-day-lbl">날짜</span> *</label><input type="date" id="wp-day" onchange="entrySyncOccurred()"></div>
+        <div class="form-row"><label><span id="wp-time-lbl">시간</span> <span class="en-hint">선택</span></label><input type="time" id="wp-time" onchange="entrySyncOccurred()"></div>
+        <div class="form-row" id="wp-status-row"><label>상태 <span class="en-hint" id="wp-status-hint"></span></label><select id="wp-status"><option>예정</option><option>완료</option></select></div>
       </div>
-      <div class="grid3">
+      <div class="grid-auto">
         <div class="form-row"><label>작업자</label><input type="text" id="wp-worker" placeholder="예: 홍길동, 이순신"></div>
         <div class="form-row" id="wp-reviewer-row"><label>결재자/공유자</label><input type="text" id="wp-reviewer" placeholder="예: 김팀장"></div>
         <div class="form-row" id="wp-sched-type-row"><label>점검 유형</label><select id="wp-sched-type"><option>월간</option><option>분기</option><option>특별</option></select></div>
@@ -1103,21 +1104,26 @@
         <div class="form-row" style="margin-bottom:0"><label>비상 계획 (Rollback Plan)</label><textarea id="wp-rollback" style="min-height:60px" placeholder="문제 발생 시 작업을 원복하기 위한 절차를 기재합니다."></textarea></div>
       </div>
       <div class="en-plan-body" id="wp-pane-report" style="display:none">
-        <div class="grid2">
+        <div class="grid-auto">
           <div class="form-row" id="inc-title-row"><label>장애명 <span class="en-hint">비우면 위의 제목과 같게 저장</span></label><input type="text" id="inc-title" placeholder="예: DB 서버 디스크 장애로 서비스 지연"></div>
           <div class="form-row"><label>장애 장비/시스템</label><input type="text" id="inc-device" placeholder="예: DB01 (Dell R750)"></div>
         </div>
-        <div class="grid2">
-          <div class="form-row"><label>발생 일시 <span class="en-hint">비우면 위의 날짜·시간</span></label><input type="datetime-local" id="inc-occurred" onchange="_entryOccAuto = !this.value"></div>
+        <div class="grid-auto">
+          <div class="form-row" id="inc-occ-row"><label>발생 일시 <span class="en-hint">비우면 위의 날짜·시간</span></label><input type="datetime-local" id="inc-occurred" onchange="_entryOccAuto = !this.value"></div>
           <div class="form-row"><label>복구 일시</label><input type="datetime-local" id="inc-recovered"></div>
-        </div>
-        <div class="grid2">
           <div class="form-row"><label>장애 등급</label><select id="inc-severity"><option>긴급</option><option>높음</option><option selected>보통</option><option>낮음</option></select></div>
-          <div class="form-row"><label>처리 상태</label><select id="inc-status"><option>접수</option><option>처리중</option><option>완료</option></select></div>
         </div>
         <div class="form-row"><label>장애 증상</label><textarea id="inc-symptom" style="min-height:70px" placeholder="장애 현상, 영향 범위, 인지 경로 등을 기재합니다."></textarea></div>
         <div class="form-row"><label>원인</label><textarea id="inc-cause" style="min-height:70px" placeholder="확인된 장애 원인을 기재합니다."></textarea></div>
         <div class="form-row"><label>조치 내용</label><textarea id="inc-action" style="min-height:90px" placeholder="복구를 위해 수행한 조치를 순서대로 기재합니다."></textarea></div>
+        <div class="form-row"><label>사용 파트 <span class="en-hint">교체·투입한 부품 — 없으면 비워 두세요</span></label>
+          <table class="wr-tbl doc-tbl inc-parts">
+            <colgroup><col style="width:36px"><col><col style="width:16%"><col style="width:66px"><col style="width:16%"><col style="width:16%"><col style="width:15%"><col style="width:40px"></colgroup>
+            <thead><tr><th class="c">No.</th><th>파트명</th><th>Part No. / FRU</th><th class="c">수량</th><th>제거 S/N (불량)</th><th>장착 S/N (신규)</th><th>비고</th><th></th></tr></thead>
+            <tbody id="inc-parts"></tbody>
+          </table>
+          <button type="button" class="btn btn-sm" style="margin-top:6px" onclick="incAddPart()">+ 파트 추가</button>
+        </div>
         <div class="form-row" style="margin-bottom:0"><label>재발 방지 대책</label><textarea id="inc-prevention" style="min-height:60px" placeholder="재발 방지를 위한 후속 조치를 기재합니다."></textarea></div>
       </div>
     </div>
@@ -1233,6 +1239,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=96"></script>
+<script src="/static/js/app.js?v=100"></script>
 </body>
 </html>

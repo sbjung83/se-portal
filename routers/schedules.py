@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db, Schedule, Site, WorkPlan
+from routers.incidents import sync_entry_status
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
@@ -158,6 +159,8 @@ def update_schedule(eng_id: str, sch_id: str, data: ScheduleUpdate, db: Session 
     _validate(db, eng_id, data.site_id, data.title, data.sched_date, data.sched_type, data.status)
     for k, v in data.dict(exclude_none=True).items():
         setattr(sch, k, v)
+    if data.status is not None:
+        sync_entry_status(db, eng_id, sch.id, data.status)
     db.commit()
     return _sch_dict(sch, db)
 

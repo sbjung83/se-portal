@@ -559,7 +559,7 @@
         {
           "id": "doc-01",
           "task": "README 작성",
-          "status": "예정",
+          "status": "완료",
           "priority": "권장",
           "notes": "설치, 실행, 사용 방법",
           "desc": "이 프로그램이 무엇이고 어떻게 설치·실행하는지 적은 첫 안내문(README)입니다.",
@@ -596,10 +596,10 @@
     }
   ],
   "summary": {
-    "total_items": 62,
-    "completed": 32,
-    "in_progress": 8,
-    "planned": 22,
-    "completion_rate": "51.6%"
+    "total_items": 59,
+    "completed": 29,
+    "in_progress": 7,
+    "planned": 23,
+    "completion_rate": "49.2%"
   }
 }

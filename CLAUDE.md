@@ -51,13 +51,17 @@ uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `
   - 구분 **'장애처리'**를 체크하면 창 아래 탭(`세부 작업계획` / `장애처리 보고서`, `entryTab()`)에 보고서 탭이 생기고 Incident 가 함께 저장된다.
     점검/기술지원과 같이 고르면 `Incident.entry_id` = 그 일정 id, 장애처리만 고르면 Incident 1건만(일정 id = 장애 id, `kind: "incident"`).
     `GET /entries/{id}`는 장애 id 를 줘도 연결된 일정을 찾아 준다. 체크를 풀고 저장하면 보고서(Incident)는 삭제. 일정만 지우면 장애 기록은 단독으로 남는다.
-- **장애처리** (`page-incidents`) = Incident 모델, `routers/incidents.py`. 등록·수정 창은 따로 없고 공통 입력 창을 쓴다(`openAddIncident`/`openEditIncident` → `openEntry`). 목록·삭제·주간보고서 집계는 `incidents` 표 그대로.
+    **상태는 하나**: '장애처리'를 체크하면 창의 상태 칸이 접수/처리중/완료가 되고(`inc_status`), 일정 쪽 status 는 완료일 때만 '완료'(그 외 '예정'). 점검 일정·기술지원 목록에서 완료 체크를 바꾸면(`PATCH /schedules|workplans/{id}` status) `incidents.sync_entry_status`가 연결된 장애도 완료 / (완료였으면) 처리중으로 바꾼다.
+    장애처리만 체크하면 위의 날짜·시간이 발생 일시(따로 받지 않음). 창 제목은 구분에 따라 '점검 일정 / 기술지원 / 장애 등록·수정'.
+  - **세 목록(점검 일정·기술지원·장애처리) 공통 형식** (`app.js` `_svcCols`/`_svcActs`/`_svcDate`/`_svcLink`): 열 = 날짜 / 사이트 / 제목(+아래 작은 글씨 상세) / 구분 / 작업자 / [장애 시간] / 상태 / 관리. 관리 칸은 [Excel][수정][삭제] 자리를 늘 같게(없는 버튼은 숨긴 자리). 요약 카드 클릭 = 조건 필터, 줄 클릭 = 수정 창, 날짜 오름차순, 지연(장애는 '미처리') D+n. 연결 배지: '장애 연결'(`_loadIncLinks`), '점검 연결'/'기술지원 연결'.
+- **장애처리** (`page-incidents`) = Incident 모델, `routers/incidents.py`. `GET /incidents/{id}/report` = 장애처리 보고서 엑셀(`build_incident_workbook`, 양식 파일 없이 코드로 그림: 개요 / 증상·원인·조치 / 사용 파트 / 재발 방지). 보고서의 **사용 파트**는 `incidents.parts`(JSON 목록: 파트명 `name`·Part No. `part_no`·수량 `qty`·제거 S/N `old_sn`·장착 S/N `new_sn`·비고 `note`, 정리는 `clean_parts`/`load_parts`). 공통 입력 창은 `inc_parts`로 보내고, 안 보내면 기존 값 유지. 목록 검색·서비스 지원 이력 검색에 파트명·Part No.·S/N 포함. 등록·수정 창은 따로 없고 공통 입력 창을 쓴다(`openAddIncident`/`openEditIncident` → `openEntry`). 목록·삭제·주간보고서 집계는 `incidents` 표 그대로.
 - **서비스 지원 이력** (`page-service-history`) = 점검·기술지원·장애처리를 월 단위로 합쳐 보는 화면 (프론트에서 조합). 검색어를 넣으면 그 해 전체에서 찾는다. 예전 "점검 이력" 화면과 "점검 일정" 메뉴 그룹은 없앴고(`GET /schedules/history` API 는 남아 있음), **점검 일정**(`page-schedule-mgmt`)은 서비스 지원 그룹 맨 위에 있다.
 - **주간보고서** (`page-weekly-report`) = `routers/reports.py`. 주(월~일) 단위로 점검(완료)·기술지원(작업완료)·장애(발생)를 사이트+일자 1행으로 묶어 양식에 채움.
   양식 열: F 정기점검 / G 장애지원 / H~L 은 WorkPlan.support_type(기술지원/납품/유선원격/이전/기타).
 - **구글 캘린더 연동** (`page-gcal`) = `routers/gcal.py`. 엔지니어별 iCal 비공개 주소(`calendar_links.url`, 암호화 저장)를 10분마다 읽어(`app.py`의 `_calendar_loop`)
   제목 `[종류] 고객사 - 엔지니어` 중 본인 이름이 든 일정만 점검 일정(Schedule)/기술지원(WorkPlan)으로 등록. `calendar_events`가 구글 일정↔포털 레코드 연결(중복 방지, 변경·삭제 반영, 완료 건은 보존).
   `calendar_links.start_date`(기본: 연동한 날) 이후 ~ 오늘+180일만 다룸. 포털에 같은 날·같은 사이트 건이 이미 있으면 새로 만들지 않고 연결(`adopted`, 구글에서 지워도 포털 건은 유지).
+  `[장애처리]` = Incident(접수·보통, 발생일=일정 날짜, 설명→증상, `target_type='incident'`). `[점검/장애처리]`·`[기술지원 및 장애처리]`는 그 일정 + `entry_id`로 연결된 Incident(`classify()` 네 번째 값). 구글에서 지워질 때 `_inc_in_use`(상태가 접수가 아니거나 원인·조치·파트 등 입력)인 장애는 지우지 않고 남긴다(연결 장애는 `entry_id`만 비움). 공통 입력 창에서 구분을 바꾸면 `calendar_events` 연결도 새 레코드(장애 포함)로 옮긴다.
   종류·사이트를 못 정하면 '확인 대기'. 의존 패키지: `httpx`, `icalendar`, `recurring-ical-events`.
 - **사내 테스트서버** (`page-lab`, 시스템 메뉴) = `routers/lab.py` (`/api/engineers/{eng_id}/lab`). 서버(`lab_servers`: 분류·이름·OS·주소·메모) 1대에 계정(`lab_accounts`) 여러 개.
   비밀번호는 `secure_store`로 암호화 저장, 목록에는 내려주지 않고 `GET /lab/accounts/{id}/password`로만 돌려준다. 수정(PUT)은 계정 목록 통째로 교체(비밀번호 생략 = 기존 유지). **접속 정보는 DB에만 두고 코드·git에 넣지 말 것.**
@@ -79,8 +83,8 @@ uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `
   - nginx 443 에 `X-Frame-Options SAMEORIGIN`·`X-Content-Type-Options nosniff`·`Referrer-Policy same-origin`. HSTS 는 자체 서명 인증서라 넣지 않는다(인증서 경고를 넘길 수 없게 되어 접속이 막힘).
   - 브라우저 라이브러리는 `static/vendor/`(xterm 5.3.0, xterm-addon-fit 0.8.0, guacamole-common-js 1.5.0 — 끝의 `module.exports` 를 떼어 낸 것)에 직접 보관, CDN 아님.
 - **OS별 EOS 현황** (`page-eos`, 지식 창고 그룹) = `routers/eos.py` (`/api/eos` — 엔지니어 공용 데이터라 `eng_id` 없음, 로그인만 필요).
-  OS·버전별 일반 지원 종료(`eoas`)·지원 종료(`eol`)·연장 지원 종료(`eoes`)를 `eos_products`/`eos_releases`에 저장. 대상 제품은 모듈의 `PRODUCTS`(분류 Windows/Linux/Unix/가상화).
-  자료: endoflife.date v1 API(대부분) / Microsoft 수명 주기 페이지 직접 파싱(Hyper-V Server, 종료 시각이 오전이면 전날) / `MANUAL`(HP-UX — HPE 사이트를 서버에서 못 읽어 직접 입력, 자동 갱신 안 됨).
+  OS·버전별 일반 지원 종료(`eoas`)·지원 종료(`eol`)·연장 지원 종료(`eoes`)를 `eos_products`/`eos_releases`에 저장. 대상 제품은 모듈의 `PRODUCTS`(분류 Windows/Linux/Unix/가상화/IBM — IBM 탭은 PowerVM(VIOS)·HMC·PowerVC, AIX 는 Unix). 탭은 API 의 `categories` 순서대로 화면에 생긴다.
+  자료: endoflife.date v1 API(대부분) / Microsoft 수명 주기 페이지 직접 파싱(Hyper-V Server, 종료 시각이 오전이면 전날) / IBM FLRT JSON(`FLRT`: HMC·PowerVM(VIOS) — 레벨을 릴리스(V R / x.y.z)로 묶어 출시일 = 가장 이른 ga, 지원 종료 = 가장 늦은 EoSPS, 'NA'=미발표) / IBM PowerVC Lifecycle Information 페이지 표 파싱(`_fetch_powervc`: 2.3.x 등 릴리스별 EoSPS→eoas, EOS→eol) / `MANUAL`(HP-UX — HPE 사이트를 서버에서 못 읽어 직접 입력, 자동 갱신 안 됨).
   `app.py`의 `_eos_loop`가 1시간마다 `refresh_due()`(마지막 성공 24시간 전 + 마지막 시도 1시간 전)를 보고 갱신. 실패한 제품은 이전 값 유지·`error` 표시. 날짜가 바뀌면 `changes`에 이전 값(화면 '변경' 30일), 새 버전은 `added_at`('신규').
   날짜 칸 값: "YYYY-MM-DD" / "Y"(종료, 날짜 모름) / "N"(미발표) / ""(해당 없음). '지금 갱신'(`POST /api/eos/refresh`)은 5분 간격 제한.
 - 기존 "작업 현황/이력"(WorkLog, `/logs`) 메뉴와 "월간 보고서" 메뉴는 폐지. `/logs` API와 `worklogs` 테이블은 남아 있음.
