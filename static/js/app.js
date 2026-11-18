@@ -255,6 +255,7 @@ document.querySelectorAll('.nav-item').forEach(el=>{
     if(page==='gcal')           renderGcal();
     if(page==='lab')            renderLab();
     if(page==='eos')            renderEos();
+    if(page==='license')        renderLicenses();
     if(page==='docs')           renderDocs();
   });
 });
@@ -4565,4 +4566,112 @@ function drawEos(){
       ${terms || p.note ? `<div class="eos-legend">${terms ? '제조사 용어: ' + terms : ''}${terms && p.note ? '<br>' : ''}${esc(p.note)}</div>` : ''}
     </div>`;
   }).join('');
+}
+
+
+// ── 라이선스 정책 (지식 창고) — routers/licenses.py ──────────────
+let _lic = null, _licCat = 'basic', _licEditKey = '';
+const _licMdInline = t => esc(t || '').replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+const _licTime = t => t ? `${+t.slice(5,7)}/${+t.slice(8,10)} ${t.slice(11,16)}` : '';
+async function renderLicenses(){
+  try { _lic = await _apiSend('GET', '/api/licenses'); }
+  catch(e){ $('lic-list').innerHTML = `<div class="empty" style="color:var(--red-600)">${esc(e.message)}</div>`; return; }
+  if(!_lic.categories.some(c => c.key === _licCat)) _licCat = _lic.categories[0].key;
+  $('lic-tabs').innerHTML = _lic.categories.map(c => {
+    const n = _lic.items.filter(i => i.category === c.key && i.changed).length;
+    return `<button class="svh-tab${c.key === _licCat ? ' active' : ''}" onclick="licCat('${c.key}')">${esc(c.label)}${n ? ` <span class="lic-tabdot" title="변경 감지 ${n}">${n}</span>` : ''}</button>`;
+  }).join('');
+  const watched = _lic.items.flatMap(i => i.sources).filter(s => s.state).length;
+  const changed = _lic.items.filter(i => i.changed);
+  $('lic-info').innerHTML = `<div class="eos-info-t">제조사 공식 문서를 기준으로 <b>세는 방법과 예시</b>를 쉽게 정리했습니다 (마지막 검토 ${esc(_lic.reviewed)}).
+      가격·세부 조건은 계약·리셀러·시점마다 달라 <b>견적 전에 꼭 확인</b>하세요.<br>
+      <span class="eos-info-s">매일 한 번 근거 페이지 ${watched}곳을 읽어 내용이 바뀌면 <b style="color:var(--amber-700)">변경 감지</b>로 표시합니다
+      (설명 글은 자동으로 고치지 않음) · 마지막 확인 ${_lic.last_check ? esc(_licTime(_lic.last_check)) : '아직 없음'}
+      ${changed.length ? ` · <b style="color:var(--amber-700)">확인 안 한 변경 ${changed.length}개 항목</b>` : ''}</span></div>
+    <button class="btn btn-sm" onclick="licCheck(this)" ${_lic.checking ? 'disabled' : ''}>${_lic.checking ? '확인 중…' : '지금 확인'}</button>`;
+  drawLicenses();
+}
+function licCat(k){ _licCat = k; renderLicenses(); }
+function _licSrc(s){
+  const link = `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.label)} ↗</a>`;
+  const st = s.state;
+  let tag;
+  if(!st) tag = '<span class="lic-st muted">링크만 (자동 확인 안 함)</span>';
+  else if(!st.acked) tag = `<span class="lic-st chg">변경 감지 ${esc(_licTime(st.changed_at))}</span>
+      <button class="btn btn-sm" onclick="licDiff('${st.id}')">바뀐 부분</button><button class="btn btn-sm" onclick="licAck('${st.id}')">확인함</button>`;
+  else if(st.error && !st.ok_at) tag = `<span class="lic-st muted" title="${esc(st.error)}">자동 확인 불가 · ${esc(st.error)}</span>`;
+  else if(!st.checked_at) tag = '<span class="lic-st muted">확인 대기</span>';
+  else tag = `<span class="lic-st ok" title="마지막 성공 ${esc(st.ok_at)}">✓ ${esc(_licTime(st.ok_at))}</span>`
+      + (st.error ? `<span class="lic-st muted" title="${esc(st.error)}">· 최근 시도 실패</span>` : '')
+      + (st.changed_at ? `<span class="lic-st muted">· ${esc(st.changed_at.slice(0,10))} 변경 확인${st.acked_by ? '(' + esc(st.acked_by) + ')' : ''}</span>` : '');
+  return `<li>${link} ${tag}</li>`;
+}
+function drawLicenses(){
+  const cat = _lic.categories.find(c => c.key === _licCat);
+  const items = _lic.items.filter(i => i.category === _licCat);
+  $('lic-list').innerHTML = `${cat.intro ? `<div class="lic-intro">${_licMdInline(cat.intro)}</div>` : ''}`
+    + items.map((it, n) => `<details class="lic-card${it.changed ? ' changed' : ''}"${items.length === 1 || it.changed ? ' open' : ''}>
+      <summary class="lic-head">
+        <div class="lic-title"><b>${esc(it.name)}</b>${it.vendor ? `<span class="lic-vendor">${esc(it.vendor)}</span>` : ''}
+          ${it.changed ? '<span class="badge b-amber">근거 변경 감지</span>' : ''}
+          ${it.edited ? `<span class="badge b-gray" title="${esc(it.updated_at)} ${esc(it.updated_by)}">화면에서 수정됨</span>` : ''}
+          <span class="lic-toggle"></span></div>
+        <div class="lic-sum">${_licMdInline(it.summary)}</div>
+      </summary>
+      <div class="tn-body lic-body" data-lic="${esc(it.key)}"></div>
+      <div class="lic-foot">
+        <div class="lic-srcs">${it.sources.length ? `<div class="lic-src-h">근거 (공식 문서)</div><ul class="lic-src">${it.sources.map(_licSrc).join('')}</ul>` : '<div class="lic-src-h">근거: 제조사 공식 자료를 서버에서 읽을 수 없어 자동 확인 대상이 아닙니다</div>'}</div>
+        ${IS_ADMIN ? `<button class="btn btn-sm lic-edit" onclick="licEdit('${esc(it.key)}')">설명 고치기</button>` : ''}
+      </div>
+    </details>`).join('');
+  items.forEach(it => _tnRender(document.querySelector(`.lic-body[data-lic="${it.key}"]`), it.body));
+}
+async function licCheck(btn){
+  btn.disabled = true; btn.textContent = '확인 중…';
+  try {
+    const r = await _apiSend('POST', '/api/licenses/check');
+    toast(`근거 페이지 ${r.ok}곳 확인${r.changed ? ` · 바뀐 곳 ${r.changed}` : ' · 바뀐 곳 없음'}${r.failed ? ` · 읽기 실패 ${r.failed}` : ''}`);
+  } catch(e){ toast(e.message); }
+  renderLicenses();
+}
+async function licDiff(id){
+  let d;
+  try { d = await _apiSend('GET', `/api/licenses/watch/${id}/diff`); } catch(e){ toast(e.message); return; }
+  $('ld-title').textContent = `바뀐 부분 — ${d.label}`;
+  const list = (arr, cls) => arr.length ? arr.map(l => `<div class="ld-line ${cls}">${esc(l)}</div>`).join('') : '<div class="ld-none">없음</div>';
+  $('ld-body').innerHTML = `<div class="cp-note" style="margin:0 0 10px">${esc(d.changed_at)} 에 감지 ·
+      <a href="${esc(d.url)}" target="_blank" rel="noopener">원문 열기 ↗</a> — 메뉴·광고 문구만 바뀐 경우도 있으니, 라이선스 내용이 실제로 바뀌었는지 보고 '확인함'을 누르세요.
+      설명 글을 고쳐야 하면 관리자가 '설명 고치기'로 고칩니다.</div>`
+    + (d.pdf ? '<div class="ld-none">PDF 파일이 바뀌었습니다. 줄 단위 비교는 할 수 없으니 원문을 열어 확인하세요.</div>'
+      : `<div class="ld-cols"><div><div class="ld-h del">없어진 줄</div>${list(d.removed, 'del')}</div>
+          <div><div class="ld-h add">새로 생긴 줄</div>${list(d.added, 'add')}</div></div>
+         ${d.more ? '<div class="ld-none">너무 많아 앞의 120줄만 보여 줍니다.</div>' : ''}`);
+  $('ld-ack').onclick = async () => { closeModal('modal-lic-diff'); await licAck(id); };
+  openModal('modal-lic-diff');
+}
+async function licAck(id){
+  try { await _apiSend('POST', `/api/licenses/watch/${id}/ack`); toast('확인함으로 표시했습니다'); }
+  catch(e){ toast(e.message); }
+  renderLicenses();
+}
+function licEdit(key){
+  const it = _lic.items.find(i => i.key === key); if(!it) return;
+  _licEditKey = key;
+  $('le-title').textContent = `설명 고치기 — ${it.name}`;
+  $('le-sum').value = it.summary; $('le-body').value = it.body;
+  $('le-reset').style.display = it.edited ? '' : 'none';
+  openModal('modal-lic-edit');
+}
+async function licSave(){
+  try {
+    await _apiSend('PUT', `/api/licenses/items/${_licEditKey}`, {summary: $('le-sum').value, body: $('le-body').value});
+    closeModal('modal-lic-edit'); toast('저장했습니다'); renderLicenses();
+  } catch(e){ toast(e.message); }
+}
+async function licReset(){
+  if(!confirm('화면에서 고친 내용을 버리고 기본 내용으로 되돌릴까요?')) return;
+  try {
+    await _apiSend('POST', `/api/licenses/items/${_licEditKey}/reset`);
+    closeModal('modal-lic-edit'); toast('기본 내용으로 되돌렸습니다'); renderLicenses();
+  } catch(e){ toast(e.message); }
 }

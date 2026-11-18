@@ -4,7 +4,7 @@
 send_due() 를 불러, 켜져 있고 · 보낼 시각이 지났고 · 오늘 아직 안 보냈고 · (평일만이면) 평일인 엔지니어에게 보낸다.
 
 메시지 내용 (build_digest): 오늘 / 내일 일정(점검·기술지원) · 지연된 일정 · 미처리 장애 · 미해결 이슈 수 ·
-워런티 30일 이내 만료 · OS 지원 종료 90일 이내 장비 (eos_match).
+워런티 30일 이내 만료 · OS 지원 종료 90일 이내 장비 (eos_match) · 라이선스 정책 변경 감지(licenses).
 웹훅 형식은 주소로 고른다: Slack · Discord · Google Chat · Microsoft Teams(Incoming Webhook=MessageCard,
 Power Automate 워크플로=Adaptive Card) · 그 밖에는 {"text": ...}.
 """
@@ -184,6 +184,14 @@ def build_digest(db: Session, eng_id: str, now: Optional[datetime] = None):
         extra.append(f"미해결 이슈 {n_iss}건")
     if eos_end:
         extra.append(f"OS 지원이 이미 끝난 장비 {eos_end}대")
+    try:
+        from routers.licenses import pending_changes
+        lic = pending_changes(db)
+        if lic:
+            names = sorted({n for n, _ in lic})
+            extra.append(f"라이선스 정책 근거 페이지 변경 감지 {len(lic)}건 ({', '.join(names[:4])}{' 외' if len(names) > 4 else ''}) — 지식 창고 > 라이선스 정책에서 확인")
+    except Exception:
+        pass
     if extra:
         sections.append(("그 밖에", extra))
 

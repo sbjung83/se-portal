@@ -296,6 +296,39 @@ class LeaveRecord(Base):
     apply_date  = Column(String, default="")       # 신청일 "YYYY-MM-DD" (휴가원 아래쪽 날짜)
     created_at  = Column(String, default="")       # "YYYY-MM-DD HH:MM"
 
+class LicItem(Base):
+    """라이선스 정책 설명 1건 (지식 창고 > 라이선스 정책, routers/licenses.py). 엔지니어 공용 데이터.
+    기본 내용은 license_guide.py — 관리자가 화면에서 고치면 edited=True 가 되어 기본 내용으로 덮어쓰지 않는다."""
+    __tablename__ = "lic_items"
+    key        = Column(String, primary_key=True)
+    category   = Column(String, default="")
+    sort       = Column(Integer, default=0)
+    name       = Column(String, default="")
+    vendor     = Column(String, default="")
+    summary    = Column(Text, default="")
+    body       = Column(Text, default="")          # 마크다운
+    sources    = Column(Text, default="[]")        # [{"label","url","watch"}]
+    edited     = Column(Boolean, default=False)
+    updated_at = Column(String, default="")
+    updated_by = Column(String, default="")
+
+class LicWatch(Base):
+    """라이선스 근거 페이지 1개 — 하루 한 번 읽어 글자가 바뀌면 변경 감지 (내용을 고치지는 않음)."""
+    __tablename__ = "lic_watch"
+    id         = Column(String, primary_key=True)
+    item_key   = Column(String, index=True)
+    url        = Column(String, default="")
+    label      = Column(String, default="")
+    digest     = Column(String, default="")        # 정리한 글자(또는 PDF 파일)의 sha256
+    text       = Column(Text, default="")          # 마지막으로 읽은 정리된 글자 (PDF 는 빈 값)
+    prev_text  = Column(Text, default="")          # 바뀌기 전 글자 (바뀐 부분 보기용)
+    checked_at = Column(String, default="")        # 마지막 시도 "YYYY-MM-DD HH:MM:SS"
+    ok_at      = Column(String, default="")        # 마지막 성공
+    changed_at = Column(String, default="")        # 마지막으로 바뀐 것을 감지한 때
+    acked      = Column(Boolean, default=True)     # False = 변경 감지 후 아직 아무도 확인 안 함
+    acked_by   = Column(String, default="")
+    error      = Column(String, default="")        # 마지막 시도 실패 사유
+
 class NotifySetting(Base):
     """아침 알림 (엔지니어당 1건): 메신저 웹훅으로 그날 확인할 것을 보낸다 (routers/notify.py)."""
     __tablename__ = "notify_settings"

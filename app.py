@@ -5,7 +5,7 @@ from fastapi.requests import Request
 from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 from database import init_db
-from routers import auth, sites, logs, dashboard, schedules, issues, site_checklist, projects, technotes, development, incidents, reports, gcal, entries, lab, remote, leaves, carlog, carrepair, expenses, eos, notify
+from routers import auth, sites, logs, dashboard, schedules, issues, site_checklist, projects, technotes, development, incidents, reports, gcal, entries, lab, remote, leaves, carlog, carrepair, expenses, eos, notify, licenses
 from routers.auth import require_login, require_admin
 import os, asyncio
 
@@ -21,10 +21,12 @@ async def lifespan(app: FastAPI):
     task = asyncio.create_task(_calendar_loop())
     eos_task = asyncio.create_task(_eos_loop())
     notify_task = asyncio.create_task(_notify_loop())
+    lic_task = asyncio.create_task(_license_loop())
     yield
     task.cancel()
     eos_task.cancel()
     notify_task.cancel()
+    lic_task.cancel()
 
 async def _calendar_loop():
     """구글 캘린더를 주기적으로 읽어 온다 (routers/gcal.py)."""
@@ -43,6 +45,17 @@ async def _eos_loop():
         try:
             if await asyncio.to_thread(eos.refresh_due):
                 await asyncio.to_thread(eos.refresh_all)
+        except Exception:
+            pass
+        await asyncio.sleep(3600)
+
+async def _license_loop():
+    """라이선스 정책 근거 페이지를 하루 한 번 읽어 바뀐 것을 표시한다 (routers/licenses.py). 1시간마다 때가 됐는지 확인."""
+    await asyncio.sleep(90)
+    while True:
+        try:
+            if await asyncio.to_thread(licenses.check_due):
+                await asyncio.to_thread(licenses.check_all)
         except Exception:
             pass
         await asyncio.sleep(3600)
@@ -84,6 +97,7 @@ app.include_router(lab.router, dependencies=_LOGIN)
 app.include_router(leaves.router, dependencies=_LOGIN)
 app.include_router(carlog.router, dependencies=_LOGIN)
 app.include_router(eos.router, dependencies=_LOGIN)        # 엔지니어 공용 데이터 (/api/eos)
+app.include_router(licenses.router, dependencies=_LOGIN)   # 엔지니어 공용 데이터 (/api/licenses)
 app.include_router(carrepair.router, dependencies=_LOGIN)
 app.include_router(expenses.router, dependencies=_LOGIN)
 app.include_router(notify.router, dependencies=_LOGIN)
