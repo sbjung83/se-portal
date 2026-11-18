@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=70">
+<link rel="stylesheet" href="/static/css/style.css?v=74">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -54,8 +54,8 @@
 <div id="main-app" class="app" style="display:none">
   <div class="sidebar">
     <div class="sidebar-logo">
-      <span class="logo-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 7.5 12 12l9-4.5L12 3z"/><path d="m3 12 9 4.5 9-4.5" opacity=".75"/><path d="m3 16.5 9 4.5 9-4.5" opacity=".5"/></svg></span>
-      <span class="sidebar-logo-text"><b>SE</b> PORTAL</span>
+      <span class="logo-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3" width="17" height="5" rx="1.4"/><rect x="3.5" y="9.5" width="17" height="5" rx="1.4"/><rect x="3.5" y="16" width="17" height="5" rx="1.4"/><path d="M11.5 5.5h5.5M11.5 12h5.5M11.5 18.5h5.5" opacity=".55"/><g fill="currentColor" stroke="none"><circle cx="7" cy="5.5" r="1"/><circle cx="7" cy="12" r="1"/><circle cx="7" cy="18.5" r="1"/></g></svg></span>
+      <span class="sidebar-logo-text"><b>SE</b><span class="logo-dash">-</span>PORTAL</span>
     </div>
     <!-- 사용자: 누르면 계정 메뉴(내 정보 수정 · 비밀번호 변경 · 로그아웃) -->
     <div class="sb-user" id="sb-user">
@@ -507,7 +507,7 @@
         <div class="wr-top">
           <div class="wr-nav">
             <button class="btn btn-sm" onclick="lvMove(-1)" title="이전 해">◀</button>
-            <span id="lv-year" class="lv-year"></span>
+            <span id="lv-year" class="lv-year sv-month" title="눌러서 년도 고르기" onclick="ymPick(this, _lvYear, v => { _lvYear = v; renderLeaves(); })"></span>
             <button class="btn btn-sm" onclick="lvMove(1)" title="다음 해">▶</button>
           </div>
           <span style="flex:1"></span>
@@ -524,7 +524,7 @@
         <div class="wr-top">
           <div class="wr-nav">
             <button class="btn btn-sm" onclick="carMove(-1)" title="이전 달">◀</button>
-            <span id="car-month" class="lv-year" style="min-width:110px"></span>
+            <span id="car-month" class="lv-year sv-month" style="min-width:110px" title="눌러서 년도·월 고르기" onclick="ymPick(this, _carYM, v => { _carYM = v; renderCarLog(); })"></span>
             <button class="btn btn-sm" onclick="carMove(1)" title="다음 달">▶</button>
           </div>
           <span style="flex:1"></span>
@@ -559,7 +559,7 @@
         <div class="wr-top">
           <div class="wr-nav">
             <button class="btn btn-sm" onclick="exMove(-1)" title="이전 달">◀</button>
-            <span id="ex-month" class="lv-year" style="min-width:110px"></span>
+            <span id="ex-month" class="lv-year sv-month" style="min-width:110px" title="눌러서 년도·월 고르기" onclick="ymPick(this, _exYM, v => { _exYM = v; renderExpenses(); })"></span>
             <button class="btn btn-sm" onclick="exMove(1)" title="다음 달">▶</button>
           </div>
           <span style="flex:1"></span>
@@ -583,7 +583,7 @@
         <div class="wr-top">
           <div class="wr-nav">
             <button class="btn btn-sm" onclick="crMove(-1)" title="이전 해">◀</button>
-            <span id="cr-year" class="lv-year"></span>
+            <span id="cr-year" class="lv-year sv-month" title="눌러서 년도 고르기" onclick="ymPick(this, _crYear, v => { _crYear = v; renderCarRepairs(); })"></span>
             <button class="btn btn-sm" onclick="crMove(1)" title="다음 해">▶</button>
           </div>
           <span style="flex:1"></span>
@@ -1248,6 +1248,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=108"></script>
+<script src="/static/js/app.js?v=109"></script>
 </body>
 </html>

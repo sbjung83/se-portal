@@ -3854,6 +3854,46 @@ function _lvWeekdays(a, b){          // 시작~종료 사이 평일 수 (공휴�
   for(const d = new Date(s); d <= e && n < 400; d.setDate(d.getDate() + 1)) if(d.getDay() % 6) n++;
   return n;
 }
+// 제목의 '2026년' / '2026년 11월'을 누르면 여는 작은 고르기 창 (브라우저와 상관없이 동작)
+// cur 가 'YYYY' 면 년도만, 'YYYY-MM' 이면 년도·월을 고른다. 고르면 cb(같은 형식의 값)
+let _ympEl = null;
+function ymPick(anchor, cur, cb){
+  if(_ympEl){ const same = _ympEl._anchor === anchor; _ympClose(); if(same) return; }
+  const monthMode = String(cur).length > 4, now = new Date();
+  let y = Number(String(cur).slice(0, 4)), page = y - 5;     // 년도 모드: 12년씩
+  const pop = document.createElement('div');
+  pop.className = 'wr-pick ym-pop'; pop._anchor = anchor;
+  const draw = () => {
+    if(monthMode){
+      const cm = Number(String(cur).slice(5, 7)), cy = Number(String(cur).slice(0, 4));
+      pop.innerHTML = `<div class="wr-pick-y"><button class="btn btn-sm" data-d="-1">◀</button><b>${y}년</b><button class="btn btn-sm" data-d="1">▶</button></div>
+        <div class="wr-pick-m" style="border:none;margin:0;padding:0">${Array.from({length: 12}, (_, i) => i + 1).map(m =>
+          `<button data-v="${y}-${String(m).padStart(2, '0')}" class="${y === cy && m === cm ? 'on' : ''}${y === now.getFullYear() && m === now.getMonth() + 1 ? ' cur' : ''}">${m}월</button>`).join('')}</div>`;
+    } else {
+      pop.innerHTML = `<div class="wr-pick-y"><button class="btn btn-sm" data-d="-1">◀</button><b>${page}년 ~ ${page + 11}년</b><button class="btn btn-sm" data-d="1">▶</button></div>
+        <div class="wr-pick-m" style="border:none;margin:0;padding:0;grid-template-columns:repeat(4,1fr)">${Array.from({length: 12}, (_, i) => page + i).map(v =>
+          `<button data-v="${v}" class="${v === Number(cur) ? 'on' : ''}${v === now.getFullYear() ? ' cur' : ''}">${v}</button>`).join('')}</div>`;
+    }
+  };
+  pop.addEventListener('click', e => {
+    e.stopPropagation();
+    const b = e.target.closest('button'); if(!b) return;
+    if(b.dataset.d){ if(monthMode) y += Number(b.dataset.d); else page += 12 * Number(b.dataset.d); draw(); }
+    else if(b.dataset.v){ _ympClose(); cb(b.dataset.v); }
+  });
+  draw();
+  document.body.appendChild(pop);
+  const r = anchor.getBoundingClientRect();
+  pop.style.width = monthMode ? '300px' : '280px';
+  pop.style.top = (r.bottom + 6) + 'px';
+  pop.style.left = Math.max(8, Math.min(r.left + r.width / 2 - pop.offsetWidth / 2, innerWidth - pop.offsetWidth - 8)) + 'px';
+  _ympEl = pop;
+}
+function _ympClose(){ if(_ympEl){ _ympEl.remove(); _ympEl = null; } }
+document.addEventListener('mousedown', e => { if(_ympEl && !_ympEl.contains(e.target) && !_ympEl._anchor.contains(e.target)) _ympClose(); });
+document.addEventListener('keydown', e => { if(e.key === 'Escape') _ympClose(); });
+window.addEventListener('resize', _ympClose);
+
 function lvMove(d){ _lvYear = String(Number(_lvYear) + d); renderLeaves(); }
 
 async function renderLeaves(){

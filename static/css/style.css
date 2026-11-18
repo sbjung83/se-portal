@@ -10,6 +10,7 @@
   --line-soft:#e3e8ef;--line:#d5dbe5;--line-strong:#c3ccd9;   /* 선: 옅음 / 보통 / 진함(표 테두리) */
   /* 용도별 */
   --navy:#2f3d56; --navy-50:#f2f4f8;
+  --head-bg:#e2e8f0; --head-text:var(--slate-700);   /* 표 제목 줄·박스 머리 (바탕보다 한 단계 진하게) */
   --page-bg:#eef1f5;              /* 본문 배경 (푸른 연회색 — 흰 카드가 떠 보이게) */
   --card-bg:#fff;                 /* 카드·표 바탕 */
   --text:var(--slate-700);        /* 기본 글자 */
@@ -49,6 +50,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .sidebar-logo img{width:28px;height:auto;object-fit:contain}
 .sidebar-logo-text{font-size:14px;font-weight:500;color:var(--sb-text);letter-spacing:2.2px;white-space:nowrap}
 .sidebar-logo-text b{font-weight:800;color:var(--sb-text-strong);letter-spacing:2px}
+.logo-dash{color:var(--sb-accent);margin:0 3px 0 1px;letter-spacing:0}
 .logo-mark{width:32px;height:32px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:9px;color:var(--sb-accent);background:linear-gradient(145deg,rgba(255,255,255,.10),rgba(255,255,255,.03));border:1px solid var(--sb-line-strong)}
 .logo-mark svg{width:19px;height:19px}
 .sidebar-eng{padding:16px 20px;display:flex;align-items:center;justify-content:space-between;background:var(--slate-50);margin:12px 12px 4px;border-radius:10px;border:1px solid #f0f0f0}
@@ -1232,3 +1234,12 @@ button.wr-range{border:none;background:none;font-family:inherit;font-size:15px;f
 .wr-pick-w .c{margin-left:auto;font-weight:700;color:var(--navy)}
 .wr-pick-w button.zero .n,.wr-pick-w button.zero .c{color:var(--slate-400)}
 .wr-pick-load{padding:10px;color:var(--slate-500);font-size:13px;text-align:center}
+.ym-pop{position:fixed;z-index:1000}
+.lv-year.sv-month{display:inline-block;font-size:16px;padding:3px 10px}
+
+/* 표 제목 줄·박스 머리: 본문 바탕(--page-bg)과 구분되게 한 가지 색으로 통일 */
+.tbl th,.svh-table th,.dev-tbl th,.cl-table th,.pj-thead,.sh-head,.sh-head .cl-table th,.sh-inhead th,.tn-body th,.dv-tbl th,
+.lab-tbl th,.lab-logs>summary,.wr-box-head,.wr-tbl th,.eos-up-h,.eos-up-tbl th,#page-checklist .cl-table th,.mop-grid th{
+  background:var(--head-bg);color:var(--head-text);font-weight:700}
+.tbl th,.svh-table th,.dev-tbl th,.cl-table th,.pj-thead,.sh-inhead th,.dv-tbl th,.wr-tbl th,.eos-up-tbl th,#page-checklist .cl-table th,.mop-grid th{
+  border-bottom:1px solid var(--line-strong)}
