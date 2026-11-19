@@ -24,7 +24,7 @@ class TaskReorder(BaseModel):
 PROJ_STATUSES = ("진행 대기", "진행 중", "보류", "완료")
 PROJ_KINDS = ("구축", "증설", "이전", "교체", "구매", "기타")
 LOG_KINDS = ("회의", "협의", "이슈", "결정", "작업", "메모")
-DEV_TYPES = ("서버", "스토리지", "네트워크", "기타")
+DEV_TYPES = ("서버", "스토리지", "SAN Switch", "네트워크", "기타")
 TASK_STATUSES = ("대기", "진행중", "완료")
 
 def _check_status(value, allowed):

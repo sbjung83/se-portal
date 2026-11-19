@@ -102,6 +102,22 @@ class Device(Base):
     status    = Column(String, default="운영중")
     memo      = Column(Text, default="")
     site      = relationship("Site", back_populates="devices")
+    configs   = relationship("DeviceConfig", cascade="all, delete")
+
+class DeviceConfig(Base):
+    """장비 설정 백업 (SAN Switch: Brocade configupload / Cisco MDS running-config). 버전마다 1건, 내용은 암호화."""
+    __tablename__ = "device_configs"
+    id         = Column(String, primary_key=True)
+    device_id  = Column(String, ForeignKey("devices.id"), nullable=False, index=True)
+    taken_date = Column(String, default="")        # 설정을 받은 날 YYYY-MM-DD
+    memo       = Column(String, default="")
+    filename   = Column(String, default="")
+    vendor     = Column(String, default="")        # brocade / cisco / "" (모름)
+    size       = Column(Integer, default=0)
+    sha256     = Column(String, default="")
+    content    = Column(Text, default="")          # secure_store.encrypt(원문)
+    summary    = Column(Text, default="")          # JSON {zones, aliases, active} — 목록용
+    created_at = Column(String, default="")
 
 class Access(Base):
     __tablename__ = "accesses"

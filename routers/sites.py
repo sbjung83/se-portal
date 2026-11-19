@@ -164,7 +164,13 @@ def site_overview(eng_id: str, site_id: str, db: Session = Depends(get_db)):
 def list_devices(eng_id: str, site_id: str, db: Session = Depends(get_db)):
     _get_valid_site(eng_id, site_id, db)
     idx = eos_match.load_index(db)
-    return [_dev_dict(d, idx) for d in db.query(Device).filter(Device.site_id == site_id).all()]
+    from database import DeviceConfig
+    from sqlalchemy import func
+    devs = db.query(Device).filter(Device.site_id == site_id).all()
+    cfg = {r[0]: (r[1], r[2]) for r in db.query(DeviceConfig.device_id, func.count(DeviceConfig.id), func.max(DeviceConfig.taken_date))
+           .filter(DeviceConfig.device_id.in_([d.id for d in devs])).group_by(DeviceConfig.device_id).all()} if devs else {}
+    return [{**_dev_dict(d, idx), "config_count": cfg.get(d.id, (0, ""))[0], "config_date": cfg.get(d.id, (0, ""))[1] or ""}
+            for d in devs]
 
 class DeviceIn(BaseModel):
     name:      str

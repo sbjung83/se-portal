@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=87">
+<link rel="stylesheet" href="/static/css/style.css?v=88">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -684,7 +684,7 @@
       <div class="dev-bar">
         <input type="text" id="dev-search" placeholder="장비명, 모델, S/N, OS 검색...">
         <div class="svh-tabs" id="dev-type-tabs"></div>
-        <button class="btn btn-sm btn-primary" onclick="openModal('modal-add-device')">+ 장비 추가</button>
+        <button class="btn btn-sm btn-primary" onclick="openModal('modal-add-device');devTypeChanged('d')">+ 장비 추가</button>
       </div>
       <div id="device-table"></div>
     </div>
@@ -723,7 +723,7 @@
     </div>
     <div class="grid2">
       <div class="form-row"><label>시리얼 번호</label><input type="text" id="d-sn"></div>
-      <div class="form-row"><label>유형</label><select id="d-type"><option>서버</option><option>스토리지</option><option>네트워크</option><option>기타</option></select></div>
+      <div class="form-row"><label>유형</label><select id="d-type" onchange="devTypeChanged('d')"><option>서버</option><option>스토리지</option><option>SAN Switch</option><option>네트워크</option><option>기타</option></select></div>
     </div>
     <div class="grid2">
       <div class="form-row"><label>OS</label><input type="text" id="d-os" placeholder="AIX 7.2, RHEL 9..."></div>
@@ -734,6 +734,10 @@
       <div class="form-row"><label>워런티 만료일</label><input type="date" id="d-warranty"></div>
     </div>
     <div class="form-row"><label>메모</label><textarea id="d-memo" placeholder="설치 위치, 구성, 특이사항 등"></textarea></div>
+    <div class="form-row san-up" id="d-san-row" style="display:none">
+      <label>SAN 설정 <span class="en-hint">Brocade configupload 파일 · Cisco MDS running-config 파일 — 저장할 때 함께 올라갑니다 (선택)</span></label>
+      <div class="san-up-grid"><input type="file" id="d-san-file"><input type="date" id="d-san-date" title="설정을 받은 날"><input type="text" id="d-san-memo" placeholder="메모 (예: 정기점검, 존 추가 후)"></div>
+    </div>
     <div class="form-actions">
       <button class="btn" onclick="closeModal('modal-add-device')">취소</button>
       <button class="btn btn-primary" onclick="saveDevice()">저장</button>
@@ -752,7 +756,7 @@
     </div>
     <div class="grid2">
       <div class="form-row"><label>시리얼 번호</label><input type="text" id="ed-sn"></div>
-      <div class="form-row"><label>유형</label><select id="ed-type"><option>서버</option><option>스토리지</option><option>네트워크</option><option>기타</option></select></div>
+      <div class="form-row"><label>유형</label><select id="ed-type" onchange="devTypeChanged('ed')"><option>서버</option><option>스토리지</option><option>SAN Switch</option><option>네트워크</option><option>기타</option></select></div>
     </div>
     <div class="grid2">
       <div class="form-row"><label>OS</label><input type="text" id="ed-os"></div>
@@ -763,9 +767,38 @@
       <div class="form-row"><label>워런티 만료일</label><input type="date" id="ed-warranty"></div>
     </div>
     <div class="form-row"><label>메모</label><textarea id="ed-memo" placeholder="설치 위치, 구성, 특이사항 등"></textarea></div>
+    <div class="form-row san-up" id="ed-san-row" style="display:none">
+      <label>SAN 설정 추가<span class="en-hint">Brocade configupload 파일 · Cisco MDS running-config 파일 — 저장할 때 함께 올라갑니다 (선택)</span></label>
+      <div class="san-info" id="ed-san-info"></div><div class="san-up-grid"><input type="file" id="ed-san-file"><input type="date" id="ed-san-date" title="설정을 받은 날"><input type="text" id="ed-san-memo" placeholder="메모 (예: 정기점검, 존 추가 후)"></div>
+    </div>
     <div class="form-actions">
       <button class="btn" onclick="closeModal('modal-edit-device')">취소</button>
       <button class="btn btn-primary" onclick="updateDevice()">수정</button>
+    </div>
+  </div>
+</div>
+
+<!-- SAN Switch 설정 (장비별 버전) -->
+<div class="overlay" id="modal-san">
+  <div class="modal modal-lg san-modal">
+    <div class="modal-head"><div><div class="modal-title" id="san-title">SAN 설정</div><div class="pj-hint" id="san-sub"></div></div><button class="btn btn-sm" onclick="closeModal('modal-san')">✕</button></div>
+    <div class="san-bar">
+      <input type="file" id="san-file" title="Brocade configupload / Cisco running-config 파일">
+      <input type="date" id="san-date" title="설정을 받은 날">
+      <input type="text" id="san-memo" placeholder="메모 (예: 정기점검)">
+      <button class="btn btn-sm" onclick="sanTogglePaste()">붙여넣기</button>
+      <button class="btn btn-primary btn-sm" onclick="sanUpload()">올리기</button>
+      <span style="flex:1"></span>
+      <input type="search" id="san-q" class="san-search" placeholder="WWN·별칭·존 검색 (사이트 전체)" onkeydown="if(event.key==='Enter')sanSearch()">
+      <button class="btn btn-sm" onclick="sanSearch()">찾기</button>
+    </div>
+    <textarea id="san-paste" class="san-paste" style="display:none" placeholder="configupload 파일 내용, cfgshow 출력, 또는 show running-config 출력을 붙여 넣으세요"></textarea>
+    <div class="san-body">
+      <div class="san-vers" id="san-vers"></div>
+      <div class="san-main">
+        <div class="tabs" id="san-tabs"></div>
+        <div class="san-view" id="san-view"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -1097,7 +1130,7 @@
       <select id="pd-link" onchange="pjDevLinkChanged()"></select></div>
     <div class="grid2">
       <div class="form-row"><label>장비명 *</label><input type="text" id="pd-name"></div>
-      <div class="form-row"><label>유형</label><select id="pd-type"><option>서버</option><option>스토리지</option><option>네트워크</option><option>기타</option></select></div>
+      <div class="form-row"><label>유형</label><select id="pd-type"><option>서버</option><option>스토리지</option><option>SAN Switch</option><option>네트워크</option><option>기타</option></select></div>
     </div>
     <div class="grid2">
       <div class="form-row"><label>모델</label><input type="text" id="pd-model"></div>
@@ -1396,6 +1429,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=120"></script>
+<script src="/static/js/app.js?v=122"></script>
 </body>
 </html>

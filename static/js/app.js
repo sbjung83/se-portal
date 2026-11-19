@@ -12,6 +12,7 @@ let _allIssues=[], _allCLItems=[], _devChecklist={};
 // SVG 아이콘
 const ICO_EDIT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
 const ICO_HIST = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>`;
+const ICO_SAN  = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><polyline points="14 3 14 8 19 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>`;
 const ICO_DEL  = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>`;
 const ICO_CLOSE= `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
 
@@ -1281,12 +1282,14 @@ async function loadDevices(){
   if(cntEl) cntEl.textContent=devs.length;
   drawDevices();
 }
+const DEV_TYPES = ['서버', '스토리지', 'SAN Switch', '네트워크', '기타'];   // 장비 유형(이 순서로 탭·정렬)
+const _devTypeIdx = t => { const i = DEV_TYPES.indexOf(t); return i < 0 ? DEV_TYPES.length : i; };
 function devSetType(t){ _devType = t; drawDevices(); }
 function drawDevices(){
   const el = $('device-table');
   const devs = _siteDevs;
   // 유형 탭 (건수 포함)
-  const types = ['서버','스토리지','네트워크','기타'].filter(t => devs.some(d => d.dev_type === t));
+  const types = DEV_TYPES.filter(t => devs.some(d => d.dev_type === t));
   devs.forEach(d => { if(d.dev_type && !types.includes(d.dev_type)) types.push(d.dev_type); });
   if(_devType && !types.includes(_devType)) _devType = '';
   $('dev-type-tabs').innerHTML = [['', `전체 ${devs.length}`], ...types.map(t => [t, `${t} ${devs.filter(d => d.dev_type === t).length}`])]
@@ -1296,7 +1299,7 @@ function drawDevices(){
   const q = ($('dev-search').value || '').trim().toLowerCase();
   const list = devs.filter(d => (!_devType || d.dev_type === _devType)
       && (!q || [d.name, d.model, d.serial_no, d.os, d.memo].some(v => (v || '').toLowerCase().includes(q))))
-    .sort((a,b) => (a.dev_type||'').localeCompare(b.dev_type||'', 'ko') || (a.name||'').localeCompare(b.name||'', 'ko', {numeric:true}));
+    .sort((a,b) => _devTypeIdx(a.dev_type) - _devTypeIdx(b.dev_type) || (a.dev_type||'').localeCompare(b.dev_type||'', 'ko') || (a.name||'').localeCompare(b.name||'', 'ko', {numeric:true}));
   if(!list.length){ el.innerHTML = '<div class="empty">조건에 맞는 장비가 없습니다</div>'; return; }
 
   const wBadge=d=>{
@@ -1310,13 +1313,14 @@ function drawDevices(){
   const sCls={'점검중':'b-amber','교체예정':'b-red','철수':'b-gray'};
   const cell = (v, cls='') => `<td class="${cls}" title="${esc(v||'')}">${v ? esc(v) : '<span class="dev-muted">-</span>'}</td>`;
   el.innerHTML=`<div class="dev-wrap"><table class="dev-tbl">
-    <colgroup><col style="width:19%"><col style="width:8%"><col style="width:17%"><col style="width:15%"><col style="width:13%"><col style="width:9%"><col style="width:13%"><col style="width:92px"></colgroup>
+    <colgroup><col style="width:19%"><col style="width:8%"><col style="width:17%"><col style="width:15%"><col style="width:13%"><col style="width:9%"><col style="width:13%"><col style="width:${list.some(_devHasSan) ? 122 : 92}px"></colgroup>
     <thead><tr><th>장비명</th><th>유형</th><th>모델</th><th>OS</th><th>S/N</th><th>워런티</th><th>메모</th><th></th></tr></thead><tbody>
     ${list.map(d=>`<tr class="clickable" onclick="openEditDevice('${d.id}')">
       <td class="dev-name" title="${esc(d.name)}">${esc(d.name)}${d.status && d.status!=='운영중' ? ` <span class="badge ${sCls[d.status]||'b-gray'}">${esc(d.status)}</span>` : ''}</td>
       ${cell(d.dev_type)}${cell(d.model)}<td title="${esc(d.eos ? d.os + ' — ' + _eosTip(d.eos) : d.os || '')}">${d.os ? esc(d.os) : '<span class="dev-muted">-</span>'}${_eosBadge(d.eos) ? '<br>' + _eosBadge(d.eos) : ''}</td>${cell(d.serial_no,'mono')}
       <td>${wBadge(d)}</td>${cell(d.memo,'dev-memo')}
       <td class="dev-act" onclick="event.stopPropagation()">
+        ${_devHasSan(d) ? `<button class="icon-btn san" title="SAN 설정 (${d.config_count ? `${d.config_count}개 · 최근 ${esc(d.config_date)}` : '없음 — 눌러서 올리기'})" onclick="openSanConfig('${d.id}')">${ICO_SAN}${d.config_count ? '' : '<i class="san-dot"></i>'}</button>` : ''}
         <button class="icon-btn hist" title="이력 보기 (점검 · 기술지원 · 장애 · 파트 교체)" onclick="openDeviceHistory('${d.id}')">${ICO_HIST}</button>
         <button class="icon-btn edit" title="수정" onclick="openEditDevice('${d.id}')">${ICO_EDIT}</button>
         <button class="icon-btn del"  title="삭제" onclick="deleteDevice('${d.id}')">${ICO_DEL}</button>
@@ -1334,8 +1338,11 @@ async function saveDevice(){
     os:$('d-os').value,purchase:$('d-purchase').value,warranty:$('d-warranty').value,
     status:$('d-status').value,memo:$('d-memo').value
   });
+  if(r && r.id && $('d-type').value === 'SAN Switch' && _sanPicked('d')){
+    try { await _sanSend(r.id, 'd'); } catch(e){ toast('장비는 저장했지만 SAN 설정을 올리지 못했습니다: ' + e.message); }
+  }
   closeModal('modal-add-device');
-  ['d-name','d-model','d-sn','d-os','d-memo','d-purchase','d-warranty'].forEach(id=>$(id).value='');
+  ['d-name','d-model','d-sn','d-os','d-memo','d-purchase','d-warranty','d-san-file','d-san-memo'].forEach(id=>$(id).value='');
   const cntEl=$(`dev-count-${currentSiteId}`);
   if(cntEl&&r.site_device_count!==undefined) cntEl.textContent=r.site_device_count;
   loadDevices(); loadOverview(); toast('장비 추가됨');
@@ -1347,6 +1354,11 @@ function openEditDevice(d){
   $('ed-sn').value=d.serial_no||''; $('ed-type').value=d.dev_type; $('ed-os').value=d.os||'';
   $('ed-status').value=d.status; $('ed-purchase').value=d.purchase||''; $('ed-warranty').value=d.warranty||'';
   $('ed-memo').value=d.memo||'';
+  $('ed-san-file').value=''; $('ed-san-memo').value=''; $('ed-san-date').value=_ymd(new Date());
+  $('ed-san-info').innerHTML = d.config_count
+    ? `저장된 설정 <b>${d.config_count}</b>개 · 최근 ${esc(d.config_date)} <button type="button" class="btn btn-sm" onclick="closeModal('modal-edit-device');openSanConfig('${d.id}')">설정 보기</button>`
+    : '저장된 설정이 없습니다';
+  devTypeChanged('ed');
   openModal('modal-edit-device');
 }
 async function updateDevice(){
@@ -1357,7 +1369,12 @@ async function updateDevice(){
     os:$('ed-os').value,purchase:$('ed-purchase').value,warranty:$('ed-warranty').value,
     status:$('ed-status').value,memo:$('ed-memo').value
   });
-  closeModal('modal-edit-device'); loadDevices(); loadOverview(); toast('장비 수정됨');
+  let msg = '장비 수정됨';
+  if($('ed-type').value === 'SAN Switch' && _sanPicked('ed')){
+    try { const c = await _sanSend(id, 'ed'); msg = c.same_as_prev ? '장비 수정됨 · SAN 설정 저장(이전 버전과 내용이 같음)' : '장비 수정됨 · SAN 설정 저장'; }
+    catch(e){ toast('장비는 수정했지만 SAN 설정을 올리지 못했습니다: ' + e.message); closeModal('modal-edit-device'); loadDevices(); return; }
+  }
+  closeModal('modal-edit-device'); loadDevices(); loadOverview(); toast(msg);
 }
 async function deleteDevice(id){
   if(!confirm('장비를 삭제하시겠습니까?'))return;
@@ -4867,7 +4884,7 @@ async function openPjDev(id){
 }
 function pjDevLinkChanged(){
   const x = _pjSiteDevs.find(v => v.id === $('pd-link').value); if(!x) return;
-  $('pd-name').value = x.name || ''; $('pd-type').value = ['서버', '스토리지', '네트워크', '기타'].includes(x.dev_type) ? x.dev_type : '기타';
+  $('pd-name').value = x.name || ''; $('pd-type').value = DEV_TYPES.includes(x.dev_type) ? x.dev_type : '기타';
   $('pd-model').value = x.model || ''; $('pd-sn').value = x.serial_no || ''; $('pd-os').value = x.os || '';
   $('pd-warranty').value = /^\d{4}-\d{2}-\d{2}$/.test(x.warranty || '') ? x.warranty : '';
 }
@@ -4951,3 +4968,189 @@ async function deletePjLog(id){
   await loadPjLogs(); await _reloadProj();
 }
 $('pl-content').addEventListener('keydown', e => { if(e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); savePjLog(); } });
+
+
+// ── SAN Switch 설정 (장비별 버전: Brocade configupload / Cisco running-config) ──
+const _devHasSan = d => d.dev_type === 'SAN Switch' || d.config_count > 0;
+function devTypeChanged(pre){
+  const on = $(pre + '-type').value === 'SAN Switch';
+  $(pre + '-san-row').style.display = on ? '' : 'none';
+  if(on && !$(pre + '-san-date').value) $(pre + '-san-date').value = _ymd(new Date());
+}
+const _sanPicked = pre => $(pre + '-san-file').files.length > 0;
+async function _sanPost(devId, fd){
+  const r = await fetch(`/api/engineers/${ENG_ID}/sites/${currentSiteId}/devices/${devId}/configs`, {method: 'POST', body: fd});
+  let data = null; try { data = await r.json(); } catch(e){}
+  if(!r.ok) throw new Error(data && typeof data.detail === 'string' ? data.detail : `서버 오류 (HTTP ${r.status})`);
+  return data;
+}
+function _sanSend(devId, pre){
+  const fd = new FormData();
+  fd.append('file', $(pre + '-san-file').files[0]);
+  fd.append('taken_date', $(pre + '-san-date').value || _ymd(new Date()));
+  fd.append('memo', $(pre + '-san-memo').value.trim());
+  return _sanPost(devId, fd);
+}
+
+let _sanDev = '', _sanVers = [], _sanSel = '', _sanTab = 'zones', _sanCache = {}, _sanFound = null, _sanDiffBase = '';
+const SAN_VENDOR = {brocade: 'Brocade', cisco: 'Cisco MDS'};
+async function openSanConfig(devId){
+  _sanDev = devId; _sanSel = ''; _sanTab = 'zones'; _sanCache = {}; _sanFound = null; _sanDiffBase = '';
+  const d = _siteDevs.find(x => x.id === devId) || {};
+  $('san-title').textContent = `SAN 설정 - ${d.name || ''}`;
+  $('san-sub').textContent = [d.model, 'Brocade: configupload 결과 파일 · Cisco MDS: copy running-config 로 받은 파일 (또는 출력 붙여넣기)'].filter(Boolean).join(' · ');
+  $('san-file').value = ''; $('san-memo').value = ''; $('san-date').value = _ymd(new Date());
+  $('san-paste').value = ''; $('san-paste').style.display = 'none'; $('san-q').value = '';
+  $('san-vers').innerHTML = $('san-view').innerHTML = '<div class="empty">불러오는 중…</div>'; $('san-tabs').innerHTML = '';
+  openModal('modal-san');
+  await sanLoad();
+}
+async function sanLoad(selectId){
+  let r;
+  try { r = await _apiSend('GET', `/api/engineers/${ENG_ID}/sites/${currentSiteId}/devices/${_sanDev}/configs`); }
+  catch(e){ $('san-vers').innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  _sanVers = r.items;
+  if(selectId) _sanSel = selectId;
+  if(!_sanVers.some(v => v.id === _sanSel)) _sanSel = _sanVers[0] ? _sanVers[0].id : '';
+  drawSanVers();
+  await sanShow();
+}
+function drawSanVers(){
+  $('san-vers').innerHTML = _sanVers.length ? _sanVers.map((v, i) => {
+    const sm = v.summary || {};
+    return `<div class="san-ver ${v.id === _sanSel ? 'on' : ''}" onclick="sanPick('${v.id}')">
+      <div class="san-ver-top"><b>${esc(v.taken_date)}</b>${i === 0 ? '<span class="badge b-blue">최신</span>' : ''}<span style="flex:1"></span>
+        <button class="icon-btn edit" title="날짜·메모 고치기" onclick="event.stopPropagation();sanEditVer('${v.id}')">${ICO_EDIT}</button>
+        <button class="icon-btn del" title="이 버전 삭제" onclick="event.stopPropagation();sanDelVer('${v.id}')">${ICO_DEL}</button></div>
+      ${v.memo ? `<div class="san-ver-memo">${esc(v.memo)}</div>` : ''}
+      <div class="san-ver-meta">${esc(SAN_VENDOR[v.vendor] || '형식 모름')} · ${sm.ok ? `존 ${sm.zones}(활성 ${sm.active_zones}) · 별칭 ${sm.aliases}` : '존 정보 없음'}</div>
+      <div class="san-ver-meta" title="${esc(v.filename)}">${esc(v.filename || '붙여넣기')} · ${(v.size / 1024).toFixed(1)}KB</div>
+    </div>`; }).join('')
+    : '<div class="empty" style="padding:18px 10px">저장된 설정이 없습니다.<br>위에서 파일을 골라 올리세요.</div>';
+}
+function sanPick(id){ _sanSel = id; _sanDiffBase = ''; if(_sanTab === 'found') _sanTab = 'zones'; drawSanVers(); sanShow(); }
+function sanSetTab(t){ _sanTab = t; sanShow(); }
+async function _sanGet(id, raw){
+  const k = id + (raw ? ':raw' : '');
+  if(!_sanCache[k]) _sanCache[k] = await _apiSend('GET', `/api/engineers/${ENG_ID}/sites/${currentSiteId}/devices/${_sanDev}/configs/${id}${raw ? '?raw=1' : ''}`);
+  return _sanCache[k];
+}
+async function sanShow(){
+  const tabs = [['zones', '존'], ['aliases', '별칭'], ['raw', '원문'], ['diff', '이전과 비교']];
+  if(_sanFound) tabs.push(['found', `검색 결과 ${_sanFound.items.length}`]);
+  $('san-tabs').innerHTML = tabs.map(([k, l]) => `<div class="tab ${k === _sanTab ? 'active' : ''}" onclick="sanSetTab('${k}')">${l}</div>`).join('');
+  const el = $('san-view');
+  if(_sanTab === 'found'){ drawSanFound(); return; }
+  if(!_sanSel){ el.innerHTML = '<div class="empty">저장된 설정이 없습니다</div>'; return; }
+  el.innerHTML = '<div class="empty">불러오는 중…</div>';
+  const sel = _sanSel, tab = _sanTab;
+  try {
+    if(tab === 'diff'){ await drawSanDiff(); return; }
+    const c = await _sanGet(sel, tab === 'raw');
+    if(sel !== _sanSel || tab !== _sanTab) return;
+    if(tab === 'raw'){
+      el.innerHTML = `<div class="san-rawbar"><span class="pj-hint">${esc(c.filename || '붙여넣기')} · ${c.text.split('\n').length}줄</span><span style="flex:1"></span>
+        <a class="btn btn-sm" href="/api/engineers/${ENG_ID}/sites/${currentSiteId}/devices/${_sanDev}/configs/${sel}/download">파일 받기</a></div><pre class="san-raw">${esc(c.text)}</pre>`;
+      return;
+    }
+    if(!c.ok){ el.innerHTML = '<div class="empty">존·별칭 정보를 찾지 못했습니다. 원문 탭에서 내용을 확인하세요.<br><span class="pj-hint">Brocade 는 configupload 파일의 [Zoning] 부분이나 cfgshow 출력, Cisco 는 running-config 의 zone / zoneset / device-alias 를 읽습니다.</span></div>'; return; }
+    const wchip = w => `<span class="san-wwn">${esc(w)}</span>`;
+    if(tab === 'zones'){
+      el.innerHTML = `<div class="san-act">활성 ${c.vendor === 'cisco' ? 'zoneset' : 'cfg'}: ${c.active.length ? c.active.map(a => `<b>${esc(a)}</b>`).join(', ') : '<span class="pj-muted">없음</span>'}
+          <span style="flex:1"></span><input type="search" class="san-filter" placeholder="이 표에서 찾기" oninput="sanFilter(this)"></div>
+        <div class="cl-panel" style="margin-bottom:0"><table class="cl-table san-tbl"><thead><tr><th style="width:26%">존</th>${c.vendor === 'cisco' ? '<th style="width:60px">VSAN</th>' : ''}<th style="width:64px">활성</th><th>멤버 → WWN</th></tr></thead>
+        <tbody>${c.zones.map(z => `<tr data-q="${esc((z.name + ' ' + z.members.map(m => m.name + ' ' + m.wwns.join(' ')).join(' ')).toLowerCase())}">
+          <td><b>${esc(z.name)}</b>${z.cfgs.length ? `<div class="pj-desc">${esc(z.cfgs.join(', '))}</div>` : '<div class="pj-desc">어느 cfg 에도 없음</div>'}</td>
+          ${c.vendor === 'cisco' ? `<td>${esc(z.vsan)}</td>` : ''}<td>${z.active ? '<span class="badge b-green">활성</span>' : '<span class="pj-muted">-</span>'}</td>
+          <td>${z.members.map(m => `<div class="san-mem">${m.kind === 'wwn' ? wchip(m.name) : `<span class="san-mname">${esc(m.name)}</span> ${m.wwns.map(wchip).join(' ') || (m.kind === 'other' ? '<span class="pj-muted">(포트/기타)</span>' : '<span class="pj-muted">(WWN 없음)</span>')}`}</div>`).join('')}</td></tr>`).join('')}</tbody></table></div>`;
+    } else {
+      el.innerHTML = `<div class="san-act">별칭 ${c.aliases.length}개<span style="flex:1"></span><input type="search" class="san-filter" placeholder="이 표에서 찾기" oninput="sanFilter(this)"></div>
+        <div class="cl-panel" style="margin-bottom:0"><table class="cl-table san-tbl"><thead><tr><th style="width:28%">별칭</th>${c.vendor === 'cisco' ? '<th style="width:60px">VSAN</th>' : ''}<th style="width:34%">WWN</th><th>들어간 존</th></tr></thead>
+        <tbody>${c.aliases.map(a => `<tr data-q="${esc((a.name + ' ' + a.wwns.join(' ') + ' ' + a.zones.join(' ')).toLowerCase())}"><td><b>${esc(a.name)}</b></td>${c.vendor === 'cisco' ? `<td>${esc(a.vsan || '-')}</td>` : ''}
+          <td>${a.wwns.map(wchip).join(' ') || '<span class="pj-muted">-</span>'}</td><td>${a.zones.length ? esc(a.zones.join(', ')) : '<span class="badge b-amber">존에 없음</span>'}</td></tr>`).join('')}</tbody></table></div>`;
+    }
+  } catch(e){ el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+function sanFilter(inp){
+  const q = inp.value.trim().toLowerCase(), qh = q.replace(/[:\-\s]/g, '');
+  inp.closest('.san-view').querySelectorAll('tbody tr').forEach(tr => {
+    const t = tr.dataset.q || '';
+    tr.style.display = !q || t.includes(q) || (qh.length >= 4 && t.replace(/:/g, '').includes(qh)) ? '' : 'none';
+  });
+}
+async function drawSanDiff(){
+  const el = $('san-view');
+  const i = _sanVers.findIndex(v => v.id === _sanSel);
+  const others = _sanVers.filter(v => v.id !== _sanSel);
+  if(!others.length){ el.innerHTML = '<div class="empty">비교할 다른 버전이 없습니다</div>'; return; }
+  if(!_sanDiffBase || _sanDiffBase === _sanSel) _sanDiffBase = (_sanVers[i + 1] || others[0]).id;
+  const d = await _apiSend('GET', `/api/engineers/${ENG_ID}/sites/${currentSiteId}/devices/${_sanDev}/configs/${_sanSel}/diff?base=${_sanDiffBase}`);
+  if(_sanTab !== 'diff') return;
+  const nm = x => esc(x.name) + (x.vsan ? ` <span class="pj-muted">VSAN ${esc(x.vsan)}</span>` : '');
+  const sec = (title, g) => {
+    const n = g.added.length + g.removed.length + g.changed.length;
+    if(!n) return `<div class="san-dsec"><b>${title}</b> <span class="pj-muted">변경 없음</span></div>`;
+    return `<div class="san-dsec"><b>${title}</b> <span class="pj-muted">추가 ${g.added.length} · 삭제 ${g.removed.length} · 변경 ${g.changed.length}</span>
+      ${g.added.map(x => `<div class="san-d add">+ ${nm(x)} <span class="san-dm">${esc(x.members.join(', '))}</span></div>`).join('')}
+      ${g.removed.map(x => `<div class="san-d rem">− ${nm(x)} <span class="san-dm">${esc(x.members.join(', '))}</span></div>`).join('')}
+      ${g.changed.map(x => `<div class="san-d chg">~ ${nm(x)} ${x.added.map(m => `<span class="san-dm add">+${esc(m)}</span>`).join(' ')} ${x.removed.map(m => `<span class="san-dm rem">−${esc(m)}</span>`).join(' ')}</div>`).join('')}</div>`;
+  };
+  const actSame = JSON.stringify(d.active.before) === JSON.stringify(d.active.after);
+  el.innerHTML = `<div class="san-act">비교 기준(이전): <select onchange="_sanDiffBase=this.value;drawSanDiff()">${others.map(v => `<option value="${v.id}" ${v.id === _sanDiffBase ? 'selected' : ''}>${esc(v.taken_date)}${v.memo ? ' · ' + esc(v.memo) : ''}</option>`).join('')}</select>
+      → <b>${esc(d.to.taken_date)}</b>${d.to.memo ? ' · ' + esc(d.to.memo) : ''}</div>
+    <div class="san-dsec"><b>활성 cfg</b> ${actSame ? `<span class="pj-muted">변경 없음 (${esc(d.active.after.join(', ') || '없음')})</span>` : `<span class="san-dm rem">${esc(d.active.before.join(', ') || '없음')}</span> → <span class="san-dm add">${esc(d.active.after.join(', ') || '없음')}</span>`}</div>
+    ${sec('존', d.zones)}${sec('별칭', d.aliases)}
+    <details class="san-lines"><summary>줄 단위 비교 (없어진 줄 ${d.lines.removed.length} · 새 줄 ${d.lines.added.length}${d.lines.more ? ', 일부만 표시' : ''})</summary>
+      ${d.lines.removed.map(l => `<div class="san-d rem">− ${esc(l)}</div>`).join('')}${d.lines.added.map(l => `<div class="san-d add">+ ${esc(l)}</div>`).join('')}</details>`;
+}
+function sanTogglePaste(){
+  const t = $('san-paste'); t.style.display = t.style.display === 'none' ? '' : 'none';
+  if(t.style.display === '') t.focus();
+}
+async function sanUpload(){
+  const fd = new FormData();
+  const f = $('san-file').files[0], txt = $('san-paste').style.display === 'none' ? '' : $('san-paste').value;
+  if(!f && !txt.trim()){ toast('설정 파일을 고르거나 붙여넣기 칸에 내용을 넣어 주세요'); return; }
+  if(f) fd.append('file', f); else fd.append('text', txt);
+  fd.append('taken_date', $('san-date').value || _ymd(new Date()));
+  fd.append('memo', $('san-memo').value.trim());
+  let c;
+  try { c = await _sanPost(_sanDev, fd); } catch(e){ toast('올리기 실패: ' + e.message); return; }
+  $('san-file').value = ''; $('san-memo').value = ''; $('san-paste').value = ''; $('san-paste').style.display = 'none';
+  const o = $('modal-san'); o._ov0 = new Map();
+  toast(c.same_as_prev ? '저장했습니다 (가장 최근 버전과 내용이 같습니다)' : c.parsed ? '저장했습니다' : '저장했습니다 — 존 정보는 찾지 못했습니다');
+  _sanTab = 'zones';
+  await sanLoad(c.id); loadDevices();
+}
+async function sanEditVer(id){
+  const v = _sanVers.find(x => x.id === id); if(!v) return;
+  const date = prompt('설정을 받은 날 (YYYY-MM-DD)', v.taken_date); if(date === null) return;
+  const memo = prompt('메모', v.memo); if(memo === null) return;
+  try { await _apiSend('PATCH', `/api/engineers/${ENG_ID}/sites/${currentSiteId}/devices/${_sanDev}/configs/${id}`, {taken_date: date.trim(), memo}); }
+  catch(e){ toast(e.message); return; }
+  delete _sanCache[id]; delete _sanCache[id + ':raw'];
+  await sanLoad(id); loadDevices();
+}
+async function sanDelVer(id){
+  const v = _sanVers.find(x => x.id === id);
+  if(!confirm(`${v ? v.taken_date : ''} 설정을 삭제할까요? 되돌릴 수 없습니다.`)) return;
+  try { await _apiSend('DELETE', `/api/engineers/${ENG_ID}/sites/${currentSiteId}/devices/${_sanDev}/configs/${id}`); }
+  catch(e){ toast(e.message); return; }
+  await sanLoad(); loadDevices(); toast('삭제됨');
+}
+async function sanSearch(){
+  const q = $('san-q').value.trim();
+  if(q.length < 3){ toast('세 글자 이상 입력해주세요 (WWN 일부·별칭·존 이름)'); return; }
+  try { _sanFound = await _apiSend('GET', `/api/engineers/${ENG_ID}/sites/${currentSiteId}/san/search?q=${encodeURIComponent(q)}`); }
+  catch(e){ toast(e.message); return; }
+  _sanFound.q = q; _sanTab = 'found'; sanShow();
+}
+function drawSanFound(){
+  const r = _sanFound;
+  $('san-view').innerHTML = `<div class="san-act">"${esc(r.q)}" — 이 사이트 SAN 스위치들의 <b>최신</b> 설정에서 찾은 결과${r.more ? ' (300건까지만 표시)' : ''}</div>
+    ${r.items.length ? `<div class="cl-panel" style="margin-bottom:0"><table class="cl-table san-tbl"><thead><tr><th style="width:20%">스위치</th><th style="width:24%">존</th><th style="width:64px">활성</th><th>별칭</th><th style="width:30%">WWN</th></tr></thead>
+    <tbody>${r.items.map(x => `<tr class="clickable" onclick="${x.device_id === _sanDev ? `sanPick('${x.cfg_id}')` : `openSanConfig('${x.device_id}')`}" title="${esc(x.date)} 설정">
+      <td><b>${esc(x.device)}</b><div class="pj-desc">${esc(x.date)}</div></td><td>${x.zone ? esc(x.zone) + (x.vsan ? ` <span class="pj-muted">VSAN ${esc(x.vsan)}</span>` : '') : '<span class="badge b-amber">존에 없음</span>'}</td>
+      <td>${x.active ? '<span class="badge b-green">활성</span>' : '<span class="pj-muted">-</span>'}</td><td>${esc(x.member || '-')}</td><td>${x.wwn ? `<span class="san-wwn">${esc(x.wwn)}</span>` : '-'}</td></tr>`).join('')}</tbody></table></div>`
+    : '<div class="empty">찾은 것이 없습니다</div>'}`;
+}

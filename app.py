@@ -5,7 +5,7 @@ from fastapi.requests import Request
 from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 from database import init_db
-from routers import auth, sites, logs, dashboard, schedules, issues, site_checklist, projects, technotes, development, incidents, reports, gcal, entries, lab, remote, leaves, carlog, carrepair, expenses, eos, notify, licenses
+from routers import auth, sites, logs, dashboard, schedules, issues, site_checklist, projects, technotes, development, incidents, reports, gcal, entries, lab, remote, leaves, carlog, carrepair, expenses, eos, notify, licenses, sanconfig
 from routers.auth import require_login, require_admin
 import os, asyncio
 
@@ -82,6 +82,7 @@ app.include_router(auth.router)
 _LOGIN = [Depends(require_login)]
 app.include_router(dashboard.router, dependencies=_LOGIN)
 app.include_router(sites.router, dependencies=_LOGIN)
+app.include_router(sanconfig.router, dependencies=_LOGIN)   # SAN Switch 설정 백업 (장비별)
 app.include_router(projects.router, dependencies=_LOGIN)
 app.include_router(logs.router, dependencies=_LOGIN)
 app.include_router(schedules.router, dependencies=_LOGIN)
