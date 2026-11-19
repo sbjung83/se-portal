@@ -263,6 +263,13 @@ def device_history(eng_id: str, site_id: str, dev_id: str, db: Session = Depends
             host["detail"] = host["detail"] or row["detail"]
         else:
             out.append(row)
+    from database import Project, ProjectDevice     # 프로젝트로 납품·구축(사이트 장비로 등록·연결)한 기록
+    for pd, pj in db.query(ProjectDevice, Project).join(Project, Project.id == ProjectDevice.project_id).filter(
+            ProjectDevice.device_id == dev.id, Project.engineer_id == eng_id).all():
+        out.append({"date": pj.delivery_date or pj.start_date or "", "kinds": ["프로젝트"], "title": pj.name,
+                    "status": pj.status, "open_id": "", "open_project": pj.id,
+                    "detail": f"{pj.kind or '구축'} 프로젝트" + (f" · 검수 {pj.accept_date}" if pj.accept_date else ""),
+                    "parts": [], "legacy": False})
     out.sort(key=lambda r: r["date"], reverse=True)
     return {"device": _dev_dict(dev, eos_match.load_index(db)), "items": out,
             "parts_total": sum(len(r["parts"]) for r in out)}

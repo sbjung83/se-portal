@@ -1328,3 +1328,73 @@ button.wr-range{border:none;background:none;font-family:inherit;font-size:15px;f
 .ld-line.del{background:var(--red-50);color:var(--slate-700)}
 .ld-line.add{background:#f0fdf4;color:var(--slate-700)}
 .ld-none{font-size:12.5px;color:var(--slate-500);padding:6px 8px}
+/* 프로젝트 관리 보강: 6칸 요약 · 목록 칸 · 등록 창 구역 · 상세 창 개요/장비/작업 기록 */
+.pj-summary.pj-summary6{grid-template-columns:repeat(6,minmax(0,1fr))}
+@media (max-width:1100px){.pj-summary.pj-summary6{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.pj-kind{margin-right:6px;font-size:10.5px;padding:1px 6px;vertical-align:1px}
+.pj-site{border:none;background:none;padding:0;font:inherit;color:var(--accent);cursor:pointer;text-align:left}
+.pj-site:hover{text-decoration:underline}
+.pj-muted{color:var(--slate-400);font-size:12px}
+.pj-next{font-size:12.5px;color:var(--slate-800);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pj-dd{display:inline-block;font-size:11px;font-weight:700;color:var(--slate-500);margin-left:2px}
+.pj-dd.soon{color:var(--amber-600)}
+.pj-dd.late{color:var(--red-600)}
+.pj-docs-cell{display:flex;flex-wrap:wrap;gap:4px;cursor:pointer}
+.pj-doc{display:inline-block;font-size:11px;line-height:18px;padding:0 7px;border-radius:5px;border:1px solid var(--line);background:var(--slate-50);color:var(--slate-500);white-space:nowrap;font-family:inherit}
+.pj-doc.ok{border-color:#bbf7d0;background:#f0fdf4;color:var(--green-600);font-weight:600}
+.pj-doc.need{border-color:#fecaca;background:var(--red-50);color:var(--red-600);font-weight:600}
+.pj-link{cursor:pointer}
+.pj-hint{font-size:12px;color:var(--slate-500)}
+.pj-hint b{color:var(--amber-700)}
+/* 등록 창 */
+.pjf .pjf-sec{border:1px solid var(--line);border-radius:10px;padding:12px 14px 4px;margin-bottom:12px}
+.pjf .pjf-h{font-size:12.5px;font-weight:800;color:var(--navy);margin-bottom:8px;display:flex;align-items:center;gap:8px}
+.pjf .pjf-h .en-hint{font-weight:500}
+.pjf-grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.pjf-grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media (max-width:760px){.pjf-grid3,.pjf-grid4{grid-template-columns:1fr 1fr}}
+.pjf-docs{display:flex;gap:18px;flex-wrap:wrap;padding:2px 0 10px}
+.pjf-docs .nt-chk input[type=checkbox]{width:auto!important;margin:0}
+.pjf-desc{width:100%;min-height:200px;height:26vh;resize:vertical;font-family:Consolas,"D2Coding",monospace;font-size:13px;line-height:1.55;margin-bottom:10px}
+/* 상세 창 */
+.pj-detail-modal .modal-title{display:flex;align-items:center}
+.pjo-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+@media (max-width:900px){.pjo-grid{grid-template-columns:1fr}}
+.pjo-card{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--card-bg)}
+.pjo-h{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:800;color:var(--navy);margin-bottom:10px}
+.pjo-items{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px}
+.pjo-l{font-size:11.5px;color:var(--slate-500);font-weight:600}
+.pjo-v{font-size:13px;color:var(--slate-800);margin-top:2px;word-break:break-word}
+.pjo-ms{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.pjo-m{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:7px;padding:4px 9px;font-size:12px;background:var(--slate-50)}
+.pjo-m span{color:var(--slate-500)}
+.pjo-m b{color:var(--slate-800);font-weight:600}
+.pjo-m.past{opacity:.65}
+.pjo-next{border-top:1px dashed var(--line);padding-top:9px;font-size:13px}
+.pjo-sub{display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;font-size:12.5px;color:var(--slate-600)}
+.pjo-sub>span{cursor:pointer;display:inline-flex;align-items:center;gap:4px}
+.pjo-sub>span:hover{color:var(--accent)}
+.pjo-sub em{font-style:normal;color:var(--amber-700);font-weight:600}
+.tn-body.pjo-desc{max-height:none;min-height:0}
+.pj-docbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;font-size:12.5px}
+.pj-docbar b{color:var(--navy)}
+.pj-dev-tbl td{vertical-align:middle}
+.pj-logform{display:grid;grid-template-columns:150px 100px minmax(0,1fr) auto;gap:8px;align-items:start;margin-bottom:12px;padding:10px 12px;background:var(--slate-50);border:1px solid var(--line);border-radius:10px}
+.pj-logform textarea{min-height:38px;resize:vertical}
+.pj-logform .btn{height:38px}
+.pj-logs{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--card-bg)}
+.pj-log-day{padding:6px 14px;font-size:12px;font-weight:700;color:var(--head-text);background:var(--head-bg)}
+.pj-log{display:flex;align-items:flex-start;gap:10px;padding:8px 14px;border-top:1px solid var(--line-soft)}
+.pj-log-day+.pj-log{border-top:none}
+.pj-log.editing{background:#fffbeb}
+.pj-log .badge{flex:0 0 auto;margin-top:1px}
+.pj-log-txt{flex:1;min-width:0;font-size:13px;color:var(--slate-800);white-space:pre-wrap;word-break:break-word;line-height:1.55}
+.pj-log .cl-act{flex:0 0 auto;display:flex;gap:4px}
+/* 입력 창 바깥 클릭: 닫지 않고 흔들어 알림 */
+@keyframes ovShake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
+.ov-shake{animation:ovShake .32s ease}
+/* 긴 입력 창을 아래로 내려도 제목·✕(위)와 저장·취소(아래)는 늘 보이게 고정 */
+.overlay>.modal{padding-top:0!important;padding-bottom:0!important}
+.overlay>.modal>.modal-head{position:sticky;top:0;z-index:20;background:var(--card-bg,#fff);padding-top:18px;padding-bottom:10px;margin-bottom:8px}
+.overlay>.modal>.form-actions{position:sticky;bottom:0;z-index:20;background:var(--card-bg,#fff);padding-bottom:16px}
+.overlay>.modal:not(:has(>.form-actions))::after{content:'';display:block;height:20px}

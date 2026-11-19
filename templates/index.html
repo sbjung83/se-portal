@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=84">
+<link rel="stylesheet" href="/static/css/style.css?v=87">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -315,7 +315,7 @@
     <!-- PROJECTS -->
     <div class="page" id="page-projects">
       <div class="page-title">프로젝트 관리</div>
-      <div id="proj-summary" class="pj-summary"></div>
+      <div id="proj-summary" class="pj-summary pj-summary6"></div>
       <div class="cl-toolbar">
         <select id="proj-year" class="filter-select" title="연도" onchange="drawProjects()"></select>
         <div class="svh-tabs" id="proj-tabs"></div>
@@ -984,33 +984,48 @@
 
 <!-- 프로젝트 추가/수정 -->
 <div class="overlay" id="modal-add-project">
-  <div class="modal">
+  <div class="modal pjf" style="width:min(900px,95vw);max-height:94vh">
     <div class="modal-head"><div class="modal-title" id="proj-modal-title">프로젝트 등록</div><button class="btn btn-sm" onclick="closeModal('modal-add-project')">✕</button></div>
     <input type="hidden" id="p-id">
-    <div class="form-row"><label>프로젝트명 *</label><input type="text" id="p-name"></div>
-    <div class="form-row"><label>고객사</label><input type="text" id="p-customer"></div>
-    <div class="grid2">
-      <div class="form-row"><label>시작일 *</label><input type="date" id="p-start"></div>
-      <div class="form-row"><label>종료일</label><input type="date" id="p-end"></div>
+    <div class="pjf-sec"><div class="pjf-h">기본 정보</div>
+      <div class="form-row"><label>프로젝트명 *</label><input type="text" id="p-name" placeholder="예: 빅데이터센터 GPU 서버 구축"></div>
+      <div class="pjf-grid3">
+        <div class="form-row"><label>종류</label><select id="p-kind"><option>구축</option><option>증설</option><option>이전</option><option>교체</option><option>구매</option><option>기타</option></select></div>
+        <div class="form-row"><label>상태</label><select id="p-status"><option>진행 대기</option><option>진행 중</option><option>보류</option><option>완료</option></select></div>
+        <div class="form-row"><label>사이트 <span class="en-hint">사이트 관리와 연결</span></label><select id="p-site" onchange="pjSiteChanged()"></select></div>
+      </div>
+      <div class="form-row" id="p-cust-row"><label>고객사 <span class="en-hint">사이트 관리에 없는 고객일 때 직접 입력</span></label><input type="text" id="p-customer"></div>
     </div>
-    <div class="grid2">
-      <div class="form-row"><label>일정 템플릿</label>
+    <div class="pjf-sec"><div class="pjf-h">일정</div>
+      <div class="pjf-grid4">
+        <div class="form-row"><label>시작일 *</label><input type="date" id="p-start"></div>
+        <div class="form-row"><label>종료일</label><input type="date" id="p-end"></div>
+        <div class="form-row"><label>납품일</label><input type="date" id="p-delivery"></div>
+        <div class="form-row"><label>검수(완료) 예정일</label><input type="date" id="p-accept"></div>
+      </div>
+      <div class="form-row" id="p-tmpl-row"><label>일정 템플릿 <span class="en-hint">시작일부터 1주 단위 태스크를 미리 만듭니다 (나중에 고칠 수 있음)</span></label>
         <select id="p-template">
-          <option value="">— 선택 안함 —</option>
-          <option value="storage">기본 스토리지 구축 (5주)</option>
-          <option value="server">기본 서버 구축 (5주)</option>
-        </select>
-      </div>
-      <div class="form-row"><label>상태</label>
-        <select id="p-status">
-          <option>진행 대기</option>
-          <option>진행 중</option>
-          <option>보류</option>
-          <option>완료</option>
-        </select>
+          <option value="">— 선택 안 함 —</option>
+          <option value="server">서버 구축 (5주)</option>
+          <option value="storage">스토리지 구축 (5주)</option>
+          <option value="virt">가상화 구축 (5주)</option>
+          <option value="migration">이전·마이그레이션 (4주)</option>
+        </select></div>
+    </div>
+    <div class="pjf-sec"><div class="pjf-h">담당</div>
+      <div class="pjf-grid4">
+        <div class="form-row"><label>PM · 작업자</label><input type="text" id="p-pm" placeholder="예: 홍길동, 김철수"></div>
+        <div class="form-row"><label>영업 담당</label><input type="text" id="p-sales"></div>
+        <div class="form-row"><label>고객 담당자</label><input type="text" id="p-cust-contact"></div>
+        <div class="form-row"><label>고객 연락처</label><input type="text" id="p-cust-phone"></div>
       </div>
     </div>
-    <div class="form-row"><label>상세 내용</label><textarea id="p-desc" style="min-height:80px"></textarea></div>
+    <div class="pjf-sec"><div class="pjf-h">산출물 <span class="en-hint">내야 하는 자료 — 제출자료 탭에 그 구분으로 올리면 '제출'로 표시됩니다</span></div>
+      <div class="pjf-docs" id="p-docs"></div>
+    </div>
+    <div class="pjf-sec"><div class="pjf-h">개요 · 범위 <span class="en-hint">마크다운 — ## 제목, - 목록, | 표 | · 장비 사양, 작업 범위, 특이사항</span></div>
+      <textarea id="p-desc" class="pjf-desc" placeholder="## 범위&#10;- 서버 2대 납품·설치, OS 설치&#10;&#10;## 장비 사양&#10;| 항목 | 내용 |&#10;|---|---|&#10;| CPU | ... |"></textarea>
+    </div>
     <div class="form-actions">
       <button class="btn" onclick="closeModal('modal-add-project')">취소</button>
       <button class="btn btn-primary" onclick="saveProject()">저장</button>
@@ -1027,10 +1042,30 @@
     </div>
     <div id="proj-detail-info" class="pj-info"></div>
     <div class="tabs" id="pj-tabs">
-      <div class="tab active" data-pjtab="tasks" onclick="pjSwitchTab('tasks')">태스크 <span id="pj-task-cnt"></span></div>
+      <div class="tab active" data-pjtab="overview" onclick="pjSwitchTab('overview')">개요</div>
+      <div class="tab" data-pjtab="tasks" onclick="pjSwitchTab('tasks')">일정 <span id="pj-task-cnt"></span></div>
+      <div class="tab" data-pjtab="devices" onclick="pjSwitchTab('devices')">장비 <span id="pj-dev-cnt"></span></div>
+      <div class="tab" data-pjtab="logs" onclick="pjSwitchTab('logs')">작업 기록 <span id="pj-log-cnt"></span></div>
       <div class="tab" data-pjtab="files" onclick="pjSwitchTab('files')">제출자료 <span id="pj-file-cnt"></span></div>
     </div>
-    <div class="pj-pane" id="pj-pane-tasks">
+    <div class="pj-pane" id="pj-pane-overview"></div>
+    <div class="pj-pane" id="pj-pane-devices" style="display:none">
+      <div class="dev-bar"><span class="pj-hint" id="pj-dev-hint"></span><span style="flex:1"></span>
+        <button class="btn btn-sm" id="pj-dev-reg" onclick="registerPjDevs()">사이트 장비 리스트에 등록</button>
+        <button class="btn btn-primary btn-sm" onclick="openPjDev()">+ 장비 추가</button></div>
+      <div id="pj-dev-list"></div>
+    </div>
+    <div class="pj-pane" id="pj-pane-logs" style="display:none">
+      <div class="pj-logform">
+        <input type="date" id="pl-date"><select id="pl-kind"><option>메모</option><option>회의</option><option>협의</option><option>이슈</option><option>결정</option><option>작업</option></select>
+        <textarea id="pl-content" rows="2" placeholder="회의·협의 내용, 이슈, 결정 사항, 작업 메모 (Ctrl+Enter 로 추가)"></textarea>
+        <button class="btn btn-primary btn-sm" id="pl-btn" onclick="savePjLog()">추가</button>
+      </div>
+      <div id="pj-log-list"></div>
+      <div class="pjo-h" style="margin-top:18px">이 사이트의 점검 · 기술지원 · 장애처리 <span class="pj-hint" id="pj-rel-range"></span></div>
+      <div id="pj-rel-list"></div>
+    </div>
+    <div class="pj-pane" id="pj-pane-tasks" style="display:none">
       <div class="sec-head">
         <span class="sec-label">태스크 목록</span>
         <button class="btn btn-sm" onclick="openAddTask()">+ 태스크 추가</button>
@@ -1038,6 +1073,7 @@
       <div id="task-list"></div>
     </div>
     <div class="pj-pane" id="pj-pane-files" style="display:none">
+      <div class="pj-docbar" id="pj-docbar"></div>
       <div class="pj-upbar" id="pj-upbar">
         <select id="pj-file-cat" class="filter-select" title="첨부할 파일의 구분">
           <option>완료보고서</option><option>검수확인서</option><option>구성도</option><option>회의록</option><option>기타</option>
@@ -1048,6 +1084,33 @@
         <span class="pj-uphelp">여러 개 선택 가능 · 파일을 이 창에 끌어다 놓아도 됩니다 · 파일당 최대 50MB</span>
       </div>
       <div id="pj-file-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 프로젝트 장비 추가/수정 -->
+<div class="overlay" id="modal-pj-dev">
+  <div class="modal" style="width:620px">
+    <div class="modal-head"><div class="modal-title" id="pd-title">장비 추가</div><button class="btn btn-sm" onclick="closeModal('modal-pj-dev')">✕</button></div>
+    <input type="hidden" id="pd-id">
+    <div class="form-row" id="pd-link-row"><label>사이트의 기존 장비와 연결 <span class="en-hint">증설·교체처럼 이미 있는 장비면 고르세요 (새 장비면 비워 둠)</span></label>
+      <select id="pd-link" onchange="pjDevLinkChanged()"></select></div>
+    <div class="grid2">
+      <div class="form-row"><label>장비명 *</label><input type="text" id="pd-name"></div>
+      <div class="form-row"><label>유형</label><select id="pd-type"><option>서버</option><option>스토리지</option><option>네트워크</option><option>기타</option></select></div>
+    </div>
+    <div class="grid2">
+      <div class="form-row"><label>모델</label><input type="text" id="pd-model"></div>
+      <div class="form-row"><label>S/N</label><input type="text" id="pd-sn"></div>
+    </div>
+    <div class="grid2">
+      <div class="form-row"><label>OS</label><input type="text" id="pd-os" placeholder="예: RHEL 9, ESXi 8.0 (지원 종료 확인에 씀)"></div>
+      <div class="form-row"><label>워런티 만료일</label><input type="date" id="pd-warranty"></div>
+    </div>
+    <div class="form-row"><label>메모 <span class="en-hint">사양·호스트네임 등 (사이트 장비로 등록할 때 함께 옮겨짐)</span></label><textarea id="pd-memo" rows="3"></textarea></div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-pj-dev')">취소</button>
+      <button class="btn btn-primary" onclick="savePjDev()">저장</button>
     </div>
   </div>
 </div>
@@ -1333,6 +1396,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=118"></script>
+<script src="/static/js/app.js?v=120"></script>
 </body>
 </html>

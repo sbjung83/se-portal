@@ -519,11 +519,49 @@ class Project(Base):
     start_date  = Column(String, default="")
     end_date    = Column(String, default="")
     status      = Column(String, default="진행 대기") # 진행 대기, 진행 중, 보류, 완료
-    description = Column(Text, default="")
+    description = Column(Text, default="")         # 개요·범위 (마크다운)
     created_at  = Column(DateTime, default=datetime.utcnow)
-    
+    site_id       = Column(String, default="")      # 사이트 관리와 연결 (비면 customer 만 자유 입력)
+    kind          = Column(String, default="구축")  # 구축 / 증설 / 이전 / 교체 / 구매 / 기타
+    delivery_date = Column(String, default="")      # 납품일
+    accept_date   = Column(String, default="")      # 검수(완료) 예정일
+    pm            = Column(String, default="")      # PM·작업자
+    sales         = Column(String, default="")      # 영업 담당
+    cust_contact  = Column(String, default="")      # 고객 담당자
+    cust_phone    = Column(String, default="")      # 고객 담당자 연락처
+    req_docs      = Column(String, default="완료보고서,검수확인서")   # 내야 하는 산출물(제출자료 구분, 쉼표)
+
     tasks       = relationship("ProjectTask", back_populates="project", cascade="all, delete")
     files       = relationship("ProjectFile", back_populates="project", cascade="all, delete")
+    devices     = relationship("ProjectDevice", back_populates="project", cascade="all, delete")
+    logs        = relationship("ProjectLog", back_populates="project", cascade="all, delete")
+
+# 프로젝트로 납품·구축하는 장비. device_id = 사이트 장비 리스트(devices)에 등록·연결한 장비 (비면 미등록)
+class ProjectDevice(Base):
+    __tablename__ = "project_devices"
+    id          = Column(String, primary_key=True)
+    project_id  = Column(String, ForeignKey("projects.id"), nullable=False)
+    name        = Column(String, nullable=False)
+    dev_type    = Column(String, default="서버")
+    model       = Column(String, default="")
+    serial_no   = Column(String, default="")
+    os          = Column(String, default="")
+    warranty    = Column(String, default="")
+    memo        = Column(Text, default="")
+    device_id   = Column(String, default="")
+    order_idx   = Column(Integer, default=0)
+    project     = relationship("Project", back_populates="devices")
+
+# 프로젝트 작업 기록: 회의·협의·이슈·결정·작업 메모
+class ProjectLog(Base):
+    __tablename__ = "project_logs"
+    id          = Column(String, primary_key=True)
+    project_id  = Column(String, ForeignKey("projects.id"), nullable=False)
+    log_date    = Column(String, default="")        # "YYYY-MM-DD"
+    kind        = Column(String, default="메모")    # 회의 / 협의 / 이슈 / 결정 / 작업 / 메모
+    content     = Column(Text, default="")
+    created_at  = Column(String, default="")        # "YYYY-MM-DD HH:MM"
+    project     = relationship("Project", back_populates="logs")
 
 # 프로젝트 제출자료(완료보고서 등) 첨부 파일. 실제 파일은 uploads/<eng_id>/projects/<project_id>/<stored_name>
 class ProjectFile(Base):
@@ -581,6 +619,11 @@ def init_db():
     _ensure_column("incidents", "entry_id", "VARCHAR DEFAULT ''")
     _ensure_column("incidents", "parts", "TEXT DEFAULT ''")
     _ensure_column("notify_settings", "mention", "VARCHAR DEFAULT ''")
+    for col, typ in (("site_id", "VARCHAR DEFAULT ''"), ("kind", "VARCHAR DEFAULT '구축'"), ("delivery_date", "VARCHAR DEFAULT ''"),
+                     ("accept_date", "VARCHAR DEFAULT ''"), ("pm", "VARCHAR DEFAULT ''"), ("sales", "VARCHAR DEFAULT ''"),
+                     ("cust_contact", "VARCHAR DEFAULT ''"), ("cust_phone", "VARCHAR DEFAULT ''"),
+                     ("req_docs", "VARCHAR DEFAULT '완료보고서,검수확인서'")):
+        _ensure_column("projects", col, typ)
     for t in ("schedules", "workplans", "incidents"):
         _ensure_column(t, "device_ids", "VARCHAR DEFAULT ''")
     _ensure_column("car_profiles", "driver_name", "VARCHAR DEFAULT ''")

@@ -41,9 +41,51 @@ const api = {
 };
 
 function toast(msg){const e=$('toast');e.textContent=msg;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),2200)}
-function openModal(id){$(id).classList.add('open'); $(id).querySelectorAll('.mop-grid textarea').forEach(mopGrow)}
+function openModal(id){const o=$(id); o._ov0=new Map(); o.classList.add('open'); o.querySelectorAll('.mop-grid textarea').forEach(mopGrow)}
 function closeModal(id){$(id).classList.remove('open')}
-document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open')}));
+// ── 창 닫기 규칙 ──────────────────────────────
+// 입력 창(저장 버튼 줄 .form-actions + 입력 칸이 있는 창)은 바깥을 눌러도 닫지 않고 흔들어 알린다 — ✕·취소·Esc 로 닫음.
+// 보기 창(상세·이력 등)은 바깥 클릭으로 닫는다. 누른 곳과 뗀 곳이 모두 바깥일 때만(입력 칸에서 드래그하다 밖에서 놓아도 안 닫힘).
+// Esc = 맨 위 창 닫기. 사용자가 고친 칸이 있으면(검색 칸 제외) 먼저 확인.
+const _ovFields = 'input:not([type=hidden]):not([type=file]),textarea,select';
+const _ovIsForm = o => !!(o.querySelector('.form-actions') && o.querySelector(_ovFields));
+const _ovSkip = el => el.type === 'search' || /search/i.test(el.id + ' ' + el.className) || /검색/.test(el.placeholder || '');
+const _ovVal = el => el.type === 'checkbox' || el.type === 'radio' ? el.checked : el.value;
+function _ovDirty(o){
+  if(!o._ov0) return false;
+  for(const [el, v] of o._ov0) if(el.isConnected && o.contains(el) && _ovVal(el) !== v) return true;
+  return false;
+}
+function _ovShake(o){
+  const m = o.querySelector('.modal') || o.firstElementChild; if(!m) return;
+  m.classList.remove('ov-shake'); void m.offsetWidth; m.classList.add('ov-shake');
+}
+function _ovTryClose(o, byKey){
+  if(_ovDirty(o) && !confirm('입력한 내용이 저장되지 않았습니다. 창을 닫을까요?')) return;
+  o.classList.remove('open');
+}
+document.querySelectorAll('.overlay').forEach(o => {
+  // 사용자가 손대기 직전 값을 기억(처음 손댈 때 한 번) → 닫을 때 바뀌었는지 비교
+  o.addEventListener('focusin', e => { const el = e.target;
+    if(!el.matches || !el.matches(_ovFields) || _ovSkip(el)) return;
+    if(!o._ov0) o._ov0 = new Map();
+    if(!o._ov0.has(el)) o._ov0.set(el, _ovVal(el)); });
+  o.addEventListener('mousedown', e => { o._ovDown = e.target === o; });
+  o.addEventListener('click', e => {
+    if(e.target !== o || !o._ovDown) return;
+    o._ovDown = false;
+    if(_ovIsForm(o)) _ovShake(o); else _ovTryClose(o);
+  });
+});
+document.addEventListener('keydown', e => {
+  if(e.key !== 'Escape' || e.isComposing) return;
+  if(typeof _ympEl !== 'undefined' && _ympEl) return;                 // 년도·월 고르기 창이 먼저 닫힘
+  if($('sb-user') && $('sb-user').classList.contains('open')) return; // 계정 메뉴가 먼저 닫힘
+  const open = [...document.querySelectorAll('.overlay.open')];
+  if(!open.length) return;
+  e.preventDefault();
+  _ovTryClose(open[open.length - 1], true);
+});
 
 // ── 페이지네이션 헬퍼 ──────────────────────
 function renderPagination(containerId, total, currentPage, onPageFn, pageSize=PAGE_SIZE){
@@ -1197,14 +1239,15 @@ async function ovToggleCL(id, checked){
 let _siteDevs = [], _devType = '';
 // 장비 한 대의 이력 (GET /sites/{id}/devices/{dev}/history)
 let _devHistId = '';
-async function openDeviceHistory(devId){
+async function openDeviceHistory(devId, siteId){
   _devHistId = devId;
-  const d0 = _siteDevs.find(x => x.id === devId);
+  const sid = siteId || currentSiteId;
+  const d0 = _siteDevs.find(x => x.id === devId) || _pjDevs.find(x => x.device_id === devId);
   $('dh-title').textContent = `장비 이력 - ${d0 ? d0.name : ''}`;
   $('dh-info').innerHTML = ''; $('dh-list').innerHTML = '<div class="empty">불러오는 중…</div>';
   openModal('modal-dev-history');
   let r;
-  try { r = await api.get(`/api/engineers/${ENG_ID}/sites/${currentSiteId}/devices/${devId}/history`); }
+  try { r = await api.get(`/api/engineers/${ENG_ID}/sites/${sid}/devices/${devId}/history`); }
   catch(e){ $('dh-list').innerHTML = `<div class="empty" style="color:var(--red-600)">이력을 불러오지 못했습니다</div>`; return; }
   if(_devHistId !== devId) return;
   const d = r.device, it = r.items;
@@ -1219,7 +1262,7 @@ async function openDeviceHistory(devId){
   const part = q => `<div class="dh-part">${esc(q.name || '파트')}${q.part_no ? ` <span class="mono">${esc(q.part_no)}</span>` : ''}${q.qty > 1 ? ` ×${q.qty}` : ''}${q.old_sn || q.new_sn ? ` · <span class="mono">${esc(q.old_sn || '?')} → ${esc(q.new_sn || '?')}</span>` : ''}</div>`;
   $('dh-list').innerHTML = `<table class="dev-tbl dh-tbl"><colgroup><col style="width:96px"><col style="width:150px"><col><col style="width:30%"><col style="width:70px"></colgroup>
     <thead><tr><th>날짜</th><th>구분</th><th>내용</th><th>사용 파트</th><th>상태</th></tr></thead><tbody>
-    ${it.map(x => `<tr class="clickable" onclick="closeModal('modal-dev-history');openEntry('${x.open_id}', undefined, ${x.kinds.includes('장애처리') ? "'report'" : 'undefined'})" title="눌러서 열기${x.legacy ? ' · 예전 기록: 장애 장비 칸의 이름·S/N 으로 찾음' : ''}">
+    ${it.map(x => `<tr class="clickable" onclick="closeModal('modal-dev-history');${x.open_project ? `openProjectDetail('${x.open_project}','devices')` : `openEntry('${x.open_id}', undefined, ${x.kinds.includes('장애처리') ? "'report'" : 'undefined'})`}" title="눌러서 열기${x.legacy ? ' · 예전 기록: 장애 장비 칸의 이름·S/N 으로 찾음' : ''}">
       <td>${esc((x.date || '').slice(0, 10))}</td>
       <td><div class="svc-kind">${[...new Set(x.kinds)].map(k => _svcKind(k)).join('')}</div></td>
       <td class="dev-name" style="white-space:normal">${esc(x.title)}${x.detail ? `<div class="wp-purpose">${esc(x.detail)}</div>` : ''}</td>
@@ -1735,7 +1778,7 @@ function _svcDate(day, time, isDone, today, lateWord = '지연'){
     + `${day === today && !isDone ? '<span class="badge b-blue">오늘</span>' : ''}${late ? `<span class="badge b-red">${lateWord} D+${late}</span>` : ''}</td>`;
 }
 // 구분 배지: 점검 / 기술지원·납품·유선원격·이전·기타 / 장애처리 — 세 목록에서 같은 이름·색
-const SVC_KIND_CLS = {'점검': 'b-k-check', '장애처리': 'b-k-inc'};
+const SVC_KIND_CLS = {'점검': 'b-k-check', '장애처리': 'b-k-inc', '프로젝트': 'b-blue'};
 const _svcKind = (t, title = '') => `<span class="badge ${SVC_KIND_CLS[t] || 'b-purple'}"${title ? ` title="${esc(title)}"` : ''}>${esc(t)}</span>`;
 // 툴바의 "다른 달 지연 n건 →" — 보고 있는 달 밖에 남은 미완료 건, 누르면 가장 오래된 달로 이동
 function _svcOthers(days, ym, goFn, word, what){
@@ -2927,6 +2970,25 @@ function _projBadges(p){
   return `<span class="badge ${PROJ_ST_CLS[p.status] || 'b-gray'}">${esc(p.status || '-')}</span>${late ? `<span class="badge b-red" title="종료일 ${esc(p.end_date)}이 지났습니다">지연 D+${late}</span>` : ''}`;
 }
 
+const PROJ_DOC_CATS = ['완료보고서', '검수확인서', '구성도', '회의록'];
+const PROJ_KIND_CLS = {'구축':'b-blue', '증설':'b-purple', '이전':'b-amber', '교체':'b-amber', '구매':'b-gray', '기타':'b-gray'};
+const _pjDday = (d, done) => {
+  if(!d || done) return '';
+  const n = _daysBetween(_ymd(new Date()), d);
+  return n < 0 ? `<span class="pj-dd late">D+${-n}</span>` : `<span class="pj-dd${n <= 7 ? ' soon' : ''}">${n ? 'D-' + n : 'D-day'}</span>`;
+};
+const _pjMd = d => d ? `${+d.slice(5, 7)}/${+d.slice(8, 10)}` : '';
+// 산출물: 내야 할 것 중 낸 것
+function _pjDocsMissing(p){ return p.docs.required.length > p.docs.done.length; }
+// 산출물을 챙겨야 할 때: 완료 처리했거나, 종료일이 지났거나, 태스크가 다 끝났는데 아직 다 안 낸 것
+function _pjDocsDue(p){ return _pjDocsMissing(p) && (p.status === '완료' || _projLate(p) > 0 || (p.tasks.length && p.progress === 100)); }
+function _pjMonthDue(p){ return p.status !== '완료' && p.status !== '보류' && (p.end_date || '').startsWith(_ymd(new Date()).slice(0, 7)); }
+function _pjDocChips(p, big){
+  if(!p.docs.required.length) return '<span class="pj-muted">-</span>';
+  return p.docs.required.map(d => { const ok = p.docs.done.includes(d);
+    return `<span class="pj-doc ${ok ? 'ok' : (_pjDocsDue(p) ? 'need' : '')}" title="${ok ? '제출함' : '아직 안 냄'}">${ok ? '✓ ' : ''}${esc(big ? d : d.replace('완료보고서', '완료보고').replace('검수확인서', '검수확인'))}</span>`; }).join('');
+}
+
 async function renderProjects(){
   try { _projs = await _apiSend('GET', _projBase()); }
   catch(e){ $('project-list').innerHTML = `<div class="cl-panel"><div class="empty">프로젝트를 불러오지 못했습니다: ${esc(e.message)}</div></div>`; return; }
@@ -2965,40 +3027,47 @@ function drawProjects(){
   const year = Number(ySel.value) || 0;
   const yearProjs = _projs.filter(p => _projInYear(p, year));
 
-  const inTab = (p, t) => !t || (t === '지연' ? _projLate(p) > 0 : p.status === t);
+  const inTab = (p, t) => !t || (t === '지연' ? _projLate(p) > 0 : t === '이번 달 마감' ? _pjMonthDue(p) : t === '산출물 미제출' ? _pjDocsDue(p) : p.status === t);
   const cnt = t => yearProjs.filter(p => inTab(p, t)).length;
 
   // 요약 카드 (누르면 해당 조건만 보기)
-  const cards = [['', year ? `${year}년 프로젝트` : '전체 프로젝트', 'm-gray'], ['진행 중', '진행 중', 'm-blue'], ['지연', '지연', 'm-red'], ['완료', '완료', 'm-green']];
+  const cards = [['', year ? `${year}년 프로젝트` : '전체 프로젝트', 'm-gray'], ['진행 중', '진행 중', 'm-blue'], ['이번 달 마감', '이번 달 마감', 'm-amber'],
+                 ['지연', '지연', 'm-red'], ['산출물 미제출', '산출물 미제출', 'm-red'], ['완료', '완료', 'm-green']];
   $('proj-summary').innerHTML = cards.map(([t, label, cls]) => `
     <div class="metric ${cls} ${_projTab === t ? 'active' : ''}" onclick="projSetTab('${t}')">
       <div class="metric-label">${label}</div>
-      <div class="metric-value" style="${t === '지연' && cnt(t) ? 'color:#dc2626' : ''}">${cnt(t)}<small>건</small></div>
+      <div class="metric-value" style="${(t === '지연' || t === '산출물 미제출') && cnt(t) ? 'color:var(--red-600)' : t === '이번 달 마감' && cnt(t) ? 'color:var(--amber-600)' : ''}">${cnt(t)}<small>건</small></div>
     </div>`).join('');
-  $('proj-tabs').innerHTML = ['', '지연', '진행 중', '진행 대기', '보류', '완료'].map(t =>
+  $('proj-tabs').innerHTML = ['', '진행 중', '진행 대기', '보류', '완료'].map(t =>
     `<button class="svh-tab ${_projTab === t ? 'active' : ''}" onclick="projSetTab('${t}')">${t || '전체'} ${cnt(t)}</button>`).join('');
 
   const q = $('project-search').value.trim().toLowerCase();
   const rank = p => _projLate(p) ? 0 : ({'진행 중':1, '진행 대기':2, '보류':3, '완료':4}[p.status] ?? 5);
   const list = yearProjs.filter(p => inTab(p, _projTab))
-    .filter(p => !q || (p.name || '').toLowerCase().includes(q) || (p.customer || '').toLowerCase().includes(q))
+    .filter(p => !q || [p.name, p.customer, p.pm, p.kind, p.description].some(v => (v || '').toLowerCase().includes(q)))
     .sort((a, b) => rank(a) - rank(b) || (a.end_date || '9999').localeCompare(b.end_date || '9999'));
 
   const row = p => {
-    const desc = (p.description || '').split('\n').map(x => x.trim()).filter(Boolean)[0] || '';
-    const canFinish = p.tasks.length && p.progress === 100 && p.status !== '완료';
+    const desc = _tnPreview(p.description || '');
+    const done = p.status === '완료';
+    const canFinish = p.tasks.length && p.progress === 100 && !done;
+    const nt = p.next_task;
+    const site = p.site_id
+      ? `<button class="pj-site" title="사이트 상세 보기" onclick="event.stopPropagation();openSiteDetail('${p.site_id}')">${esc(p.site_name || p.customer)}</button>`
+      : `<span title="사이트 관리와 연결되지 않은 고객사">${esc(p.customer || '-')}</span>`;
     return `<tr onclick="openProjectDetail('${p.id}')">
-      <td><div class="pj-name">${esc(p.name)}${p.file_count ? `<button class="pj-clip" title="제출자료 보기" onclick="event.stopPropagation();openProjectDetail('${p.id}','files')">첨부 ${p.file_count}</button>` : ''}</div>${desc ? `<div class="pj-desc" title="${esc(p.description)}">${esc(desc)}</div>` : ''}</td>
-      <td>${esc(p.customer || '-')}</td>
-      <td class="pj-period">${esc(p.start_date || '-')} ~ ${esc(p.end_date || '-')}</td>
-      <td><div class="pj-badges">${_projBadges(p)}${canFinish ? `<button class="btn btn-sm pj-finish" title="태스크가 모두 완료되었습니다" onclick="event.stopPropagation();completeProject('${p.id}')">완료 처리</button>` : ''}</div></td>
-      <td>${_projBar(p)}</td>
+      <td><div class="pj-name"><span class="badge ${PROJ_KIND_CLS[p.kind] || 'b-gray'} pj-kind">${esc(p.kind)}</span>${esc(p.name)}</div>${desc ? `<div class="pj-desc" title="${esc(desc)}">${esc(desc)}</div>` : ''}</td>
+      <td>${site}${p.pm ? `<div class="pj-desc">PM ${esc(p.pm)}</div>` : ''}</td>
+      <td class="pj-period">${esc(p.start_date || '-')}<br>~ ${esc(p.end_date || '-')} ${_pjDday(p.end_date, done)}</td>
+      <td>${done ? '<span class="pj-muted">-</span>' : nt ? `<div class="pj-next" title="${esc(nt.name)}">${esc(nt.name)}</div><div class="pj-desc">${nt.end_date ? `${_pjMd(nt.end_date)}까지 ${_pjDday(nt.end_date)}` : '날짜 미정'}</div>` : '<span class="pj-muted">태스크 없음</span>'}</td>
+      <td>${_projBar(p)}<div class="pj-badges" style="margin-top:6px">${_projBadges(p)}${canFinish ? `<button class="btn btn-sm pj-finish" title="태스크가 모두 완료되었습니다" onclick="event.stopPropagation();completeProject('${p.id}')">완료 처리</button>` : ''}</div></td>
+      <td><div class="pj-docs-cell" onclick="event.stopPropagation();openProjectDetail('${p.id}','files')" title="눌러서 제출자료 보기">${_pjDocChips(p)}</div></td>
       <td class="c cl-act"><button class="icon-btn edit" title="수정" onclick="event.stopPropagation();openEditProject('${p.id}')">${ICO_EDIT}</button><button class="icon-btn del" title="삭제" onclick="event.stopPropagation();deleteProject('${p.id}')">${ICO_DEL}</button></td>
     </tr>`;
   };
   $('project-list').innerHTML = `<div class="cl-panel"><table class="cl-table pj-table">
-    <thead><tr><th>프로젝트</th><th style="width:16%">고객사</th><th style="width:180px">기간</th><th style="width:176px">상태</th><th style="width:176px">진척 (완료 태스크)</th><th class="c" style="width:86px">관리</th></tr></thead>
-    <tbody>${list.length ? list.map(row).join('') : `<tr class="cl-msg"><td colspan="6">${
+    <thead><tr><th>프로젝트</th><th style="width:13%">사이트</th><th style="width:112px">기간</th><th style="width:16%">다음 할 일</th><th style="width:160px">진척 · 상태</th><th style="width:132px">산출물</th><th class="c" style="width:76px">관리</th></tr></thead>
+    <tbody>${list.length ? list.map(row).join('') : `<tr class="cl-msg"><td colspan="7">${
       !_projs.length ? '등록된 프로젝트가 없습니다' : !yearProjs.length ? `${year}년에 해당하는 프로젝트가 없습니다. 연도를 바꿔 보세요` : '조건에 맞는 프로젝트가 없습니다'}</td></tr>`}</tbody></table></div>`;
 }
 
@@ -3011,33 +3080,59 @@ async function _reloadProj(){
   if($('modal-project-detail').classList.contains('open')) drawProjectDetail();
 }
 
-function openAddProject() {
-  $('proj-modal-title').textContent = '프로젝트 등록';
-  $('p-id').value = '';
-  $('p-name').value = '';
-  $('p-customer').value = '';
-  $('p-start').value = _ymd(new Date());
-  $('p-end').value = '';
-  $('p-status').value = '진행 대기';
-  $('p-desc').value = '';
+// 등록·수정 창: 사이트 목록·산출물 체크
+async function _pjFormPrep(p){
+  if(!_sites.length){ try { _sites = await api.get(`/api/engineers/${ENG_ID}/sites`); } catch(e){} }
+  const sel = $('p-site');
+  sel.innerHTML = '<option value="">— 사이트 관리에 없는 고객 (직접 입력) —</option>'
+    + [..._sites].sort((a, b) => a.name.localeCompare(b.name)).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
+  sel.value = p.site_id || '';
+  const req = p.req_docs || ['완료보고서', '검수확인서'];
+  $('p-docs').innerHTML = PROJ_DOC_CATS.map(d => `<label class="nt-chk"><input type="checkbox" value="${d}" ${req.includes(d) ? 'checked' : ''}> ${d}</label>`).join('');
+  pjSiteChanged(true);
+}
+function pjSiteChanged(init){
+  const sid = $('p-site').value;
+  $('p-cust-row').style.display = sid ? 'none' : '';
+  const site = _sites.find(x => x.id === sid);
+  if(site && !init){            // 사이트를 고르면 비어 있는 고객 담당자·연락처를 사이트 정보로 채움
+    if(!$('p-cust-contact').value.trim()) $('p-cust-contact').value = site.manager || '';
+    if(!$('p-cust-phone').value.trim()) $('p-cust-phone').value = site.contact || '';
+  }
+}
+function _pjFill(p){
+  $('p-id').value = p.id || '';
+  $('p-name').value = p.name || '';
+  $('p-kind').value = p.kind || '구축';
+  $('p-status').value = p.status || '진행 대기';
+  $('p-customer').value = p.site_id ? '' : (p.customer || '');
+  $('p-start').value = p.start_date || '';
+  $('p-end').value = p.end_date || '';
+  $('p-delivery').value = p.delivery_date || '';
+  $('p-accept').value = p.accept_date || '';
+  $('p-pm').value = p.pm || '';
+  $('p-sales').value = p.sales || '';
+  $('p-cust-contact').value = p.cust_contact || '';
+  $('p-cust-phone').value = p.cust_phone || '';
+  $('p-desc').value = p.description || '';
   $('p-template').value = '';
-  $('p-template').disabled = false;
+}
+async function openAddProject() {
+  $('proj-modal-title').textContent = '프로젝트 등록';
+  _pjFill({start_date: _ymd(new Date())});
+  $('p-tmpl-row').style.display = '';
+  await _pjFormPrep({});
   openModal('modal-add-project');
+  setTimeout(() => $('p-name').focus(), 50);
 }
 
-function openEditProject(id) {
+async function openEditProject(id) {
   const p = _projs.find(x => x.id === id);
   if(!p) return;
   $('proj-modal-title').textContent = '프로젝트 수정';
-  $('p-id').value = p.id;
-  $('p-name').value = p.name;
-  $('p-customer').value = p.customer || '';
-  $('p-start').value = p.start_date || '';
-  $('p-end').value = p.end_date || '';
-  $('p-status').value = p.status;
-  $('p-desc').value = p.description || '';
-  $('p-template').value = '';
-  $('p-template').disabled = true;
+  _pjFill(p);
+  $('p-tmpl-row').style.display = 'none';
+  await _pjFormPrep({site_id: p.site_id, req_docs: p.docs.required});
   openModal('modal-add-project');
 }
 
@@ -3046,16 +3141,18 @@ async function saveProject() {
   if(!name) { toast('프로젝트명을 입력해주세요'); return; }
   const id = $('p-id').value;
   const payload = {
-    name, customer: $('p-customer').value.trim(),
+    name, kind: $('p-kind').value, status: $('p-status').value,
+    site_id: $('p-site').value, customer: $('p-site').value ? '' : $('p-customer').value.trim(),
     start_date: $('p-start').value, end_date: $('p-end').value,
-    status: $('p-status').value, description: $('p-desc').value
+    delivery_date: $('p-delivery').value, accept_date: $('p-accept').value,
+    pm: $('p-pm').value.trim(), sales: $('p-sales').value.trim(),
+    cust_contact: $('p-cust-contact').value.trim(), cust_phone: $('p-cust-phone').value.trim(),
+    req_docs: [...document.querySelectorAll('#p-docs input:checked')].map(x => x.value),
+    description: $('p-desc').value
   };
-  if(payload.start_date && payload.end_date && payload.end_date < payload.start_date){ toast('종료일이 시작일보다 빠릅니다'); return; }
-  if(!id) {
-    const tmpl = $('p-template').value;
-    if(tmpl && !payload.start_date) { toast('템플릿을 사용하려면 시작일을 지정해야 합니다.'); return; }
-    payload.template = tmpl;
-  }
+  if(!payload.start_date){ toast('시작일을 입력해주세요'); return; }
+  if(payload.end_date && payload.end_date < payload.start_date){ toast('종료일이 시작일보다 빠릅니다'); return; }
+  if(!id) payload.template = $('p-template').value;
   try {
     if(id) await _apiSend('PATCH', `${_projBase()}/${id}`, payload);
     else   await _apiSend('POST', _projBase(), payload);
@@ -3077,19 +3174,21 @@ async function completeProject(id){
 }
 
 // ── PROJECT DETAIL (TASKS) ───────────────────
-async function openProjectDetail(id, tab = 'tasks') {
+async function openProjectDetail(id, tab = 'overview') {
   _currentProjectId = id;
   if(!_projs.some(x => x.id === id)){
     try { _projs = await _apiSend('GET', _projBase()); } catch(e){ toast('조회 실패: ' + e.message); return; }
   }
   if(!_projs.some(x => x.id === id)) return;
-  _projFiles = [];
+  _projFiles = []; _pjDevs = []; _pjLogs = []; _pjRel = null;
   $('pj-file-note').value = '';
   $('pj-file-cat').value = '완료보고서';
+  $('pl-date').value = _ymd(new Date()); $('pl-kind').value = '메모'; $('pl-content').value = ''; $('pl-btn').textContent = '추가'; _pjLogEdit = '';
+  $('pj-dev-list').innerHTML = $('pj-log-list').innerHTML = $('pj-rel-list').innerHTML = '<div class="empty">불러오는 중…</div>';
   drawProjectDetail();
   pjSwitchTab(tab);
   openModal('modal-project-detail');
-  loadProjFiles();
+  loadProjFiles(); loadPjDevs(); loadPjLogs();
 }
 
 // ── 프로젝트 제출자료(첨부 파일) ─────────────────
@@ -3099,8 +3198,7 @@ const PROJ_FILE_MAX = 50 * 1024 * 1024;
 
 function pjSwitchTab(tab){
   document.querySelectorAll('[data-pjtab]').forEach(t => t.classList.toggle('active', t.dataset.pjtab === tab));
-  $('pj-pane-tasks').style.display = tab === 'tasks' ? '' : 'none';
-  $('pj-pane-files').style.display = tab === 'files' ? '' : 'none';
+  ['overview', 'tasks', 'devices', 'logs', 'files'].forEach(k => $('pj-pane-' + k).style.display = k === tab ? '' : 'none');
 }
 function _fmtSize(n){
   return n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`;
@@ -3116,6 +3214,14 @@ async function loadProjFiles(){
 }
 function drawProjFiles(){
   $('pj-file-cnt').textContent = _projFiles.length;
+  const p = _curProj();
+  if(p){
+    const have = new Set(_projFiles.map(f => f.category));
+    $('pj-docbar').innerHTML = p.docs.required.length
+      ? `<b>산출물</b>${p.docs.required.map(d => `<span class="pj-doc ${have.has(d) ? 'ok' : (_pjDocsDue(p) ? 'need' : '')}">${have.has(d) ? '✓ ' : ''}${esc(d)} ${have.has(d) ? '제출' : '미제출'}</span>`).join('')}
+         <span class="pj-hint">아래에서 구분을 골라 올리면 제출로 바뀝니다 · 내야 할 산출물은 '프로젝트 수정'에서 고릅니다</span>`
+      : '<span class="pj-hint">정해진 산출물이 없습니다 (프로젝트 수정 → 산출물에서 고를 수 있음)</span>';
+  }
   const base = `${_projBase()}/${_currentProjectId}/files`;
   $('pj-file-list').innerHTML = `<div class="cl-panel" style="margin-bottom:0"><table class="cl-table">
     <thead><tr><th style="width:132px">구분</th><th>파일</th><th style="width:90px">크기</th><th style="width:140px">등록</th><th class="c" style="width:150px">관리</th></tr></thead>
@@ -3180,22 +3286,62 @@ async function deleteProjFile(fid){
 function drawProjectDetail(){
   const p = _projs.find(x => x.id === _currentProjectId);
   if(!p){ closeModal('modal-project-detail'); return; }
-  $('detail-proj-name').textContent = p.name;
+  const done = p.status === '완료';
+  $('detail-proj-name').innerHTML = `<span class="badge ${PROJ_KIND_CLS[p.kind] || 'b-gray'} pj-kind">${esc(p.kind)}</span>${esc(p.name)}`;
   $('pj-task-cnt').textContent = p.tasks.length;
   $('pj-file-cnt').textContent = p.file_count ?? 0;
-  const canFinish = p.tasks.length && p.progress === 100 && p.status !== '완료';
+  $('pj-dev-cnt').textContent = p.device_count || '';
+  $('pj-log-cnt').textContent = p.log_count || '';
+  const canFinish = p.tasks.length && p.progress === 100 && !done;
   $('proj-detail-info').innerHTML = `
     <div class="pj-info-top">
       <div class="pj-badges">${_projBadges(p)}</div>
-      <span class="pj-info-item"><b>고객사</b>${esc(p.customer || '-')}</span>
-      <span class="pj-info-item"><b>기간</b>${esc(p.start_date || '-')} ~ ${esc(p.end_date || '-')}</span>
+      <span class="pj-info-item"><b>사이트</b>${p.site_id ? `<button class="pj-site" onclick="openSiteDetail('${p.site_id}')">${esc(p.site_name || p.customer)}</button>` : esc(p.customer || '-')}</span>
+      <span class="pj-info-item"><b>기간</b>${esc(p.start_date || '-')} ~ ${esc(p.end_date || '-')} ${_pjDday(p.end_date, done)}</span>
       <span style="flex:1"></span>
       ${canFinish ? `<button class="btn btn-sm pj-finish" onclick="completeProject('${p.id}')">완료 처리</button>` : ''}
       <button class="btn btn-sm" onclick="openEditProject('${p.id}')">프로젝트 수정</button>
     </div>
-    ${_projBar(p)}
-    ${(p.description || '').trim() ? `<div class="pj-info-desc">${esc(p.description.trim())}</div>` : ''}`;
+    ${_projBar(p)}`;
+  drawPjOverview(p);
   renderTasks(p);
+  if(_projFiles) drawProjFiles();
+}
+
+function drawPjOverview(p){
+  const done = p.status === '완료';
+  const it = (label, v) => `<div class="pjo-it"><div class="pjo-l">${label}</div><div class="pjo-v">${v || '<span class="pj-muted">-</span>'}</div></div>`;
+  const dd = d => d ? `${esc(d)} ${_pjDday(d, done)}` : '';
+  const nt = p.next_task;
+  const ms = [['시작', p.start_date], ['납품', p.delivery_date], ['종료', p.end_date], ['검수(완료)', p.accept_date]].filter(x => x[1]).sort((a, b) => a[1].localeCompare(b[1]));
+  const today = _ymd(new Date());
+  $('pj-pane-overview').innerHTML = `
+    <div class="pjo-grid">
+      <div class="pjo-card">
+        <div class="pjo-h">기본 정보</div>
+        <div class="pjo-items">
+          ${it('종류', esc(p.kind))}${it('상태', _projBadges(p))}
+          ${it('사이트 · 고객사', p.site_id ? `<button class="pj-site" onclick="openSiteDetail('${p.site_id}')">${esc(p.site_name || p.customer)}</button>` : esc(p.customer))}
+          ${it('PM · 작업자', esc(p.pm))}${it('영업 담당', esc(p.sales))}
+          ${it('고객 담당자', esc([p.cust_contact, p.cust_phone].filter(Boolean).join(' · ')))}
+        </div>
+      </div>
+      <div class="pjo-card">
+        <div class="pjo-h">일정 · 다음 할 일</div>
+        <div class="pjo-ms">${ms.length ? ms.map(([l, d]) => `<div class="pjo-m ${d < today ? 'past' : ''}"><span>${l}</span><b>${esc(d)}</b>${l === '종료' || l === '검수(완료)' ? _pjDday(d, done) : ''}</div>`).join('') : '<span class="pj-muted">날짜 없음</span>'}</div>
+        <div class="pjo-next">${done ? '<span class="pj-muted">완료된 프로젝트입니다</span>'
+          : nt ? `<span class="pjo-l">다음 할 일</span> <b>${esc(nt.name)}</b> ${nt.end_date ? `<span class="pj-muted">${_pjMd(nt.end_date)}까지</span> ${_pjDday(nt.end_date)}` : ''}`
+          : '<span class="pj-muted">태스크가 없습니다 — 일정 탭에서 추가하세요</span>'}</div>
+        <div class="pjo-sub">
+          <span onclick="pjSwitchTab('devices')">장비 <b>${p.device_count}</b>대${p.device_unreg ? ` <em>(미등록 ${p.device_unreg})</em>` : ''}</span>
+          <span onclick="pjSwitchTab('logs')">작업 기록 <b>${p.log_count}</b>건</span>
+          <span onclick="pjSwitchTab('files')">산출물 ${_pjDocChips(p, true)}</span>
+        </div>
+      </div>
+    </div>
+    <div class="pjo-h" style="margin-top:14px">개요 · 범위 <button class="btn btn-sm" style="margin-left:auto" onclick="openEditProject('${p.id}')">고치기</button></div>
+    ${(p.description || '').trim() ? '<div class="tn-body pjo-desc" id="pjo-desc"></div>' : '<div class="empty" style="padding:18px">작성된 개요가 없습니다. \'고치기\'에서 범위·장비 사양·특이사항을 적어 두세요.</div>'}`;
+  if((p.description || '').trim()) _tnRender($('pjo-desc'), p.description);
 }
 
 function renderTasks(p) {
@@ -4675,3 +4821,133 @@ async function licReset(){
     closeModal('modal-lic-edit'); toast('기본 내용으로 되돌렸습니다'); renderLicenses();
   } catch(e){ toast(e.message); }
 }
+
+
+// ── 프로젝트 장비 · 작업 기록 (상세 창 탭) ─────────────────
+let _pjDevs = [], _pjLogs = [], _pjRel = null, _pjLogEdit = '', _pjSiteDevs = [];
+async function loadPjDevs(){
+  const pid = _currentProjectId;
+  try { const r = await _apiSend('GET', `${_projBase()}/${pid}/devices`); if(pid !== _currentProjectId) return; _pjDevs = r; }
+  catch(e){ $('pj-dev-list').innerHTML = `<div class="empty">장비를 불러오지 못했습니다: ${esc(e.message)}</div>`; return; }
+  drawPjDevs();
+}
+function drawPjDevs(){
+  const p = _curProj(); if(!p) return;
+  const unreg = _pjDevs.filter(d => !d.device_id).length;
+  $('pj-dev-cnt').textContent = _pjDevs.length || '';
+  $('pj-dev-hint').innerHTML = !p.site_id ? '사이트가 연결되지 않아 사이트 장비 리스트에 등록할 수 없습니다 (프로젝트 수정 → 사이트)'
+    : unreg ? `미등록 <b>${unreg}</b>대 — '사이트 장비 리스트에 등록'을 누르면 같은 S/N(없으면 같은 이름) 장비는 연결하고, 없으면 새로 등록합니다`
+    : _pjDevs.length ? '모든 장비가 사이트 장비 리스트와 연결되어 있습니다 — 장비 이력에 이 프로젝트가 남습니다' : '이 프로젝트로 납품·구축하는 장비를 추가하세요';
+  $('pj-dev-reg').disabled = !p.site_id || !unreg;
+  $('pj-dev-reg').textContent = unreg ? `사이트 장비 리스트에 등록 (${unreg})` : '사이트 장비 리스트에 등록';
+  $('pj-dev-list').innerHTML = `<div class="cl-panel" style="margin-bottom:0"><table class="cl-table pj-dev-tbl">
+    <thead><tr><th>장비명</th><th style="width:80px">유형</th><th style="width:16%">모델</th><th style="width:13%">S/N</th><th style="width:13%">OS</th><th style="width:100px">워런티</th><th style="width:150px">사이트 장비</th><th class="c" style="width:80px">관리</th></tr></thead>
+    <tbody>${_pjDevs.length ? _pjDevs.map(d => `<tr onclick="openPjDev('${d.id}')" class="clickable">
+      <td><b>${esc(d.name)}</b>${d.memo ? `<div class="pj-desc" title="${esc(d.memo)}">${esc(_tnPreview(d.memo))}</div>` : ''}</td>
+      <td>${esc(d.dev_type)}</td><td>${esc(d.model || '-')}</td><td class="pj-period">${esc(d.serial_no || '-')}</td><td>${esc(d.os || '-')}</td>
+      <td class="pj-period">${esc(d.warranty || '-')}</td>
+      <td onclick="event.stopPropagation()">${d.device_id ? `<button class="pj-doc ok pj-link" title="사이트 장비 이력 보기" onclick="openDeviceHistory('${d.device_id}','${p.site_id}')">✓ 등록됨 · 이력</button>` : '<span class="pj-doc">미등록</span>'}</td>
+      <td class="c cl-act" onclick="event.stopPropagation()"><button class="icon-btn edit" title="수정" onclick="openPjDev('${d.id}')">${ICO_EDIT}</button><button class="icon-btn del" title="프로젝트에서 빼기" onclick="deletePjDev('${d.id}')">${ICO_DEL}</button></td>
+    </tr>`).join('') : '<tr class="cl-msg"><td colspan="8">등록된 장비가 없습니다. "+ 장비 추가"로 납품·구축 장비를 넣으세요.</td></tr>'}</tbody></table></div>`;
+}
+async function openPjDev(id){
+  const p = _curProj(); if(!p) return;
+  const d = _pjDevs.find(x => x.id === id) || {};
+  _pjSiteDevs = [];
+  if(p.site_id){ try { _pjSiteDevs = await api.get(`/api/engineers/${ENG_ID}/sites/${p.site_id}/devices`); } catch(e){} }
+  $('pd-link-row').style.display = p.site_id ? '' : 'none';
+  $('pd-link').innerHTML = '<option value="">— 새 장비 (아직 사이트 장비 리스트에 없음) —</option>'
+    + _pjSiteDevs.map(x => `<option value="${x.id}">${esc(x.name)}${x.serial_no ? ' · ' + esc(x.serial_no) : ''}${x.model ? ' · ' + esc(x.model) : ''}</option>`).join('');
+  $('pd-title').textContent = id ? '장비 수정' : '장비 추가';
+  $('pd-id').value = id || '';
+  $('pd-link').value = d.device_id || '';
+  $('pd-name').value = d.name || ''; $('pd-type').value = d.dev_type || '서버'; $('pd-model').value = d.model || '';
+  $('pd-sn').value = d.serial_no || ''; $('pd-os').value = d.os || ''; $('pd-warranty').value = d.warranty || ''; $('pd-memo').value = d.memo || '';
+  openModal('modal-pj-dev');
+}
+function pjDevLinkChanged(){
+  const x = _pjSiteDevs.find(v => v.id === $('pd-link').value); if(!x) return;
+  $('pd-name').value = x.name || ''; $('pd-type').value = ['서버', '스토리지', '네트워크', '기타'].includes(x.dev_type) ? x.dev_type : '기타';
+  $('pd-model').value = x.model || ''; $('pd-sn').value = x.serial_no || ''; $('pd-os').value = x.os || '';
+  $('pd-warranty').value = /^\d{4}-\d{2}-\d{2}$/.test(x.warranty || '') ? x.warranty : '';
+}
+async function savePjDev(){
+  const name = $('pd-name').value.trim();
+  if(!name){ toast('장비명을 입력해주세요'); return; }
+  const id = $('pd-id').value, base = `${_projBase()}/${_currentProjectId}/devices`;
+  const body = {name, dev_type: $('pd-type').value, model: $('pd-model').value.trim(), serial_no: $('pd-sn').value.trim(),
+                os: $('pd-os').value.trim(), warranty: $('pd-warranty').value, memo: $('pd-memo').value, device_id: $('pd-link').value};
+  try { id ? await _apiSend('PATCH', `${base}/${id}`, body) : await _apiSend('POST', base, body); }
+  catch(e){ toast('저장 실패: ' + e.message); return; }
+  closeModal('modal-pj-dev'); toast(id ? '수정됨' : '추가됨');
+  await loadPjDevs(); await _reloadProj();
+}
+async function deletePjDev(id){
+  const d = _pjDevs.find(x => x.id === id);
+  if(!confirm(`"${d ? d.name : '장비'}"을(를) 프로젝트에서 뺄까요?${d && d.device_id ? '\n사이트 장비 리스트에 등록된 장비는 그대로 남습니다.' : ''}`)) return;
+  try { await _apiSend('DELETE', `${_projBase()}/${_currentProjectId}/devices/${id}`); } catch(e){ toast('삭제 실패: ' + e.message); return; }
+  await loadPjDevs(); await _reloadProj(); toast('뺐습니다');
+}
+async function registerPjDevs(){
+  const p = _curProj(); const n = _pjDevs.filter(d => !d.device_id).length;
+  if(!p || !n || !confirm(`미등록 장비 ${n}대를 "${p.site_name}" 장비 리스트에 등록할까요?\n같은 S/N(S/N 이 없으면 같은 이름) 장비가 이미 있으면 새로 만들지 않고 연결합니다.`)) return;
+  try {
+    const r = await _apiSend('POST', `${_projBase()}/${_currentProjectId}/devices/register`);
+    toast(`새로 등록 ${r.created}대 · 기존 장비와 연결 ${r.linked}대`);
+  } catch(e){ toast(e.message); return; }
+  await loadPjDevs(); await _reloadProj();
+}
+
+const PJ_LOG_CLS = {'회의':'b-blue', '협의':'b-purple', '이슈':'b-red', '결정':'b-green', '작업':'b-amber', '메모':'b-gray'};
+async function loadPjLogs(){
+  const pid = _currentProjectId;
+  try {
+    const [logs, rel] = await Promise.all([_apiSend('GET', `${_projBase()}/${pid}/logs`), _apiSend('GET', `${_projBase()}/${pid}/related`)]);
+    if(pid !== _currentProjectId) return;
+    _pjLogs = logs; _pjRel = rel;
+  } catch(e){ $('pj-log-list').innerHTML = `<div class="empty">작업 기록을 불러오지 못했습니다: ${esc(e.message)}</div>`; return; }
+  drawPjLogs();
+}
+function drawPjLogs(){
+  $('pj-log-cnt').textContent = _pjLogs.length || '';
+  let last = '';
+  $('pj-log-list').innerHTML = _pjLogs.length ? `<div class="pj-logs">${_pjLogs.map(l => {
+    const head = l.log_date !== last ? `<div class="pj-log-day">${esc(l.log_date)}</div>` : ''; last = l.log_date;
+    return `${head}<div class="pj-log${_pjLogEdit === l.id ? ' editing' : ''}"><span class="badge ${PJ_LOG_CLS[l.kind] || 'b-gray'}">${esc(l.kind)}</span>
+      <div class="pj-log-txt">${esc(l.content)}</div>
+      <span class="cl-act"><button class="icon-btn edit" title="수정" onclick="editPjLog('${l.id}')">${ICO_EDIT}</button><button class="icon-btn del" title="삭제" onclick="deletePjLog('${l.id}')">${ICO_DEL}</button></span></div>`;
+  }).join('')}</div>` : '<div class="empty" style="padding:16px">아직 기록이 없습니다. 위에 회의·협의 내용, 이슈, 결정 사항을 짧게 남겨 두세요.</div>';
+  const r = _pjRel;
+  if(!r) return;
+  $('pj-rel-range').textContent = r.no_site ? '' : `· ${r.from || '처음'} ~ ${r.to}`;
+  $('pj-rel-list').innerHTML = r.no_site ? '<div class="empty" style="padding:12px">사이트가 연결되지 않아 관련 일정을 찾을 수 없습니다</div>'
+    : r.items.length ? `<div class="cl-panel" style="margin-bottom:0"><table class="cl-table"><thead><tr><th style="width:110px">날짜</th><th style="width:200px">구분</th><th>제목</th><th style="width:90px">상태</th></tr></thead>
+      <tbody>${r.items.map(x => `<tr class="clickable" onclick="openEntry('${x.open_id}', undefined, ${x.kinds.includes('장애처리') && x.kinds.length === 1 ? "'report'" : 'undefined'})">
+        <td class="pj-period">${esc(x.date.slice(0, 10))}</td><td><div class="svc-kind">${[...new Set(x.kinds)].map(k => _svcKind(k)).join('')}</div></td>
+        <td>${esc(x.title)}</td><td>${esc(x.status)}</td></tr>`).join('')}</tbody></table></div>`
+    : '<div class="empty" style="padding:12px">프로젝트 기간에 이 사이트에서 등록된 점검·기술지원·장애처리가 없습니다</div>';
+}
+async function savePjLog(){
+  const content = $('pl-content').value.trim();
+  if(!content){ toast('내용을 입력해주세요'); return; }
+  const body = {log_date: $('pl-date').value || _ymd(new Date()), kind: $('pl-kind').value, content};
+  const base = `${_projBase()}/${_currentProjectId}/logs`;
+  try { _pjLogEdit ? await _apiSend('PATCH', `${base}/${_pjLogEdit}`, body) : await _apiSend('POST', base, body); }
+  catch(e){ toast('저장 실패: ' + e.message); return; }
+  const wasEdit = _pjLogEdit;
+  _pjLogEdit = ''; $('pl-content').value = ''; $('pl-btn').textContent = '추가';
+  toast(wasEdit ? '수정됨' : '기록했습니다');
+  await loadPjLogs(); await _reloadProj();
+}
+function editPjLog(id){
+  const l = _pjLogs.find(x => x.id === id); if(!l) return;
+  _pjLogEdit = id; $('pl-date').value = l.log_date; $('pl-kind').value = l.kind; $('pl-content').value = l.content;
+  $('pl-btn').textContent = '수정 저장'; $('pl-content').focus(); drawPjLogs();
+}
+async function deletePjLog(id){
+  if(!confirm('이 기록을 삭제할까요?')) return;
+  try { await _apiSend('DELETE', `${_projBase()}/${_currentProjectId}/logs/${id}`); } catch(e){ toast('삭제 실패: ' + e.message); return; }
+  if(_pjLogEdit === id){ _pjLogEdit = ''; $('pl-content').value = ''; $('pl-btn').textContent = '추가'; }
+  await loadPjLogs(); await _reloadProj();
+}
+$('pl-content').addEventListener('keydown', e => { if(e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); savePjLog(); } });
