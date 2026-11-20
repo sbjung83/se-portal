@@ -26,6 +26,7 @@ BASE_DIR      = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE_PATH = os.path.join(BASE_DIR, "data", "report_templates", "weekly_report.xlsx")
 
 DATA_START   = 4       # 데이터 첫 행
+PARTS_FONT   = 12      # 교체파트(E) 글자 크기 (양식 기본 15)
 TPL_ROWS     = 9       # 양식의 데이터 행 수 (4~12)
 COUNT_COLS   = ["F", "G", "H", "I", "J", "K", "L"]
 # 집계 열: 정기점검 F / 장애지원 G / 기술지원 요청건 H / 납품 I / 유선원격지원 J / 이전 K / 기타 L
@@ -81,6 +82,18 @@ def _summary(title: str, text: str, from_calendar: bool) -> list:
         if lines:
             return lines
     return [title]
+
+
+def _wrapped_lines(ws, col: str, text, size: float = 15) -> float:
+    """셀 글자가 칸 너비에서 몇 줄로 보이는지 어림해 15pt 줄 기준 높이로 돌려준다 (한글·전각 = 2칸, 들여쓰기·여백 감안)."""
+    if not text:
+        return 0
+    width = (ws.column_dimensions[col].width or 10) * 11 / size - 3
+    n = 0
+    for line in str(text).split("\n"):
+        w = sum(2 if ord(ch) > 0x2E7F else 1 for ch in line)
+        n += max(1, -(-w // max(width, 1)))
+    return n * size / 15
 
 
 def _part_lines(raw) -> list:
@@ -336,8 +349,12 @@ def write_weekly_xlsx(data: dict, notes: str, confirmed: str) -> bytes:
         for col in "DEO":
             c = ws[f"{col}{r}"]
             al = copy(c.alignment); al.wrap_text = True; al.vertical = "center"
+            if col == "E":                     # 교체파트는 지원요약처럼 왼쪽 정렬 (양식은 가운데)
+                al.horizontal, al.indent = "left", 1
+                f = copy(c.font); f.sz = PARTS_FONT; c.font = f   # 파트넘버·파트명은 길어서 조금 작게
             c.alignment = al
-        lines = max(len(item["summary"]), len(item.get("parts") or []), len(remark.splitlines()), 1)
+        # 칸 너비를 넘어 자동 줄바꿈되는 줄까지 세어 행 높이를 맞춘다
+        lines = max([_wrapped_lines(ws, col, ws[f"{col}{r}"].value, PARTS_FONT if col == "E" else 15) for col in "DEO"] + [1])
         ws.row_dimensions[r].height = max(25.05, 21 * lines + 6)
     for r in range(DATA_START + len(rows), last + 1):
         ws.row_dimensions[r].height = 25.05
