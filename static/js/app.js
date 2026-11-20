@@ -1057,7 +1057,7 @@ function drawSites(){
   const none = '<span class="lab-none">-</span>';
   el.innerHTML = `<div class="svh-table-wrap"><table class="wr-tbl st-tbl">
     <thead><tr><th style="width:19%">사이트</th><th>위치</th><th style="width:9%">담당자</th><th style="width:13%">연락처</th>
-      <th class="c" style="width:56px">장비</th><th class="c" style="width:92px" title="이번 달 점검 일정 완료 / 전체">이번 달 점검</th><th style="width:17%">확인할 것</th><th style="width:84px"></th></tr></thead>
+      <th class="c" style="width:56px">장비</th><th class="c" style="width:92px" title="이번 달 점검 일정 완료 / 전체">이번 달 점검</th><th style="width:17%">확인할 것</th><th class="act-h" style="width:84px">관리</th></tr></thead>
     <tbody>${list.map(s => {
       const badges = [
         s.open_issues ? `<span class="badge b-red" title="미해결 이슈">이슈 ${s.open_issues}</span>` : '',
@@ -1398,8 +1398,8 @@ function drawDevices(){
   const sCls={'점검중':'b-amber','교체예정':'b-red','철수':'b-gray'};
   const cell = (v, cls='') => `<td class="${cls}" title="${esc(v||'')}">${v ? esc(v) : '<span class="dev-muted">-</span>'}</td>`;
   el.innerHTML=`<div class="dev-wrap"><table class="dev-tbl">
-    <colgroup><col style="width:16%"><col style="width:8%"><col style="width:14%"><col style="width:13%"><col style="width:12%"><col style="width:12%"><col style="width:9%"><col style="width:11%"><col style="width:${list.some(_devHasSan) ? 122 : 92}px"></colgroup>
-    <thead><tr><th>장비명</th><th>유형</th><th>모델</th><th>OS</th><th>펌웨어</th><th>S/N</th><th>워런티</th><th>메모</th><th></th></tr></thead><tbody>
+    <colgroup><col style="width:16%"><col style="width:8%"><col style="width:14%"><col style="width:13%"><col style="width:12%"><col style="width:12%"><col style="width:9%"><col style="width:11%"><col style="width:${list.some(_devHasSan) ? 136 : 104}px"></colgroup>
+    <thead><tr><th>장비명</th><th>유형</th><th>모델</th><th>OS</th><th>펌웨어</th><th>S/N</th><th>워런티</th><th>메모</th><th class="act-h r">관리</th></tr></thead><tbody>
     ${list.map(d=>`<tr class="clickable" onclick="openEditDevice('${d.id}')">
       <td class="dev-name" title="${esc(d.name)}">${esc(d.name)}${d.status && d.status!=='운영중' ? ` <span class="badge ${sCls[d.status]||'b-gray'}">${esc(d.status)}</span>` : ''}</td>
       ${cell(d.dev_type)}${cell(d.model)}<td title="${esc(d.eos ? d.os + ' — ' + _eosTip(d.eos) : d.os || '')}">${d.os ? esc(d.os) : '<span class="dev-muted">-</span>'}${_eosBadge(d.eos) ? '<br>' + _eosBadge(d.eos) : ''}</td>${cell(d.firmware)}${cell(d.serial_no,'mono')}
@@ -1491,7 +1491,7 @@ function drawAccesses(){
   const none = '<span class="dev-muted">-</span>';
   el.innerHTML = `<div class="dev-wrap"><table class="dev-tbl acc-tbl">
     <colgroup><col style="width:17%"><col style="width:13%"><col style="width:9%"><col style="width:8%"><col style="width:17%"><col style="width:150px"><col><col style="width:62px"></colgroup>
-    <thead><tr><th>구분</th><th>IP</th><th>포트</th><th>프로토콜</th><th>계정</th><th>비밀번호</th><th>메모</th><th></th></tr></thead><tbody>
+    <thead><tr><th>구분</th><th>IP</th><th>포트</th><th>프로토콜</th><th>계정</th><th>비밀번호</th><th>메모</th><th class="act-h r">관리</th></tr></thead><tbody>
     ${list.map(a => `<tr class="clickable" onclick="openEditAccess('${a.id}')">
       <td class="dev-name" title="${esc(a.name)}">${esc(a.name)}</td>
       <td class="mono" title="${esc(a.ip||'')}">${a.ip ? esc(a.ip) : none}</td>
@@ -1613,7 +1613,7 @@ function drawReports(){
   const url = r => `/api/engineers/${ENG_ID}/sites/${sid}/reports/${r.id}/download`;
   el.innerHTML = `<div class="dev-wrap"><table class="dev-tbl">
     <colgroup><col><col style="width:100px"><col style="width:110px"><col style="width:80px"><col style="width:130px"></colgroup>
-    <thead><tr><th>파일명</th><th>구분</th><th>올린 날</th><th>크기</th><th></th></tr></thead><tbody>
+    <thead><tr><th>파일명</th><th>구분</th><th>올린 날</th><th>크기</th><th class="act-h r">관리</th></tr></thead><tbody>
     ${list.map(r => `<tr>
       <td class="dev-name" title="${esc(r.filename)}${_repInline(r.filename) ? ' — 눌러서 새 탭으로 보기' : ''}">${_repInline(r.filename)
         ? `<a href="${url(r)}?inline=true" target="_blank" rel="noopener">${esc(r.filename)}</a>` : esc(r.filename)}</td>
@@ -1659,7 +1659,7 @@ function drawNotes(){
   if(!list.length){ el.innerHTML = '<div class="empty">조건에 맞는 특이사항이 없습니다</div>'; return; }
   el.innerHTML = `<div class="dev-wrap"><table class="dev-tbl note-tbl">
     <colgroup><col style="width:100px"><col style="width:24%"><col><col style="width:62px"></colgroup>
-    <thead><tr><th>날짜</th><th>제목</th><th>내용</th><th></th></tr></thead><tbody>
+    <thead><tr><th>날짜</th><th>제목</th><th>내용</th><th class="act-h r">관리</th></tr></thead><tbody>
     ${list.map(n => `<tr class="clickable" onclick="openEditNote('${n.id}')">
       <td>${n.date ? esc(n.date) : '<span class="dev-muted">-</span>'}</td>
       <td class="dev-name note-wrap">${esc(n.title || '(제목 없음)')}</td>
@@ -2734,13 +2734,30 @@ function wrMove(delta){
   else { const [y,m,d] = _wrStart.split('-').map(Number); _wrStart = _ymd(new Date(y, m-1, d + 7*delta)); }
   renderWeeklyReport();
 }
-// 비고는 직접 입력: 주(시작일)별로 이 브라우저에 기억해 둔다
-function _wrRemarkStore(){ try { return JSON.parse(localStorage.getItem('wrRemarks') || '{}'); } catch(e){ return {}; } }
-function _wrRemark(r){ const m = _wrRemarkStore()[_wrStart] || {}; return r.key in m ? m[r.key] : (r.remark || ''); }
+// 비고는 자동으로 채우지 않고 직접 입력 → 입력을 멈추면(0.6초) 서버에 저장 (weekly_remarks, 비우면 지움)
+const _wrRemarkT = {};
+function _wrRemark(r){ return r.remark || ''; }
+function _wrRemarkPut(start, key, text){
+  return _apiSend('PUT', `/api/engineers/${ENG_ID}/reports/weekly/remark`, {start, key, text})
+    .then(() => { $('wr-remark-st').textContent = '비고 저장됨'; })
+    .catch(e => { $('wr-remark-st').textContent = ''; toast('비고 저장 실패: ' + e.message); });
+}
 function wrSaveRemark(el){
-  const all = _wrRemarkStore(); (all[_wrStart] = all[_wrStart] || {})[el.dataset.key] = el.value;
-  const keep = Object.keys(all).sort().slice(-12); const out = {}; keep.forEach(k => out[k] = all[k]);   // 최근 12주만 보관
-  try { localStorage.setItem('wrRemarks', JSON.stringify(out)); } catch(e){}
+  const key = el.dataset.key, start = _wrStart, text = el.value;
+  const r = _wrData && _wrData.rows.find(x => x.key === key); if(r) r.remark = text;
+  $('wr-remark-st').textContent = '저장 중…';
+  clearTimeout(_wrRemarkT[key]);
+  _wrRemarkT[key] = setTimeout(() => _wrRemarkPut(start, key, text), 600);
+}
+// 예전에 이 브라우저(localStorage)에만 저장해 둔 비고는 처음 열 때 서버로 옮긴다
+async function _wrRemarkMigrate(d){
+  let all; try { all = JSON.parse(localStorage.getItem('wrRemarks') || '{}'); } catch(e){ return; }
+  const m = all[d.start]; if(!m) return;
+  const todo = d.rows.filter(r => !r.remark && (m[r.key] || '').trim());
+  for(const r of todo){ r.remark = m[r.key]; await _wrRemarkPut(d.start, r.key, m[r.key]); }
+  delete all[d.start];
+  try { Object.keys(all).length ? localStorage.setItem('wrRemarks', JSON.stringify(all)) : localStorage.removeItem('wrRemarks'); } catch(e){}
+  return todo.length;
 }
 // 특이사항·확정사항도 고쳐 쓰면 주별로 기억 (자동 내용과 같아지면 지움)
 function _wrTextStore(){ try { return JSON.parse(localStorage.getItem('wrTexts') || '{}'); } catch(e){ return {}; } }
@@ -2797,6 +2814,7 @@ async function renderWeeklyReport(){
   try { d = await _apiSend('GET', `/api/engineers/${ENG_ID}/reports/weekly?start=${_wrStart}`); }
   catch(e){ el.innerHTML = `<div class="empty" style="color:#dc2626">${esc(e.message)}</div>`; return; }
   _wrData = d;
+  await _wrRemarkMigrate(d);
   const fmt = x => `${Number(x.slice(5,7))}/${Number(x.slice(8,10))}`;
   const thisWeek = d.start === _ymd(_wrMonday(new Date()));
   const wk = _wrWeekNo(d.start);
@@ -2815,7 +2833,7 @@ async function renderWeeklyReport(){
   $('wr-summary').innerHTML = COLS.map(([c, name]) =>
       `<div class="wr-sum-i${t[c] ? '' : ' zero'}${c === 'G' && t[c] ? ' red' : ''}"><span>${name}</span><b>${t[c]}</b></div>`).join('')
     + `<div class="wr-sum-i total"><span>합계</span><b>${d.total}건</b></div>`;
-  $('wr-rows-sub').textContent = d.rows.length ? `${d.rows.length}줄${d.rows.length > 9 ? ' · 양식 9줄을 넘는 만큼 엑셀에 행이 추가됩니다' : ''}` : '';
+  $('wr-rows-sub').innerHTML = d.rows.length ? `${d.rows.length}줄${d.rows.length > 9 ? ' · 양식 9줄을 넘는 만큼 엑셀에 행이 추가됩니다' : ''} · 비고는 직접 입력(자동 저장) <span id="wr-remark-st" class="wr-dates" style="margin-left:4px"></span>` : '<span id="wr-remark-st"></span>';
 
   const pend = d.pending || [];
   $('wr-pending').innerHTML = !pend.length ? '' : `<div class="wr-pend">
@@ -2841,16 +2859,16 @@ async function renderWeeklyReport(){
   }
   const n = v => v ? `<b>${v}</b>` : '';
   el.innerHTML = `<div class="svh-table-wrap"><table class="wr-tbl">
-    <thead><tr><th style="width:14%">고객사</th><th style="width:92px">지원일자</th><th style="min-width:220px">지원요약</th><th style="width:150px">교체파트</th>
+    <thead><tr><th style="width:14%">고객사</th><th class="tr-cc" style="width:92px">지원일자</th><th style="min-width:220px">지원요약</th><th style="width:150px">교체파트</th>
       ${COLS.map(([c, name]) => `<th class="c">${name.length === 4 ? name.slice(0,2) + '<br>' + name.slice(2) : name}</th>`).join('')}
-      <th style="width:76px;min-width:76px">지원<br>엔지니어</th><th style="width:22%">비고</th></tr></thead>
+      <th class="tr-cc" style="width:76px;min-width:76px">지원<br>엔지니어</th><th style="width:22%">비고</th></tr></thead>
     <tbody>${d.rows.map(r => `<tr${r.review ? ' class="wr-review-row"' : ''}>
       <td class="wr-site">${esc(r.site)}</td>
-      <td class="wr-date">${fmt(r.date)} (${r.weekday})${r.planned ? '<br><span class="badge b-amber" title="아직 완료 처리하지 않은 주말 일정입니다. 엑셀에는 그대로 들어갑니다">완료 전</span>' : ''}</td>
+      <td class="wr-date tr-cc">${fmt(r.date)} (${r.weekday})${r.planned ? '<br><span class="badge b-amber" title="아직 완료 처리하지 않은 주말 일정입니다. 엑셀에는 그대로 들어갑니다">완료 전</span>' : ''}</td>
       <td class="wr-pre${r.review ? ' wr-sum-cell' : ''}">${r.summary.map(x => '- ' + esc(x)).join('<br>')}${r.review ? '<div><span class="badge b-review" style="margin:4px 0 0" title="구글 캘린더에서 가져와 아직 확인하지 않은 일정이 들어 있습니다">내용 확인 필요</span></div>' : ''}</td>
       <td class="wr-pre wr-parts">${(r.parts || []).map(esc).join('<br>')}</td>
       ${COLS.map(([c]) => `<td class="c${r.counts[c] ? ' on' : ''}">${n(r.counts[c])}</td>`).join('')}
-      <td>${esc(r.workers)}</td>
+      <td class="tr-cc">${esc(r.workers)}</td>
       <td class="wr-remark"><textarea class="wr-remark-in" data-key="${esc(r.key)}" rows="1" placeholder="직접 입력" oninput="wrSaveRemark(this); wrGrow(this)">${esc(_wrRemark(r))}</textarea></td>
     </tr>`).join('')}</tbody>
     <tfoot><tr><td colspan="4">합계</td>${COLS.map(([c]) => `<td class="c">${t[c] || ''}</td>`).join('')}<td colspan="2">총 ${d.total}건</td></tr></tfoot>
@@ -3267,7 +3285,7 @@ function drawProjects(){
     </tr>`;
   };
   $('project-list').innerHTML = `<div class="cl-panel"><table class="cl-table pj-table">
-    <thead><tr><th>프로젝트</th><th style="width:13%">사이트</th><th style="width:112px">기간</th><th style="width:16%">다음 할 일</th><th style="width:160px">진척 · 상태</th><th style="width:132px">산출물</th><th class="c" style="width:76px">관리</th></tr></thead>
+    <thead><tr><th>프로젝트</th><th style="width:13%">사이트</th><th style="width:112px">기간</th><th style="width:16%">다음 할 일</th><th style="width:160px">진척 · 상태</th><th style="width:132px">산출물</th><th class="c" style="width:92px">관리</th></tr></thead>
     <tbody>${list.length ? list.map(row).join('') : `<tr class="cl-msg"><td colspan="7">${
       !_projs.length ? '등록된 프로젝트가 없습니다' : !yearProjs.length ? `${year}년에 해당하는 프로젝트가 없습니다. 연도를 바꿔 보세요` : '조건에 맞는 프로젝트가 없습니다'}</td></tr>`}</tbody></table></div>`;
 }
@@ -3941,7 +3959,7 @@ function drawGcal(){
   ${g.linked ? `<div class="dv-panel gc-gap">
     <div class="dv-panel-head"><span class="dv-panel-title">확인 대기</span><span class="dv-panel-sub ${wait.length ? 'warn' : ''}">${wait.length}건</span>
       <span class="gc-last">종류나 사이트를 자동으로 정하지 못한 일정입니다. 직접 골라 등록하거나 무시하세요.</span></div>
-    ${wait.length ? `<table class="dv-tbl gc-tbl"><thead><tr><th style="width:104px">날짜</th><th>캘린더 제목</th><th style="width:170px">종류</th><th style="width:220px">사이트</th><th style="width:132px"></th></tr></thead><tbody>
+    ${wait.length ? `<table class="dv-tbl gc-tbl"><thead><tr><th style="width:104px">날짜</th><th>캘린더 제목</th><th style="width:170px">종류</th><th style="width:220px">사이트</th><th style="width:132px">처리</th></tr></thead><tbody>
       ${wait.map(e => `<tr>
         <td class="gc-date">${esc(e.event_date)}</td>
         <td><div class="dv-task">${esc(e.summary)}</div><div class="dv-desc">${esc(e.reason)}</div></td>
@@ -4160,7 +4178,7 @@ function drawLab(){
   };
   el.innerHTML = `<table class="lab-tbl">
     <colgroup><col style="width:12%"><col style="width:11%"><col style="width:14%"><col style="width:15%"><col><col style="width:13%"><col style="width:84px"></colgroup>
-    <thead><tr><th>이름</th><th>OS / 버전</th><th>주소</th><th>접속</th><th>계정 / 비밀번호</th><th>메모</th><th></th></tr></thead>
+    <thead><tr><th>이름</th><th>OS / 버전</th><th>주소</th><th>접속</th><th>계정 / 비밀번호</th><th>메모</th><th class="act-h">관리</th></tr></thead>
     <tbody>${groups.map(g => `
       <tr class="lab-grp"><td colspan="7">${esc(g.name)} <span>${g.rows.length}</span></td></tr>
       ${g.rows.map(s => `<tr>
@@ -5391,31 +5409,43 @@ function _trDraw(){
   $('tr-eng-sub').innerHTML = `${d.submitted}명 제출 · ${engs.length - d.submitted}명 미제출 · 줄을 누르면 그 엔지니어가 들어간 지원 내역만 봅니다`
     + (_trEng ? ` · <b>${esc(nm[_trEng])}</b>만 보는 중 <a href="#" onclick="trSetEng('');return false">전체 보기</a>` : '');
   $('tr-engs').innerHTML = `<div class="svh-table-wrap"><table class="wr-tbl">
-    <thead><tr><th style="width:16%">엔지니어</th><th style="width:150px">제출</th>${COLS.map(([, name]) => `<th class="c">${name.length === 4 ? name.slice(0,2) + '<br>' + name.slice(2) : name}</th>`).join('')}
-      <th class="c">합계</th><th>특이사항</th></tr></thead>
+    <thead><tr><th style="width:16%">엔지니어</th><th class="tr-cc" style="width:150px">제출</th>${COLS.map(([, name]) => `<th class="c">${name.length === 4 ? name.slice(0,2) + '<br>' + name.slice(2) : name}</th>`).join('')}
+      <th class="c">합계</th><th style="width:40%">특이사항</th></tr></thead>
     <tbody>${engs.map(e => `<tr class="${e.submitted ? 'clickable' : 'tr-none'}${_trEng === e.id ? ' tr-on' : ''}" ${e.submitted ? `onclick="trSetEng('${e.id}')"` : ''}>
       <td class="wr-site">${esc(e.name)}${e.position ? ` <span class="wr-dates">${esc(e.position)}</span>` : ''}</td>
-      <td>${e.submitted ? `<span class="badge b-green">제출</span> <span class="wr-dates">${esc(e.submitted_at.slice(5).replace('-', '/'))}</span>` : '<span class="badge b-gray">미제출</span>'}</td>
+      <td class="tr-cc">${e.submitted ? `<span class="badge b-green">제출</span> <span class="wr-dates">${esc(e.submitted_at.slice(5).replace('-', '/'))}</span>` : '<span class="badge b-gray">미제출</span>'}</td>
       ${COLS.map(([c]) => `<td class="c${e.totals[c] ? ' on' : ''}">${e.submitted ? n(e.totals[c]) : ''}</td>`).join('')}
       <td class="c">${e.submitted ? `<b>${e.total}</b>` : ''}</td>
-      <td class="tr-note" title="${esc(e.notes)}">${e.notes ? esc(e.notes.split('\n')[0]) + (e.notes.includes('\n') ? ' …' : '') : '<span class="lab-none">-</span>'}</td></tr>`).join('')}</tbody></table></div>`;
+      <td class="wr-pre tr-note">${e.notes ? esc(e.notes).replace(/\n/g, '<br>') : e.submitted ? '<span class="lab-none">-</span>' : ''}</td></tr>`).join('')}</tbody></table></div>`;
   $('tr-rows-sub').textContent = rows.length ? `${rows.length}줄${!_trEng && rows.length > 9 ? ' · 양식 9줄을 넘는 만큼 엑셀에 행이 추가됩니다' : ''}` : '';
   $('tr-rows').innerHTML = !rows.length ? `<div class="empty">${d.submitted ? '제출된 지원 내역이 없습니다' : '이 주에 제출한 엔지니어가 없습니다'}</div>`
     : `<div class="svh-table-wrap"><table class="wr-tbl">
-    <thead><tr><th style="width:14%">고객사</th><th style="width:92px">지원일자</th><th style="min-width:220px">지원요약</th><th style="width:150px">교체파트</th>
+    <thead><tr><th style="width:14%">고객사</th><th class="tr-cc" style="width:92px">지원일자</th><th style="min-width:220px">지원요약</th><th style="width:150px">교체파트</th>
       ${COLS.map(([, name]) => `<th class="c">${name.length === 4 ? name.slice(0,2) + '<br>' + name.slice(2) : name}</th>`).join('')}
-      <th style="width:96px">지원<br>엔지니어</th><th style="width:20%">비고</th></tr></thead>
+      <th class="tr-cc" style="width:96px">지원<br>엔지니어</th><th style="width:20%">비고</th></tr></thead>
     <tbody>${rows.map(r => `<tr>
-      <td class="wr-site">${esc(r.site)}</td><td class="wr-date">${fmt(r.date)} (${r.weekday})</td>
+      <td class="wr-site">${esc(r.site)}</td><td class="wr-date tr-cc">${fmt(r.date)} (${r.weekday})</td>
       <td class="wr-pre">${r.summary.map(x => '- ' + esc(x)).join('<br>')}</td>
       <td class="wr-pre wr-parts">${(r.parts || []).map(esc).join('<br>')}</td>
       ${COLS.map(([c]) => `<td class="c${r.counts[c] ? ' on' : ''}">${n(r.counts[c])}</td>`).join('')}
-      <td>${esc(r.workers)}</td><td class="wr-pre">${esc(r.remark).replace(/\n/g, '<br>')}</td></tr>`).join('')}</tbody>
+      <td class="tr-cc">${esc(r.workers)}</td><td class="wr-pre">${esc(r.remark).replace(/\n/g, '<br>')}</td></tr>`).join('')}</tbody>
     <tfoot><tr><td colspan="4">합계</td>${COLS.map(([c]) => `<td class="c">${t[c] || ''}</td>`).join('')}<td colspan="2">총 ${total}건</td></tr></tfoot>
   </table></div>`;
   const txt = (v, empty) => v ? esc(v).replace(/\n/g, '<br>') : `<span class="lab-none">${empty}</span>`;
-  $('tr-notes').innerHTML = txt(d.notes, '제출된 특이사항이 없습니다');
+  if(document.activeElement !== $('tr-notes')) $('tr-notes').value = d.notes || '';   // 팀장이 직접 쓰는 특이사항
+  $('tr-notes-st').textContent = d.notes_by ? `마지막 저장: ${d.notes_by}` : '';
   $('tr-confirmed').innerHTML = txt(d.confirmed, '제출된 확정사항이 없습니다');
+}
+// 팀 특이사항: 입력을 멈추면 0.6초 뒤 서버에 저장 (주마다, 비우면 지움)
+let _trNotesT = 0;
+function trSaveNotes(){
+  const start = _trStart, text = $('tr-notes').value;
+  if(_trData && _trData.start === start) _trData.notes = text;
+  $('tr-notes-st').textContent = '저장 중…';
+  clearTimeout(_trNotesT);
+  _trNotesT = setTimeout(() => _apiSend('PUT', '/api/team/weekly/notes', {start, text})
+    .then(() => { $('tr-notes-st').textContent = text.trim() ? '저장됨' : ''; })
+    .catch(e => { $('tr-notes-st').textContent = ''; toast('특이사항 저장 실패: ' + e.message); }), 600);
 }
 async function downloadTeamReport(){
   const btn = $('tr-download'); btn.disabled = true;

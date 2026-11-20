@@ -17,7 +17,7 @@ from copy import copy
 from urllib.parse import quote
 import io, os, json, uuid
 
-from database import get_db, Engineer, Site, Schedule, WorkPlan, Incident, Issue, CalendarEvent, WeeklySubmission
+from database import get_db, Engineer, Site, Schedule, WorkPlan, Incident, Issue, CalendarEvent, WeeklySubmission, WeeklyRemark
 from routers.technotes import support_only
 
 router = APIRouter(prefix="/api/engineers/{eng_id}/reports", tags=["reports"])
@@ -181,10 +181,6 @@ def build_weekly(eng_id: str, start: Optional[str], db: Session):
         r["counts"]["G"] += 1
         r["workers"] += _workers(i.worker)
         r["parts"] += _part_lines(i.parts)
-        detail = " → ".join(x for x in [_one_line(i.symptom, 40), _one_line(i.action, 50)] if x)
-        status = "" if i.status == "완료" else f" [{i.status}]"
-        if detail or status:
-            r["remarks"].append(f"{i.title}: {detail}{status}" if detail else f"{i.title}{status}")
 
     # 평일 일정 중 아직 '완료'가 아니라 집계에서 빠진 것 — 화면에서 알려 주고 바로 완료 처리할 수 있게 한다
     pending = []
@@ -244,7 +240,7 @@ def build_weekly(eng_id: str, start: Optional[str], db: Session):
         "title": f"{mon.year}년 {mon.month:02d}월 {mon.day:02d}일 ~ {sun.year}년 {sun.month:02d}월 {sun.day:02d}일 주간보고서",
         "rows": [{"date": r["date"], "weekday": WD[date.fromisoformat(r["date"]).weekday()], "site": r["site"],
                   "key": f'{r["date"]}|{r["site"]}', "summary": r["summary"],
-                  "remark": "\n".join(f"- {t}" for t in r["remarks"]),     # 비고 기본값(장애 건만 자동) — 화면에서 직접 고쳐 쓴다
+                  "remark": "",                                         # 비고는 자동으로 채우지 않는다 — 엔지니어가 직접 쓰고 저장(weekly_remarks)
                   "parts": r["parts"], "workers": r["workers"], "counts": r["counts"], "planned": r["planned"],
                   "review": r["review"]}
                  for r in out],
@@ -256,9 +252,36 @@ def build_weekly(eng_id: str, start: Optional[str], db: Session):
     }
 
 
+def _saved_remarks(db, eng_id: str, week_start: str) -> dict:
+    return {r.row_key: r.text for r in db.query(WeeklyRemark).filter(WeeklyRemark.engineer_id == eng_id,
+                                                                     WeeklyRemark.week_start == week_start)}
+
 @router.get("/weekly")
 def weekly_preview(eng_id: str, start: Optional[str] = None, db: Session = Depends(get_db)):
-    return build_weekly(eng_id, start, db)
+    data = build_weekly(eng_id, start, db)
+    return _apply_remarks(data, _saved_remarks(db, eng_id, data["start"]))   # 저장해 둔 비고
+
+class RemarkIn(BaseModel):
+    start: str
+    key:   str
+    text:  str = ""
+
+@router.put("/weekly/remark")
+def save_remark(eng_id: str, body: RemarkIn, db: Session = Depends(get_db)):
+    """비고 한 칸 저장 (비우면 지움)."""
+    mon, _ = _week(body.start)
+    q = db.query(WeeklyRemark).filter(WeeklyRemark.engineer_id == eng_id, WeeklyRemark.week_start == mon.isoformat(),
+                                      WeeklyRemark.row_key == body.key)
+    text = body.text.rstrip()
+    row = q.first()
+    if not text:
+        q.delete()
+    elif row:
+        row.text = text
+    else:
+        db.add(WeeklyRemark(id=str(uuid.uuid4()), engineer_id=eng_id, week_start=mon.isoformat(), row_key=body.key, text=text))
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/weekly/weeks")
@@ -383,7 +406,8 @@ def write_weekly_xlsx(data: dict, notes: str, confirmed: str) -> bytes:
 
 @router.post("/weekly/xlsx")
 def weekly_export(eng_id: str, body: WeeklyExportIn, db: Session = Depends(get_db)):
-    data = _apply_remarks(build_weekly(eng_id, body.start, db), body.remarks)
+    data = build_weekly(eng_id, body.start, db)
+    data = _apply_remarks(data, {**_saved_remarks(db, eng_id, data["start"]), **(body.remarks or {})})
     notes = data["notes"] if body.notes is None else body.notes
     confirmed = data["confirmed"] if body.confirmed is None else body.confirmed
     content = write_weekly_xlsx(data, notes, confirmed)
@@ -424,7 +448,8 @@ def weekly_submission(eng_id: str, start: Optional[str] = None, db: Session = De
 @router.post("/weekly/submit")
 def weekly_submit(eng_id: str, body: WeeklyExportIn, db: Session = Depends(get_db)):
     """화면의 지금 내용(비고·특이사항·확정사항 포함)을 그 주 보고서로 제출한다. 다시 제출하면 덮어쓴다."""
-    data = _apply_remarks(build_weekly(eng_id, body.start, db), body.remarks)
+    data = build_weekly(eng_id, body.start, db)
+    data = _apply_remarks(data, {**_saved_remarks(db, eng_id, data["start"]), **(body.remarks or {})})
     snap = {k: data[k] for k in ("start", "end", "title", "rows", "totals", "total")}
     sub = db.query(WeeklySubmission).filter(WeeklySubmission.engineer_id == eng_id,
                                             WeeklySubmission.week_start == data["start"]).first()

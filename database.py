@@ -636,6 +636,23 @@ class WeeklySubmission(Base):
     confirmed    = Column(Text, default="")                     # 확정사항
     submitted_at = Column(String, default="")                   # "YYYY-MM-DD HH:MM" (한국 시간)
 
+class TeamWeeklyNote(Base):
+    """팀 주간보고서 특이사항 — 팀장이 직접 쓰는 주(월요일)별 1건 (엔지니어 특이사항은 제출 현황 표에 따로 나온다)."""
+    __tablename__ = "team_weekly_notes"
+    week_start = Column(String, primary_key=True)    # 그 주 월요일
+    text       = Column(Text, default="")
+    updated_by = Column(String, default="")          # 마지막으로 고친 사람 이름
+    updated_at = Column(String, default="")         # "YYYY-MM-DD HH:MM"
+
+class WeeklyRemark(Base):
+    """주간보고서 비고(직접 입력) — 엔지니어·주·줄(날짜|고객사)마다 1건. 비우면 지운다."""
+    __tablename__ = "weekly_remarks"
+    id          = Column(String, primary_key=True)
+    engineer_id = Column(String, ForeignKey("engineers.id"), nullable=False, index=True)
+    week_start  = Column(String, nullable=False, index=True)   # 그 주 월요일
+    row_key     = Column(String, nullable=False)               # "YYYY-MM-DD|고객사"
+    text        = Column(Text, default="")
+
 def _ensure_column(table: str, column: str, ddl: str):
     """기존 테이블에 열이 없으면 추가 (create_all은 열 추가를 하지 않음)."""
     with engine.begin() as conn:

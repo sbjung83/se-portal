@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=103">
+<link rel="stylesheet" href="/static/css/style.css?v=106">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -440,7 +440,7 @@
               <li><b>장애지원</b>은 그 주에 발생한 건이 모두 들어갑니다.</li>
               <li>같은 날 같은 고객사는 한 줄로 묶고, 체크한 구분마다 해당 열에 1건씩 셉니다.</li>
               <li><b>지원요약</b>은 구글 캘린더에서 가져온 건이면 캘린더 설명, 아니면 제목이 들어갑니다.</li>
-              <li><b>비고 · 특이사항 · 확정사항</b>은 고쳐 쓰면 이 브라우저에 주별로 기억됩니다(최근 12주).</li>
+              <li><b>비고</b>는 자동으로 채우지 않습니다. 직접 쓰면 바로 서버에 저장되어 다른 PC에서 열어도 남습니다. <b>특이사항 · 확정사항</b>은 고쳐 쓰면 이 브라우저에 주별로 기억됩니다(최근 12주).</li>
               <li>교체파트 · 담당영업 칸은 비워 둡니다. 포털에 없는 내용은 내려받은 엑셀에서 직접 추가하세요.</li>
             </ul>
           </details>
@@ -486,15 +486,17 @@
             <ul>
               <li>엔지니어가 주간보고서 화면에서 <b>[제출]</b>한 내용만 모읍니다. 다시 제출하면 새 내용으로 바뀝니다.</li>
               <li>일자별로 모으고, <b>같은 날 같은 고객사</b>는 한 줄로 합칩니다. 함께 간 작업이 두 번 나오지 않도록 구분별 건수는 큰 값을 씁니다.</li>
-              <li>특이사항은 엔지니어마다 [이름]을 붙여 이어 쓰고, 확정사항은 같은 줄을 하나로 합쳐 날짜순으로 번호를 다시 매깁니다.</li>
+              <li>엔지니어가 쓴 특이사항은 위 제출 현황 표에 나오고, 아래 <b>특이사항</b> 칸은 팀장이 직접 씁니다(자동 저장). 확정사항은 같은 줄을 하나로 합쳐 날짜순으로 번호를 다시 매깁니다.</li>
               <li>위 표에서 엔지니어 줄을 누르면 그 사람이 들어간 줄만 봅니다.</li>
+              <li>엑셀은 첫 시트에 <b>이 화면과 같은 모양</b>(엔지니어별 특이사항 전체 포함), 두 번째 시트에 회사 주간보고서 양식(일자별)이 들어갑니다.</li>
             </ul>
           </details>
         </div>
         <div id="tr-rows"></div>
       </div>
       <div class="grid2 wr-texts">
-        <div class="wr-box"><div class="wr-box-head"><span>특이사항</span><span class="wr-box-sub">엔지니어별로 제출한 내용</span></div><div class="wr-pre tr-text" id="tr-notes"></div></div>
+        <div class="wr-box"><div class="wr-box-head"><span>특이사항</span><span class="wr-box-sub" id="tr-notes-st"></span></div>
+          <textarea id="tr-notes" class="wr-text" placeholder="팀 특이사항을 직접 적습니다 (자동 저장, 엑셀의 특이사항 칸에 들어갑니다)" oninput="trSaveNotes()"></textarea></div>
         <div class="wr-box"><div class="wr-box-head"><span>확정사항</span><span class="wr-box-sub">같은 일정은 하나로 합침 · 끝에 엔지니어</span></div><div class="wr-pre tr-text" id="tr-confirmed"></div></div>
       </div>
     </div>
@@ -1527,6 +1529,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=151"></script>
+<script src="/static/js/app.js?v=157"></script>
 </body>
 </html>

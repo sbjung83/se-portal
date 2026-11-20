@@ -1518,6 +1518,17 @@ button.wr-range{border:none;background:none;font-family:inherit;font-size:15px;f
 #page-team-report .wr-tbl tr.clickable:hover td{background:var(--slate-50)}
 #page-team-report .wr-tbl tr.tr-on td{background:var(--blue-50)}
 #page-team-report .wr-tbl tr.tr-none td{color:var(--slate-400)}
-#page-team-report .tr-note{max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--slate-600)}
+#page-team-report .tr-note{color:var(--slate-700)}   /* 엔지니어 특이사항 전체 (줄바꿈 그대로) */
+
 #page-team-report .tr-text{padding:12px 14px;font-size:13px;color:var(--slate-800);min-height:80px;background:var(--card-bg)}
 #tr-range{font-size:15px;font-weight:800;padding:4px 10px;display:inline-flex;align-items:center;gap:8px}
+
+/* ── 표 정렬 통일 (2026-11-20) ─────────────────────────────────────────
+   표 안은 세로 가운데, 글자 칸은 왼쪽 · 숫자·날짜·작업자는 가운데(주간·팀 주간보고서 = 엑셀과 같게) */
+.wr-tbl th,.wr-tbl td{vertical-align:middle}
+.wr-tbl .tr-cc{text-align:center}
+.lab-tbl td{vertical-align:middle}
+.lab-act{text-align:center}
+th.act-h{text-align:center}
+th.act-h.r{text-align:right}
+.pj-table .cl-act{white-space:nowrap}
