@@ -343,9 +343,9 @@ def _make_target(db, eng, row: CalendarEvent, site, sub: str, extra=(), inc: boo
                        sched_date=row.event_date, sched_type=sub, status="예정", memo=row.description or IMPORT_NOTE,
                        extra_types=",".join(extra))
         row.target_type = "schedule"
-        if _norm(row.workers) not in ("", _norm(eng.name)):      # 여러 명이 함께 가는 점검: 작업자를 연동 레코드에 남긴다
-            db.add(WorkPlan(id=obj.id, engineer_id=eng.id, title=obj.title, work_date=obj.sched_date, site=site.name,
-                            worker=row.workers, status="예정", purpose="", support_type="기술지원"))
+        # 작업자는 연동 레코드(id = 일정 id)에 둔다 — 혼자 가는 점검도 본인 이름을 넣는다
+        db.add(WorkPlan(id=obj.id, engineer_id=eng.id, title=obj.title, work_date=obj.sched_date, site=site.name,
+                        worker=row.workers or eng.name, status="예정", purpose="", support_type="기술지원"))
     else:
         sub = ",".join(t for t in SUPPORT_TYPES if t in (sub or "").split(",")) or "기술지원"
         obj = WorkPlan(id=f"wp-{uuid.uuid4().hex[:8]}", engineer_id=eng.id,

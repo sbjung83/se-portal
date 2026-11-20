@@ -11,7 +11,7 @@
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from database import get_db, Site, Schedule, WorkPlan, CalendarEvent, Incident, Device
+from database import get_db, Site, Schedule, WorkPlan, CalendarEvent, Incident, Device, Engineer
 from routers.incidents import PartIn, clean_parts, load_parts
 from pydantic import BaseModel
 from typing import Optional, List
@@ -227,6 +227,10 @@ def _save(db, eng_id: str, data: EntryIn, entry_id: Optional[str]):
         raise HTTPException(400, detail="점검은 사이트를 골라야 합니다")
     site_name = site.name if site else (data.site_name or "").strip()
     plan_vals = {f: getattr(data, f) or "" for f in PLAN_FIELDS}
+    # 작업자를 비워 두면 본인 이름 (점검은 작업자를 연동 레코드에 두므로 이것으로 레코드도 늘 생긴다)
+    if not plan_vals["worker"].strip():
+        me = db.query(Engineer).filter(Engineer.id == eng_id).first()
+        plan_vals["worker"] = me.name if me else ""
     has_plan_vals = any(v for f, v in plan_vals.items() if not (f == "impact" and v == "없음"))
 
     old_sch, old_plan, old_inc = _find(db, eng_id, entry_id) if entry_id else (None, None, None)
@@ -291,7 +295,7 @@ def _save(db, eng_id: str, data: EntryIn, entry_id: Optional[str]):
             inc = Incident(id=str(uuid.uuid4()), engineer_id=eng_id, created_at=datetime.now().strftime("%Y-%m-%d"))
             db.add(inc)
         inc.title = title if inc_only else ((data.inc_title or "").strip() or title)
-        inc.site, inc.worker, inc.device = site_name, (data.worker or "").strip(), (data.inc_device or "").strip()
+        inc.site, inc.worker, inc.device = site_name, plan_vals["worker"].strip(), (data.inc_device or "").strip()
         inc.device_ids = dev_csv
         if not inc.device and devs:                      # 장애 장비 칸이 비었으면 고른 장비 이름으로
             inc.device = ", ".join(d.name for d in devs if d.id in dev_ids)

@@ -1797,10 +1797,10 @@ function _svcActs(xls, edit, del){
     + `<button class="icon-btn edit" title="수정" onclick="${edit}">${ICO_EDIT}</button>`
     + (del ? `<button class="icon-btn del" title="삭제" onclick="${del}">${ICO_DEL}</button>` : `<button class="icon-btn del ph" tabindex="-1" aria-hidden="true">${ICO_DEL}</button>`) + '</td>';
 }
-// 날짜 칸: "11/18 (수) 10:00" + 오늘 / 지연 D+n
+// 날짜 칸: "11/18 (수)" + 오늘 / 지연 D+n — 시간은 목록에 넣지 않고(줄마다 있다 없다 해서 어수선) 마우스를 올리면 보인다. 입력 창에는 그대로 있다.
 function _svcDate(day, time, isDone, today, lateWord = '지연'){
   const late = !isDone && day && day < today ? _daysBetween(day, today) : 0;
-  return `<td class="sm-d">${day ? _smDateLabel(day) : '-'}${time && time !== '00:00' ? ` <span class="wp-time">${time}</span>` : ''}`
+  return `<td class="sm-d"${time && time !== '00:00' ? ` title="${day} ${time}"` : ''}>${day ? _smDateLabel(day) : '-'}`
     + `${day === today && !isDone ? '<span class="badge b-blue">오늘</span>' : ''}${late ? `<span class="badge b-red">${lateWord} D+${late}</span>` : ''}</td>`;
 }
 // 구분 배지: 점검 / 기술지원·납품·유선원격·이전·기타 / 장애처리 — 세 목록에서 같은 이름·색
@@ -2141,7 +2141,7 @@ async function openEntry(id, types = ['기술지원'], tab){
   const now = new Date();
   let e = { id:'', types, title:'', day:_ymd(now), time: newInc ? `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}` : '',
             site_id:'', site_name:'', sched_type:'월간', status:'예정',
-            memo:'', worker: newInc ? (ENG_NAME || '') : '', reviewer:'', impact:'', prerequisites:'', mop_content:'', verification:'', rollback_plan:'', has_plan:false };
+            memo:'', worker: ENG_NAME || '', reviewer:'', impact:'', prerequisites:'', mop_content:'', verification:'', rollback_plan:'', has_plan:false };
   let sites = [];
   try {
     sites = await api.get(`/api/engineers/${ENG_ID}/sites`);
@@ -2409,7 +2409,7 @@ function drawIncidents(){
     + (downSum ? `<span class="sh-mon-cnt late">장애 시간 ${fmtDuration(downSum)}</span>` : '')
     + (month.length ? `<span class="sh-mon-cnt">${done}/${month.length} 완료</span>` : '');
   $('inc-list').innerHTML = `<table class="cl-table sm-table sh-table sh-inhead">${cols}
-    <thead><tr><th>발생 일시</th><th>사이트</th><th>장애명</th><th class="c">등급 · 구분</th><th>작업자</th><th>장애 시간</th><th class="c">상태</th><th class="c">관리</th></tr></thead>
+    <thead><tr><th>발생일</th><th>사이트</th><th>장애명</th><th class="c">등급 · 구분</th><th>작업자</th><th>장애 시간</th><th class="c">상태</th><th class="c">관리</th></tr></thead>
     <tbody>${list.length ? list.map(row).join('') : `<tr class="cl-msg"><td colspan="8">${emptyMsg}</td></tr>`}</tbody></table>`;
 }
 $('inc-search').addEventListener('input', () => { clearTimeout(window._incT); window._incT = setTimeout(drawIncidents, 200); });
@@ -2465,22 +2465,23 @@ async function renderServiceHistory(reuse){
   $('svh-label').innerHTML = `${ty}년 ${Number(tm)}월${isNow ? ' <span class="wr-now">이번 달</span>' : ''}`;
   $('svh-today').disabled = isNow;
   const el = $('svh-list');
-  let plans, incs, sites, scheds;
-  if(reuse === true && _svhCache && _svhCache.year === ty && _svhCache.eng === ENG_ID) ({plans, incs, sites, scheds} = _svhCache);
+  let plans, incs, sites, scheds, schedPlans;
+  if(reuse === true && _svhCache && _svhCache.year === ty && _svhCache.eng === ENG_ID) ({plans, incs, sites, scheds, schedPlans} = _svhCache);
   else {
     try {
-      [plans, incs, sites, scheds] = await Promise.all([
+      [plans, incs, sites, scheds, schedPlans] = await Promise.all([
         api.get(`/api/engineers/${ENG_ID}/workplans`),
         api.get(`/api/engineers/${ENG_ID}/incidents`),
         api.get(`/api/engineers/${ENG_ID}/sites`).catch(() => []),
         api.get(`/api/engineers/${ENG_ID}/schedules/all?year=${ty}`).catch(() => []),
+        api.get(`/api/engineers/${ENG_ID}/workplans?scope=schedule`).catch(() => []),   // 점검 작업자(연동 레코드)
       ]);
     } catch(e) {
       console.error('서비스 지원 이력 조회 실패:', e);
       el.innerHTML = '<div class="empty" style="color:#dc2626">이력을 불러오지 못했습니다.</div>';
       return;
     }
-    _svhCache = {year: ty, eng: ENG_ID, plans, incs, sites, scheds};
+    _svhCache = {year: ty, eng: ENG_ID, plans, incs, sites, scheds, schedPlans};
   }
   plans = plans.filter(isSupportPlan);
   scheds = Array.isArray(scheds) ? scheds : [];
@@ -2489,14 +2490,14 @@ async function renderServiceHistory(reuse){
   renderSvhSiteStats(plans, incs, scheds, ym, (sites || []).map(x => (x.name || '').trim()).filter(Boolean));
   // 검색어가 있으면 목록은 그 해 전체에서 찾는다 (요약 줄은 계속 고른 달 기준)
   const q = $('svh-q').value.trim().toLowerCase();
-  const hit = (...v) => q.split(/\s+/).every(w => v.some(x => String(x || '').toLowerCase().includes(w)));
-  const yIncs = incs.filter(i => (i.occurred_at || '').startsWith(ty)), yPlans = plans.filter(p => (p.work_date || '').startsWith(ty));
-  const fChk = q ? scheds.filter(c => hit(c.site_name, c.title, c.memo)) : null;
-  const fSup = q ? yPlans.filter(p => hit(p.site, p.title, p.purpose, p.worker)) : null;
-  const fInc = q ? yIncs.filter(i => hit(i.site, i.title, i.symptom, i.cause, i.action, i.worker, ...(i.parts || []).flatMap(p => [p.name, p.part_no, p.old_sn, p.new_sn]))) : null;
+  const hit = txt => q.split(/\s+/).every(w => txt.includes(w));
   incs = incs.filter(i => (i.occurred_at || '').startsWith(ym));
   const sup = plans.filter(p => (p.work_date || '').startsWith(ym));
   const chk = scheds.filter(x => (x.sched_date || '').startsWith(ym));
+
+  // 입력 1건 = 1줄: 점검 일정 / 기술지원(wp-*) / 장애처리만 한 건. 함께 등록한 장애(entry_id)와 점검에 함께 체크한 지원은 그 줄에 합친다.
+  const entries = buildSvcEntries(scheds, plans.filter(p => (p.work_date || '').startsWith(ty)), (_svhCache.incs || []).filter(i => (i.occurred_at || '').startsWith(ty)), schedPlans || []);
+  const monthRows = entries.filter(r => (r.date || '').startsWith(ym));
 
   const downMin = incs.reduce((a, i) => a + (i.downtime_min || 0), 0);
   const openInc = incs.filter(i => i.status !== '완료').length;
@@ -2508,53 +2509,66 @@ async function renderServiceHistory(reuse){
     + item('장애처리', incs.length, incs.length ? `긴급·높음 ${incs.filter(i => i.severity==='긴급'||i.severity==='높음').length}` : '', incs.length ? '' : 'zero')
     + item('미완료 장애', openInc, '', openInc ? 'red' : 'zero')
     + item('장애 시간 합계', downMin ? fmtDuration(downMin) : '-', '', downMin ? 'sm' : 'zero sm')
-    + item('합계', `${chk.length + sup.length + incs.length}건`, '', 'total');
+    + item('합계', `${monthRows.length}건`, '함께 한 구분은 1건', 'total');
 
   const tabName = {all:'전체', check:'점검', support:'기술지원', incident:'장애처리'}[_svhTab];
   $('svh-list-title').textContent = q ? `${ty}년 ${tabName} 검색 결과` : `${Number(tm)}월 ${tabName} 이력`;
 
-  const rows = [];
-  const withChk = _svhTab === 'all' || _svhTab === 'check';
-  if(withChk) (fChk || chk).forEach(c => rows.push({
-    kind:'check', date:c.sched_date, site:c.site_name, title:c.title, worker:'',
-    status:c.status, stCls:WP_ST_CLS[c.status]||'b-gray',
-    extra:(Array.isArray(c.extra_types) ? c.extra_types : String(c.extra_types || '').split(',')).filter(Boolean).map(t => `<span class="badge b-blue" title="점검과 함께 한 지원">+${esc(t)}</span>`).join(' '),
-    open:`openEditSched('${c.id}')`,
-  }));
-  if(_svhTab === 'all' || _svhTab === 'support') (fSup || sup).forEach(p => {
-    if(p.from_schedule && _svhTab === 'all') return;        // 전체 보기에서는 점검 줄에 "+기술지원"으로 이미 표시됨
-    rows.push({
-      kind:'support', date:p.work_date, site:p.site, title:p.title, worker:p.worker,
-      status:p.status, stCls:WP_ST_CLS[p.status]||'b-gray',
-      extra:p.from_schedule ? '<span class="badge b-green" title="점검 일정에 함께 등록된 건">점검과 함께</span>' : '',
-      open:`openEditWorkPlan('${p.id}')`,
-    });
-  });
-  if(_svhTab === 'all' || _svhTab === 'incident') (fInc || incs).forEach(i => rows.push({
-    kind:'incident', date:i.occurred_at, site:i.site, title:i.title, worker:i.worker,
-    status:i.status, stCls:INC_ST_CLS[i.status]||'b-gray',
-    extra:`<span class="badge ${INC_SEV_CLS[i.severity]||'b-gray'}">${esc(i.severity)}</span>${i.downtime_min!==null?` <span class="sv-down">장애 ${fmtDuration(i.downtime_min)}</span>`:''}`,
-    open:`openEditIncident('${i.id}')`,
-  }));
-  rows.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-  $('svh-list-sub').textContent = rows.length ? `${rows.length}건${q ? ` · ${ty}년 전체에서 찾음` : ''} · 줄을 누르면 내용을 열어 봅니다` : '';
+  const inTab = r => _svhTab === 'all' || (_svhTab === 'check' ? r.kinds.includes('점검')
+    : _svhTab === 'incident' ? r.kinds.includes('장애처리') : r.kinds.some(k => k !== '점검' && k !== '장애처리'));
+  const rows = (q ? entries.filter(r => hit(r.text)) : monthRows).filter(inTab);
+  $('svh-list-sub').textContent = rows.length ? `${rows.length}건${q ? ` · ${ty}년 전체에서 찾음` : ''} · 함께 등록한 구분은 한 줄 · 줄을 누르면 입력 창이 열립니다` : '';
 
   if(!rows.length){ el.innerHTML = `<div class="empty">${q ? `${ty}년에 "${esc($('svh-q').value.trim())}"(으)로 찾은 이력이 없습니다` : `${ty}년 ${Number(tm)}월에 등록된 ${{all:'', check:'점검 ', support:'기술지원 ', incident:'장애처리 '}[_svhTab]}이력이 없습니다`}</div>`; return; }
-  const KIND = {check:['점검','chk'], support:['기술지원','sup'], incident:['장애처리','inc']};
   const day = v => { const d = String(v || ''); if(d.length < 10) return '-';
     const w = '일월화수목금토'[new Date(Number(d.slice(0,4)), Number(d.slice(5,7)) - 1, Number(d.slice(8,10))).getDay()];
-    const t = d.length >= 16 ? d.slice(11, 16) : '';
-    return `${Number(d.slice(5,7))}/${Number(d.slice(8,10))} (${w})${t && t !== '00:00' ? ` <span class="sv-time">${t}</span>` : ''}`; };
+    return `${Number(d.slice(5,7))}/${Number(d.slice(8,10))} (${w})`; };   // 시간은 목록에 넣지 않음 (기술지원·장애처리 목록과 같게)
   el.innerHTML = `<div class="svh-table-wrap"><table class="wr-tbl sv-list">
-    <thead><tr><th style="width:92px">구분</th><th style="width:128px">일자</th><th style="width:20%">사이트</th><th>제목</th><th style="width:100px">처리자</th><th style="width:210px">상태</th></tr></thead>
-    <tbody>${rows.map(r => `<tr onclick="${r.open}">
-      <td><span class="sv-kind ${KIND[r.kind][1]}">${KIND[r.kind][0]}</span></td>
+    <thead><tr><th style="width:250px">구분</th><th style="width:100px">일자</th><th style="width:16%">사이트</th><th>제목</th><th style="width:100px">작업자</th><th style="width:200px">상태</th></tr></thead>
+    <tbody>${rows.map(r => `<tr onclick="openEntry('${r.id}')">
+      <td><div class="svc-kind">${r.kinds.map(k => _svcKind(k)).join('')}</div></td>
       <td class="wr-date">${day(r.date)}</td>
-      <td class="wr-site">${esc(r.site||'-')}</td>
-      <td>${esc(r.title)}</td>
-      <td>${esc(r.worker||'-')}</td>
-      <td><span class="badge ${r.stCls}">${esc(r.status)}</span> ${r.extra}</td>
+      <td class="wr-site">${esc(r.site || '-')}</td>
+      <td>${esc(r.title)}${r.sub ? `<div class="wp-purpose" title="${esc(r.sub)}">${esc(r.sub)}</div>` : ''}</td>
+      <td>${esc(r.worker || '-')}</td>
+      <td><span class="badge ${r.stCls}">${esc(r.status)}</span>${r.inc ? ` <span class="badge ${INC_SEV_CLS[r.inc.severity] || 'b-gray'}">${esc(r.inc.severity)}</span>${r.inc.downtime_min !== null && r.inc.downtime_min !== undefined ? ` <span class="sv-down">장애 ${fmtDuration(r.inc.downtime_min)}</span>` : ''}` : ''}</td>
     </tr>`).join('')}</tbody></table></div>`;
+}
+
+// 서비스 지원 이력의 줄 목록 — 공통 입력 창 1건이 1줄. kinds = 함께 등록한 구분(점검·지원 구분·장애처리), 상태는 하나(장애가 있으면 장애 처리 상태).
+function buildSvcEntries(scheds, plans, incs, schedPlans = []){
+  const rows = [], byId = {};
+  const add = r => { rows.push(r); byId[r.id] = r; };
+  const planOf = {}; [...schedPlans, ...plans].forEach(p => { planOf[p.id] = p; });   // 점검 작업자 = 연동 레코드(id = 일정 id)
+  scheds.forEach(c => {
+    const extra = (Array.isArray(c.extra_types) ? c.extra_types : String(c.extra_types || '').split(',')).filter(Boolean);
+    const lp = planOf[c.id];                          // 점검에 함께 체크한 지원(작업자·작업 내용)
+    add({id: c.id, kinds: ['점검', ...extra], date: c.sched_date, site: c.site_name, title: c.title, sub: '',
+         worker: lp ? lp.worker : '', status: c.status, stCls: WP_ST_CLS[c.status] || 'b-gray', inc: null,
+         text: [c.site_name, c.title, c.memo, lp && lp.purpose, lp && lp.worker].join(' ')});
+  });
+  plans.forEach(p => {
+    if(p.from_schedule || byId[p.id]) return;          // 점검 줄에 이미 합쳐짐
+    add({id: p.id, kinds: _wpTypes(p), date: p.work_date, site: p.site, title: p.title, sub: '',
+         worker: p.worker, status: p.status, stCls: WP_ST_CLS[p.status] || 'b-gray', inc: null,
+         text: [p.site, p.title, p.purpose, p.worker].join(' ')});
+  });
+  incs.forEach(i => {
+    const itext = [i.site, i.title, i.device, i.symptom, i.cause, i.action, i.worker, ...(i.parts || []).flatMap(x => [x.name, x.part_no, x.old_sn, x.new_sn])].join(' ');
+    const r = i.entry_id && byId[i.entry_id];
+    if(r){                                             // 일정과 함께 등록한 장애 → 그 줄에 합친다 (상태는 장애 처리 상태 하나)
+      if(!r.kinds.includes('장애처리')) r.kinds.push('장애처리');
+      r.inc = i; r.status = i.status; r.stCls = INC_ST_CLS[i.status] || 'b-gray';
+      if(i.title && i.title !== r.title) r.sub = `장애: ${i.title}`;
+      if(!r.worker) r.worker = i.worker;
+      r.text += ' ' + itext;
+      return;
+    }
+    add({id: i.id, kinds: ['장애처리'], date: i.occurred_at, site: i.site, title: i.title, sub: i.device ? `장비: ${i.device}` : '',
+         worker: i.worker, status: i.status, stCls: INC_ST_CLS[i.status] || 'b-gray', inc: i, text: itext});
+  });
+  rows.forEach(r => { r.text = r.text.toLowerCase(); });
+  return rows.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 }
 
 // 사이트별 월별/연간 점검·기술지원·장애처리 투입 횟수 (선택 월의 연도 기준)
@@ -2586,29 +2600,31 @@ function renderSvhSiteStats(plans, incs, scheds, ym, siteNames){
   const sites = [...siteNames];
   Object.keys(by).sort((a, b) => a.localeCompare(b, 'ko')).forEach(n => { if(!sites.includes(n)) sites.push(n); });
 
-  // 0 은 비우고, 있는 것만 색 숫자로 (초록 점검 · 파랑 기술지원 · 빨강 장애)
+  // 달 칸 = 그 달 합계 숫자 하나(마우스를 올리면 구분별), 연간은 구분마다 열 하나 + 합계. 0 은 비운다.
   const kinds = [showChk && 'chk', showSup && 'sup', showInc && 'inc'].filter(Boolean);
   const TIP = {chk:'점검', sup:'기술지원', inc:'장애처리'};
-  const cell = (r, i) => kinds.map(k => r[k][i] ? `<b class="sv-n ${k}" title="${TIP[k]} ${r[k][i]}건">${r[k][i]}</b>` : '').join('');
+  const sum = (r, i) => kinds.reduce((a, k) => a + r[k][i], 0);
+  const cell = (r, i) => { const n = sum(r, i); return n ? `<span title="${kinds.filter(k => r[k][i]).map(k => `${TIP[k]} ${r[k][i]}`).join(' · ')}">${n}</span>` : ''; };
+  const yearCells = r => kinds.map(k => `<td class="sv-year${k === kinds[0] ? ' sv-ystart' : ''}">${r[k][0] || ''}</td>`).join('')
+    + (kinds.length > 1 ? `<td class="sv-year sv-ysum">${sum(r, 0) || ''}</td>` : '');
   const sel = m => m === selM ? ' svh-sel' : '';
   const empty = blank();
   const active = r => kinds.some(k => r[k][0]);
 
   $('svh-site-stats').innerHTML = `<div class="wr-box">
     <div class="wr-box-head"><span>${year}년 사이트별 투입 횟수</span>
-      <span class="wr-box-sub">달 이름을 누르면 그 달 이력으로 이동합니다</span>
-      <span class="sv-legend">${kinds.map(k => `<b class="sv-n ${k}">${tot[k][0]}</b>${TIP[k]}${k === 'chk' ? '(완료)' : ''}`).join('')}</span>
+      <span class="wr-box-sub">달 이름을 누르면 그 달 이력으로 이동 · 점검은 완료 건만 · 달 칸 숫자에 마우스를 올리면 구분별 건수</span>
     </div>
     <div class="svh-table-wrap"><table class="wr-tbl sv-stat">
       <thead><tr><th class="sv-site">사이트</th>${months.map(m =>
-        `<th class="sv-m${sel(m)}" title="${m}월 이력 보기" onclick="svhGoMonth(${year},${m})">${m}월</th>`).join('')}<th class="sv-year">연간</th></tr></thead>
+        `<th class="sv-m${sel(m)}" title="${m}월 이력 보기" onclick="svhGoMonth(${year},${m})">${m}월</th>`).join('')}${kinds.map(k => `<th class="sv-year${k === kinds[0] ? ' sv-ystart' : ''}">${TIP[k]}</th>`).join('')}${kinds.length > 1 ? '<th class="sv-year sv-ysum">합계</th>' : ''}</tr></thead>
       <tbody>${sites.map(site => { const r = by[site] || empty; return `<tr class="${active(r) ? '' : 'sv-idle'}">
         <td class="sv-site" title="${esc(site)}">${esc(site)}</td>
         ${months.map(m => `<td class="${sel(m)}">${cell(r, m)}</td>`).join('')}
-        <td class="sv-year">${cell(r, 0)}</td></tr>`; }).join('')}</tbody>
+        ${yearCells(r)}</tr>`; }).join('')}</tbody>
       <tfoot><tr><td class="sv-site">합계</td>
         ${months.map(m => `<td class="${sel(m)}">${cell(tot, m)}</td>`).join('')}
-        <td class="sv-year">${cell(tot, 0)}</td></tr></tfoot>
+        ${yearCells(tot)}</tr></tfoot>
     </table></div></div>`;
 }
 
