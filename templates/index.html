@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=99">
+<link rel="stylesheet" href="/static/css/style.css?v=103">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -123,6 +123,9 @@
       </div>
       <div class="nav-item" data-page="weekly-report">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>주간보고서
+      </div>
+      <div class="nav-item" data-page="team-report" data-lead>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>팀 주간보고서
       </div>
     </div>
     <!-- 결재 문서 그룹 -->
@@ -273,6 +276,7 @@
       <div class="wr-top">
         <div class="page-title">사이트 관리</div>
         <input type="text" id="site-search" class="st-search" placeholder="사이트명 · 위치 · 담당자 · 메모 검색">
+        <button class="btn" onclick="exportSites()" title="사이트 목록과 전체 장비(워런티·OS 지원 종료 포함)를 엑셀로 내려받기">엑셀 내려받기</button>
         <button class="btn btn-primary" onclick="openAddSite()">+ 사이트 추가</button>
       </div>
       <div class="wr-sum" id="site-summary"></div>
@@ -422,7 +426,9 @@
           <button class="btn btn-sm" onclick="wrMove(1)" title="다음 주">▶</button>
           <button class="btn btn-sm" id="wr-today" onclick="wrMove(0)">이번 주로</button>
         </div>
-        <button class="btn btn-primary" id="wr-download" onclick="downloadWeeklyReport()">엑셀 다운로드</button>
+        <span class="wr-sub-st" id="wr-sub-st"></span>
+        <button class="btn" id="wr-download" onclick="downloadWeeklyReport()">엑셀 다운로드</button>
+        <button class="btn btn-primary" id="wr-submit" onclick="submitWeeklyReport()" title="지금 화면 내용(비고·특이사항·확정사항 포함)을 팀장에게 제출합니다. 고친 뒤 다시 제출하면 덮어씁니다">제출</button>
       </div>
       <div class="wr-sum" id="wr-summary"></div>
       <div id="wr-pending"></div>
@@ -454,6 +460,42 @@
             <button class="btn btn-sm" onclick="wrReset('confirmed')" title="직접 고친 내용을 버리고 자동으로 만든 내용으로 되돌립니다">자동 내용으로</button></div>
           <textarea id="wr-confirmed" class="wr-text" placeholder="엑셀의 확정사항 칸에 들어갑니다" oninput="wrSaveText('confirmed')"></textarea>
         </div>
+      </div>
+    </div>
+
+    <!-- TEAM WEEKLY REPORT (팀장) -->
+    <div class="page" id="page-team-report" data-lead>
+      <div class="wr-top">
+        <div class="page-title">팀 주간보고서</div>
+        <div class="wr-nav">
+          <button class="btn btn-sm" onclick="trMove(-1)" title="이전 주">◀</button>
+          <span class="wr-range sv-month" id="tr-range"></span>
+          <button class="btn btn-sm" onclick="trMove(1)" title="다음 주">▶</button>
+          <button class="btn btn-sm" id="tr-today" onclick="trMove(0)">이번 주로</button>
+        </div>
+        <button class="btn btn-primary" id="tr-download" onclick="downloadTeamReport()">엑셀 다운로드</button>
+      </div>
+      <div class="wr-sum" id="tr-summary"></div>
+      <div class="wr-box">
+        <div class="wr-box-head"><span>엔지니어별 제출 현황</span><span class="wr-box-sub" id="tr-eng-sub"></span></div>
+        <div id="tr-engs"></div>
+      </div>
+      <div class="wr-box">
+        <div class="wr-box-head"><span>지원 내역</span><span class="wr-box-sub" id="tr-rows-sub"></span>
+          <details class="wr-guide"><summary>취합 기준</summary>
+            <ul>
+              <li>엔지니어가 주간보고서 화면에서 <b>[제출]</b>한 내용만 모읍니다. 다시 제출하면 새 내용으로 바뀝니다.</li>
+              <li>일자별로 모으고, <b>같은 날 같은 고객사</b>는 한 줄로 합칩니다. 함께 간 작업이 두 번 나오지 않도록 구분별 건수는 큰 값을 씁니다.</li>
+              <li>특이사항은 엔지니어마다 [이름]을 붙여 이어 쓰고, 확정사항은 같은 줄을 하나로 합쳐 날짜순으로 번호를 다시 매깁니다.</li>
+              <li>위 표에서 엔지니어 줄을 누르면 그 사람이 들어간 줄만 봅니다.</li>
+            </ul>
+          </details>
+        </div>
+        <div id="tr-rows"></div>
+      </div>
+      <div class="grid2 wr-texts">
+        <div class="wr-box"><div class="wr-box-head"><span>특이사항</span><span class="wr-box-sub">엔지니어별로 제출한 내용</span></div><div class="wr-pre tr-text" id="tr-notes"></div></div>
+        <div class="wr-box"><div class="wr-box-head"><span>확정사항</span><span class="wr-box-sub">같은 일정은 하나로 합침 · 끝에 엔지니어</span></div><div class="wr-pre tr-text" id="tr-confirmed"></div></div>
       </div>
     </div>
 
@@ -675,7 +717,7 @@
       <div class="tab active" data-dtab="overview">개요</div>
       <div class="tab" data-dtab="devices">장비 리스트<span class="tab-cnt" id="tcnt-devices"></span></div>
       <div class="tab" data-dtab="access">접속 정보<span class="tab-cnt" id="tcnt-access"></span></div>
-      <div class="tab" data-dtab="reports">점검표 파일<span class="tab-cnt" id="tcnt-reports"></span></div>
+      <div class="tab" data-dtab="reports">파일<span class="tab-cnt" id="tcnt-reports"></span></div>
       <div class="tab" data-dtab="notes">특이사항<span class="tab-cnt" id="tcnt-notes"></span></div>
     </div>
     <div class="tab-pane active" id="dtab-overview"><div id="site-overview"></div></div>
@@ -683,6 +725,9 @@
       <div class="dev-bar">
         <input type="text" id="dev-search" placeholder="장비명, 모델, S/N, OS, 펌웨어 검색...">
         <div class="svh-tabs" id="dev-type-tabs"></div>
+        <button class="btn btn-sm" onclick="location.href=`/api/engineers/${ENG_ID}/sites/${currentSiteId}/devices/export`" title="이 사이트 장비를 엑셀로 내려받기 (일괄 등록 양식으로도 씀)">엑셀 내려받기</button>
+        <input type="file" id="dev-import-file" accept=".xlsx" style="display:none" onchange="devImportPick(event)">
+        <button class="btn btn-sm" onclick="$('dev-import-file').click()" title="내려받은 엑셀을 고쳐서 올리면 장비를 한 번에 추가·수정">엑셀 올리기</button>
         <button class="btn btn-sm btn-primary" onclick="openModal('modal-add-device');devTypeChanged('d')">+ 장비 추가</button>
       </div>
       <div id="device-table"></div>
@@ -697,8 +742,9 @@
     <div class="tab-pane" id="dtab-reports">
       <div class="dev-bar">
         <input type="text" id="rep-search" placeholder="파일명 검색..." oninput="drawReports()">
+        <div class="svh-tabs" id="rep-cat-tabs"></div>
         <input type="file" id="file-input" style="display:none" onchange="uploadReport(event)">
-        <button class="btn btn-sm btn-primary" onclick="document.getElementById('file-input').click()">↑ 파일 업로드</button>
+        <button class="btn btn-sm btn-primary" id="rep-upload-btn" onclick="document.getElementById('file-input').click()">↑ 파일 올리기</button>
       </div>
       <div id="report-table"></div>
     </div>
@@ -805,6 +851,19 @@
 </div>
 
 <!-- 사이트 추가 -->
+<!-- 장비 엑셀 올리기: 미리 보기 → 반영 -->
+<div class="overlay" id="modal-dev-import">
+  <div class="modal modal-lg">
+    <div class="modal-head"><div class="modal-title">장비 엑셀 올리기 — 바뀔 내용 확인</div><button class="btn btn-sm" onclick="closeModal('modal-dev-import')">✕</button></div>
+    <div class="pj-tbar"><span class="pj-tbar-t" id="di-sum"></span></div>
+    <div id="di-list"></div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-dev-import')">취소</button>
+      <button class="btn btn-primary" id="di-apply" onclick="devImportApply()">반영</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="modal-add-site">
   <div class="modal">
     <div class="modal-head"><div class="modal-title" id="site-modal-title">사이트 추가</div><button class="btn btn-sm" onclick="closeModal('modal-add-site')">✕</button></div>
@@ -816,7 +875,14 @@
       <div class="form-row"><label>담당자</label><input type="text" id="s-mgr"></div>
     </div>
     <div class="form-row"><label>연락처</label><input type="text" id="s-contact"></div>
+    <div class="grid3">
+      <div class="form-row"><label>유지보수 계약 시작</label><input type="date" id="s-cstart"></div>
+      <div class="form-row"><label>계약 종료</label><input type="date" id="s-cend"></div>
+      <div class="form-row"><label>점검 주기</label><select id="s-cycle"><option value="">없음</option><option>월간</option><option>분기</option></select></div>
+    </div>
+    <div class="form-desc">점검 주기를 정하면 이번 달(분기)에 점검 일정이 없을 때 '점검 누락'으로 알려 줍니다. 계약 종료 60일 전부터 '확인할 것'에 표시합니다.</div>
     <div class="form-row"><label>메모</label><textarea id="s-memo"></textarea></div>
+    <label class="nt-chk" id="s-archived-row" style="display:none"><input type="checkbox" id="s-archived"> 보관 — 목록·사이트 선택 칸·알림에서 빼기 (데이터는 남음)</label>
     <div class="form-actions">
       <button class="btn" onclick="closeModal('modal-add-site')">취소</button>
       <button class="btn btn-primary" onclick="saveSite()">저장</button>
@@ -1461,6 +1527,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=147"></script>
+<script src="/static/js/app.js?v=151"></script>
 </body>
 </html>

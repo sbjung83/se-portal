@@ -1506,3 +1506,18 @@ button.wr-range{border:none;background:none;font-family:inherit;font-size:15px;f
 .sv-stat td.sv-ysum,.sv-stat th.sv-ysum{font-weight:700;color:var(--slate-900)}
 .sv-stat tbody td,.sv-stat tfoot td{font-size:13px;color:var(--slate-800)}
 .sv-stat tfoot td{font-weight:700}
+/* 사이트 파일 구분 고르기 (표 안 작은 선택 칸) */
+.dev-tbl select.rep-cat{height:26px;padding:0 6px;font-size:12px;border:1px solid var(--line);border-radius:4px;background:var(--card-bg);color:var(--slate-700)}
+/* 사이트 관리 요약: 칸이 많아 5칸씩 두 줄 */
+#site-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr))}
+#site-summary .wr-sum-i:nth-child(5n){border-right:none}
+#site-summary .wr-sum-i:nth-child(-n+5){border-bottom:1px solid #d5dce6}
+/* 주간보고서 제출 상태 · 팀 주간보고서 */
+.wr-sub-st{display:inline-flex;align-items:center;gap:6px;font-size:12px}
+#page-team-report .wr-tbl tr.clickable{cursor:pointer}
+#page-team-report .wr-tbl tr.clickable:hover td{background:var(--slate-50)}
+#page-team-report .wr-tbl tr.tr-on td{background:var(--blue-50)}
+#page-team-report .wr-tbl tr.tr-none td{color:var(--slate-400)}
+#page-team-report .tr-note{max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--slate-600)}
+#page-team-report .tr-text{padding:12px 14px;font-size:13px;color:var(--slate-800);min-height:80px;background:var(--card-bg)}
+#tr-range{font-size:15px;font-weight:800;padding:4px 10px;display:inline-flex;align-items:center;gap:8px}

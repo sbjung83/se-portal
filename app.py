@@ -5,8 +5,8 @@ from fastapi.requests import Request
 from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 from database import init_db
-from routers import auth, sites, logs, dashboard, schedules, issues, site_checklist, projects, technotes, development, incidents, reports, gcal, entries, lab, remote, leaves, carlog, carrepair, expenses, eos, notify, licenses, sanconfig
-from routers.auth import require_login, require_admin
+from routers import auth, sites, logs, dashboard, schedules, issues, site_checklist, projects, technotes, development, incidents, reports, gcal, entries, lab, remote, leaves, carlog, carrepair, expenses, eos, notify, licenses, sanconfig, team
+from routers.auth import require_login, require_admin, require_lead
 import os, asyncio
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -102,6 +102,7 @@ app.include_router(licenses.router, dependencies=_LOGIN)   # 엔지니어 공용
 app.include_router(carrepair.router, dependencies=_LOGIN)
 app.include_router(expenses.router, dependencies=_LOGIN)
 app.include_router(notify.router, dependencies=_LOGIN)
+app.include_router(team.router, dependencies=[Depends(require_lead)])   # 팀 주간보고서 (/api/team, 팀장만)
 # 원격 접속(WebSocket)은 require_login 을 쓸 수 없어 라우터 안에서 세션 쿠키를 직접 확인한다
 app.include_router(remote.router)
 

@@ -118,8 +118,9 @@ def build_digest(db: Session, eng_id: str, now: Optional[datetime] = None):
     now = now or datetime.now()
     today = now.strftime("%Y-%m-%d")
     tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
-    sites = db.query(Site).filter(Site.engineer_id == eng_id).all()
-    site_name = {s.id: s.name for s in sites}
+    all_sites = db.query(Site).filter(Site.engineer_id == eng_id).all()
+    site_name = {s.id: s.name for s in all_sites}
+    sites = [s for s in all_sites if not s.archived]          # 보관한 사이트는 장비·계약 알림에서 뺀다
 
     scheds = db.query(Schedule).filter(Schedule.engineer_id == eng_id, Schedule.status != "완료",
                                        Schedule.sched_date != "", Schedule.sched_date <= tomorrow + "T99").all()
@@ -154,7 +155,8 @@ def build_digest(db: Session, eng_id: str, now: Optional[datetime] = None):
 
     n_iss = db.query(Issue).filter(Issue.engineer_id == eng_id, Issue.status != "완료").count()
 
-    devs = db.query(Device).filter(Device.site_id.in_(list(site_name))).all() if site_name else []
+    live = [s.id for s in sites]
+    devs = db.query(Device).filter(Device.site_id.in_(live)).all() if live else []
     warr = []
     for d in devs:
         try:
@@ -178,6 +180,17 @@ def build_digest(db: Session, eng_id: str, now: Optional[datetime] = None):
             eos_soon.append((m["days"], f"{site_name.get(d.site_id, '')} {d.name} — {m['product_label']} {m['label']} EOL {m['eol']} (D-{m['days']})"))
     if eos_soon:
         sections.append((f"OS 지원 종료 90일 이내 {len(eos_soon)}대", [x[1] for x in sorted(eos_soon)]))
+
+    from routers.sites import check_missing, contract_days
+    miss = [(s.name, check_missing(s, today)) for s in sites]
+    miss = [f"{n} — {lbl} 점검 일정 없음 ({'월간' if lbl.endswith('월') else '분기'} 점검 계약)" for n, lbl in sorted(miss) if lbl]
+    if miss:
+        sections.append((f"점검 일정 없는 계약 사이트 {len(miss)}곳", miss))
+    con = sorted(((contract_days(s), s) for s in sites if contract_days(s) is not None and contract_days(s) <= 30),
+                 key=lambda x: x[0])
+    if con:
+        sections.append((f"유지보수 계약 종료 30일 이내 {len(con)}곳",
+                         [f"{s.name} — {s.contract_end} ({'D-' + str(d) if d >= 0 else f'{-d}일 지남'})" for d, s in con]))
 
     extra = []
     if n_iss:

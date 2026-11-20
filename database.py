@@ -49,6 +49,7 @@ class User(Base):
     engineer_id = Column(String, ForeignKey("engineers.id"), nullable=True)  # 1:1 매핑
     created_at  = Column(DateTime, default=datetime.utcnow)
     is_admin    = Column(Boolean, default=False)   # 관리자: 개발 체크리스트 등 관리 메뉴 사용
+    is_lead     = Column(Boolean, default=False)   # 팀장: 팀 주간보고서(엔지니어들이 제출한 주간보고서 취합) 열람
     dept        = Column(String, default="")       # 부서 (회원 가입 때 입력)
     position    = Column(String, default="")       # 직급
     email       = Column(String, default="")
@@ -78,6 +79,10 @@ class Site(Base):
     contact     = Column(String, default="")
     memo        = Column(Text, default="")
     created_at  = Column(DateTime, default=datetime.utcnow)
+    contract_start = Column(String, default="")    # 유지보수 계약 시작일 YYYY-MM-DD
+    contract_end   = Column(String, default="")    # 유지보수 계약 종료일
+    check_cycle    = Column(String, default="")    # 점검 주기: "" 없음 / 월간 / 분기 → 점검 누락 표시
+    archived       = Column(Boolean, default=False)  # 보관(계약 종료 등): 목록·선택 칸·알림에서 빠지고 데이터는 남는다
 
     engineer   = relationship("Engineer",      back_populates="sites")
     devices    = relationship("Device",        back_populates="site", cascade="all, delete")
@@ -141,6 +146,7 @@ class Report(Base):
     stored_name = Column(String, nullable=False)
     size        = Column(String, default="")
     uploaded_at = Column(String, default="")
+    category    = Column(String, default="점검표")   # 점검표 / 구성도 / 기타
     site        = relationship("Site", back_populates="reports")
 
 class Note(Base):
@@ -618,6 +624,18 @@ class TechNote(Base):
     body        = Column(Text, default="")
     created_at  = Column(String, default="")
 
+# ── 주간보고서 제출 (팀장 취합용) ─────────────────
+class WeeklySubmission(Base):
+    """엔지니어가 [제출]한 그 주 주간보고서의 사본. 다시 제출하면 덮어쓴다 (엔지니어·주당 1건)."""
+    __tablename__ = "weekly_submissions"
+    id           = Column(String, primary_key=True)
+    engineer_id  = Column(String, ForeignKey("engineers.id"), nullable=False, index=True)
+    week_start   = Column(String, nullable=False, index=True)   # 그 주 월요일 YYYY-MM-DD
+    data         = Column(Text, default="")                     # JSON: build_weekly 의 rows(비고 반영)·totals·total
+    notes        = Column(Text, default="")                     # 특이사항
+    confirmed    = Column(Text, default="")                     # 확정사항
+    submitted_at = Column(String, default="")                   # "YYYY-MM-DD HH:MM" (한국 시간)
+
 def _ensure_column(table: str, column: str, ddl: str):
     """기존 테이블에 열이 없으면 추가 (create_all은 열 추가를 하지 않음)."""
     with engine.begin() as conn:
@@ -644,6 +662,11 @@ def init_db():
                      ("req_docs", "VARCHAR DEFAULT '완료보고서,검수확인서'")):
         _ensure_column("projects", col, typ)
     _ensure_column("devices", "firmware", "VARCHAR DEFAULT ''")
+    for col, typ in (("contract_start", "VARCHAR DEFAULT ''"), ("contract_end", "VARCHAR DEFAULT ''"),
+                     ("check_cycle", "VARCHAR DEFAULT ''"), ("archived", "BOOLEAN DEFAULT 0")):
+        _ensure_column("sites", col, typ)
+    _ensure_column("reports", "category", "VARCHAR DEFAULT '점검표'")
+    _ensure_column("users", "is_lead", "BOOLEAN DEFAULT 0")
     for t in ("schedules", "workplans", "incidents"):
         _ensure_column(t, "device_ids", "VARCHAR DEFAULT ''")
     _ensure_column("car_profiles", "driver_name", "VARCHAR DEFAULT ''")

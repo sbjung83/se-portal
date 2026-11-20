@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api/engineers/{eng_id}/dashboard", tags=["dashboard"
 def get_dashboard(eng_id: str, db: Session = Depends(get_db)):
     today_ym = datetime.now().strftime("%Y-%m")
     sites       = db.query(Site).filter(Site.engineer_id == eng_id).all()
-    site_ids    = [s.id for s in sites]
+    site_ids    = [s.id for s in sites if not s.archived]     # 보관한 사이트 장비는 워런티·EOS 에서 뺀다
     all_devices = db.query(Device).filter(Device.site_id.in_(site_ids)).all() if site_ids else []
     # 이번 달 서비스 지원 실적 (기술지원 = 작업계획, 장애처리 = Incident)
     monthly_support = support_only(db.query(WorkPlan).filter(

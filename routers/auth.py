@@ -62,6 +62,7 @@ def get_current_user(
         "engineer_id": eng.id,
         "engineer_name": eng.name,
         "is_admin": bool(user.is_admin),
+        "is_lead": bool(user.is_lead),
         "session_id": session.id,
     }
 
@@ -71,6 +72,13 @@ def require_login(request: Request, user: dict = Depends(get_current_user)):
     eng_id = request.path_params.get("eng_id")
     if eng_id is not None and eng_id != user["engineer_id"]:
         raise HTTPException(status_code=403, detail="접근 권한이 없습니다")
+    return user
+
+
+def require_lead(user: dict = Depends(get_current_user)):
+    """팀장 전용 API (팀 주간보고서). 팀장 지정은 관리자가 계정 관리에서 한다."""
+    if not user.get("is_lead"):
+        raise HTTPException(status_code=403, detail="팀장만 볼 수 있습니다")
     return user
 
 
@@ -176,7 +184,8 @@ def login(data: LoginIn, request: Request, response: Response, db: Session = Dep
     db.add(SessionToken(id=sid, user_id=user.id, engineer_id=eng.id, expires_at=now + timedelta(days=SESSION_DAYS)))
     db.commit()
     _set_cookie(response, sid, request)
-    return {"ok": True, "engineer_name": eng.name, "engineer_id": eng.id, "is_admin": bool(user.is_admin)}
+    return {"ok": True, "engineer_name": eng.name, "engineer_id": eng.id, "is_admin": bool(user.is_admin),
+            "is_lead": bool(user.is_lead)}
 
 @router.post("/logout")
 def logout(response: Response, session_id: Optional[str] = Cookie(default=None), db: Session = Depends(get_db)):
@@ -263,7 +272,7 @@ def list_users(current=Depends(require_admin), db: Session = Depends(get_db)):
     rows = db.query(User).order_by(User.created_at).all()
     order = {"승인 대기": 0, "사용 중": 1, "사용 중지": 2}
     out = [{"id": u.id, "username": u.username, "name": names.get(u.engineer_id, ""), "dept": u.dept or "",
-            "position": u.position or "", "email": u.email or "", "is_admin": bool(u.is_admin),
+            "position": u.position or "", "email": u.email or "", "is_admin": bool(u.is_admin), "is_lead": bool(u.is_lead),
             "state": _user_state(u), "approved_at": u.approved_at or "", "me": u.id == current["user_id"],
             "created_at": (u.created_at + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M") if u.created_at else ""}
            for u in rows]
@@ -276,6 +285,22 @@ def approve_user(user_id: str, current=Depends(require_admin), db: Session = Dep
     """승인 대기 → 사용 중, 사용 중지 → 다시 사용"""
     u = _admin_target(db, user_id, current)
     u.approved, u.approved_at = True, _now_str()
+    db.commit()
+    return {"ok": True}
+
+
+class LeadIn(BaseModel):
+    on: bool
+
+@router.post("/users/{user_id}/lead")
+def set_lead(user_id: str, data: LeadIn, current=Depends(require_admin), db: Session = Depends(get_db)):
+    """팀장 지정·해제 (관리자 본인도 지정할 수 있다)."""
+    u = db.query(User).filter(User.id == user_id).first()
+    if not u:
+        raise HTTPException(404, "계정을 찾을 수 없습니다")
+    if data.on and _user_state(u) != "사용 중":
+        raise HTTPException(400, "사용 중인 계정만 팀장으로 지정할 수 있습니다")
+    u.is_lead = data.on
     db.commit()
     return {"ok": True}
 

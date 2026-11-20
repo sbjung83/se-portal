@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-let ENG_ID='', ENG_NAME='', IS_ADMIN=false;
+let ENG_ID='', ENG_NAME='', IS_ADMIN=false, IS_LEAD=false;
 let currentSiteId=null, revealedPw={};   // revealedPw: 하위 호환용(미사용)
 
 // 페이지네이션 상태
@@ -26,7 +26,7 @@ window.fetch = async (...args) => {
 };
 function _sessionExpired(){
   if(!ENG_ID) return;
-  ENG_ID=''; ENG_NAME=''; IS_ADMIN=false;
+  ENG_ID=''; ENG_NAME=''; IS_ADMIN=false; IS_LEAD=false;
   document.querySelectorAll('.overlay.open').forEach(o => o.classList.remove('open'));
   $('main-app').style.display='none'; $('auth-wrap').style.display='flex';
   switchAuth('login');
@@ -124,7 +124,7 @@ async function doLogin(){
   let r;
   try { r=await api.post('/api/auth/login',{username,password}); }
   catch(e){ $('login-err').textContent='서버에 연결하지 못했습니다'; return }
-  if(r.ok){ENG_ID=r.engineer_id;ENG_NAME=r.engineer_name;IS_ADMIN=!!r.is_admin;$('login-pw').value='';$('login-err').textContent='';initApp()}
+  if(r.ok){ENG_ID=r.engineer_id;ENG_NAME=r.engineer_name;IS_ADMIN=!!r.is_admin;IS_LEAD=!!r.is_lead;$('login-pw').value='';$('login-err').textContent='';initApp()}
   else $('login-err').textContent=(typeof r.detail==='string'&&r.detail)||'로그인 실패';
 }
 async function doRegister(){
@@ -140,7 +140,7 @@ async function doRegister(){
 }
 async function doLogout(){
   try { await api.post('/api/auth/logout',{}); } catch(e){}
-  ENG_ID='';ENG_NAME='';IS_ADMIN=false;
+  ENG_ID='';ENG_NAME='';IS_ADMIN=false;IS_LEAD=false;
   $('login-err').textContent='';
   $('auth-wrap').style.display='flex';$('main-app').style.display='none';
 }
@@ -167,14 +167,23 @@ async function renderUsers(){
     : u.is_admin ? '' : `<button class="btn btn-sm" onclick="userAct('${u.id}','suspend')">사용 중지</button>`;
   const row = u => `<tr class="${u.state === '사용 중지' ? 'done' : ''}">
     <td class="c"><span class="badge ${USER_ST_CLS[u.state]}">${u.state}</span></td>
-    <td>${esc(u.name)}${u.is_admin ? ' <span class="badge b-blue">관리자</span>' : ''}</td>
+    <td>${esc(u.name)}${u.is_admin ? ' <span class="badge b-blue">관리자</span>' : ''}${u.is_lead ? ' <span class="badge b-purple">팀장</span>' : ''}</td>
     <td>${esc(u.username)}</td><td>${esc(u.dept || '-')}</td><td>${esc(u.position || '-')}</td>
     <td title="${esc(u.email)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(u.email || '-')}</td>
-    <td>${esc(u.created_at || '-')}</td><td class="c">${act(u)}</td></tr>`;
+    <td>${esc(u.created_at || '-')}</td>
+    <td class="c">${u.state === '사용 중' ? `<input type="checkbox" ${u.is_lead ? 'checked' : ''} title="팀장: 팀 주간보고서(제출된 주간보고서 취합)를 봅니다" onchange="userLead('${u.id}', this.checked)">` : '-'}</td>
+    <td class="c">${act(u)}</td></tr>`;
   $('users-list').innerHTML = `<table class="cl-table sm-table sh-table sh-inhead">
-    <colgroup><col style="width:96px"><col style="width:15%"><col style="width:13%"><col style="width:13%"><col style="width:10%"><col><col style="width:140px"><col style="width:150px"></colgroup>
-    <thead><tr><th class="c">상태</th><th>이름</th><th>아이디</th><th>부서</th><th>직급</th><th>이메일</th><th>가입 신청</th><th class="c">관리</th></tr></thead>
+    <colgroup><col style="width:96px"><col style="width:15%"><col style="width:13%"><col style="width:13%"><col style="width:10%"><col><col style="width:140px"><col style="width:60px"><col style="width:150px"></colgroup>
+    <thead><tr><th class="c">상태</th><th>이름</th><th>아이디</th><th>부서</th><th>직급</th><th>이메일</th><th>가입 신청</th><th class="c">팀장</th><th class="c">관리</th></tr></thead>
     <tbody>${list.map(row).join('')}</tbody></table>`;
+}
+async function userLead(id, on){
+  try { await _apiSend('POST', `/api/auth/users/${id}/lead`, {on}); toast(on ? '팀장으로 지정했습니다 (그 계정은 다시 로그인하거나 새로고침하면 메뉴가 보입니다)' : '팀장 지정을 풀었습니다'); }
+  catch(e){ toast('처리 실패: ' + e.message); }
+  const me = await api.get('/api/auth/me').catch(() => null);
+  if(me && IS_LEAD !== !!me.is_lead){ IS_LEAD = !!me.is_lead; document.querySelectorAll('.nav-item[data-lead]').forEach(n => n.style.display = IS_LEAD ? '' : 'none'); }
+  renderUsers();
 }
 async function userAct(id, what){
   const msg = {suspend:'이 계정의 사용을 중지할까요? 로그인이 막히고 지금 로그인된 화면도 끊깁니다. 데이터는 그대로 남습니다.',
@@ -279,6 +288,9 @@ function initApp(){
   // 관리자 전용 메뉴(개발 체크리스트)는 관리자에게만 보인다. 서버도 관리자가 아니면 거절한다
   document.querySelectorAll('.nav-item[data-admin]').forEach(n => n.style.display = IS_ADMIN ? '' : 'none');
   if(!IS_ADMIN && document.querySelector('.page.active[data-admin]')){ const n = document.querySelector('.nav-item[data-page="dashboard"]'); if(n) n.click(); }
+  // 팀장 메뉴(팀 주간보고서)는 팀장에게만 (계정 관리에서 관리자가 지정, 서버도 팀장이 아니면 거절)
+  document.querySelectorAll('.nav-item[data-lead]').forEach(n => n.style.display = IS_LEAD ? '' : 'none');
+  if(!IS_LEAD && document.querySelector('.page.active[data-lead]')){ const n = document.querySelector('.nav-item[data-page="dashboard"]'); if(n) n.click(); }
   if(IS_ADMIN) _usersBadge();
   _dashHead();
   renderDashboard();
@@ -302,6 +314,7 @@ document.querySelectorAll('.nav-item').forEach(el=>{
     if(page==='incidents')      renderIncidents();
     if(page==='service-history') renderServiceHistory();
     if(page==='weekly-report')  renderWeeklyReport();
+    if(page==='team-report')    renderTeamReport();
     if(page==='dev-checklist')  loadDevChecklist();
     if(page==='users')          renderUsers();
     if(page==='gcal')           renderGcal();
@@ -787,7 +800,7 @@ async function dashToggleCL(id, checked){
 async function fillSiteSel(selId, selectedId=''){
   const sites=await api.get(`/api/engineers/${ENG_ID}/sites`);
   $(selId).innerHTML='<option value="">— 선택 —</option>'+
-    sites.map(s=>`<option value="${s.id}" ${s.id===selectedId?'selected':''}>${esc(s.name)}</option>`).join('');
+    _liveSites(sites, selectedId).map(s=>`<option value="${s.id}" ${s.id===selectedId?'selected':''}>${esc(s.name)}</option>`).join('');
 }
 
 $('btn-sm-add') && $('btn-sm-add').addEventListener('click', () => openEntry(null, ['점검']));
@@ -939,7 +952,7 @@ async function _fillCLSiteSel(selected=''){
   try {
     const sites = await api.get(`/api/engineers/${ENG_ID}/sites`);
     $('cl-item-site').innerHTML = '<option value="">— 사이트 선택 —</option>' +
-      sites.map(s => `<option value="${s.id}" ${s.id===selected?'selected':''}>${esc(s.name)}</option>`).join('');
+      _liveSites(sites, selected).map(s => `<option value="${s.id}" ${s.id===selected?'selected':''}>${esc(s.name)}</option>`).join('');
   } catch(e) {
     $('cl-item-site').innerHTML = '<option value="">사이트 로딩 실패</option>';
   }
@@ -1009,24 +1022,38 @@ async function renderSites(){
   catch(e){ $('site-list').innerHTML = '<div class="empty" style="color:#dc2626">사이트 목록을 불러오지 못했습니다</div>'; return; }
   drawSites();
 }
-let _siteFilter = '';      // 요약 칸을 눌러 고른 조건: '' | open_issues | late_sched | checklist_todo | expiring_count | eos_count
+let _siteFilter = '';      // 요약 칸을 눌러 고른 조건: '' | open_issues | late_sched | check_missing | contract_due | checklist_todo | expiring_count | eos_count | os_missing
+let _siteArchived = false; // 보관한 사이트 보기
 function siteFilter(k){ _siteFilter = _siteFilter === k ? '' : k; drawSites(); }
+function siteShowArchived(on){ _siteArchived = on; _siteFilter = ''; drawSites(); }
+// 사이트 선택 칸: 보관한 사이트는 빼되 지금 고른 사이트는 남긴다
+const _liveSites = (sites, keep = '') => sites.filter(s => !s.archived || s.id === keep);
+function exportSites(){ location.href = `/api/engineers/${ENG_ID}/sites/export/all${_siteArchived ? '?archived=true' : ''}`; }
+function _contractTxt(s){
+  if(!s.contract_start && !s.contract_end) return '';
+  return `계약 ${s.contract_start || '?'} ~ ${s.contract_end || ''}${s.check_cycle ? ` · ${s.check_cycle} 점검` : ''}`;
+}
 function drawSites(){
   const q = ($('site-search').value || '').trim().toLowerCase();
   const el = $('site-list');
-  const sum = k => _sites.reduce((a, s) => a + (s[k] || 0), 0);
-  const FILTERS = [['open_issues','미해결 이슈','red'], ['late_sched','점검 지연','red'], ['checklist_todo','체크리스트 남음','amber'], ['expiring_count','워런티 만료 임박','amber'], ['eos_count','OS 지원 종료·임박','red']];
+  const live = _sites.filter(s => !s.archived), nArch = _sites.length - live.length;
+  const base = _siteArchived ? _sites.filter(s => s.archived) : live;
+  const sum = k => base.reduce((a, s) => a + (s[k] || 0), 0);
+  const FILTERS = [['open_issues','미해결 이슈','red'], ['late_sched','점검 지연','red'], ['check_missing','점검 누락','red'], ['contract_due','계약 만료·임박','amber'],
+                   ['checklist_todo','체크리스트','amber'], ['expiring_count','워런티 임박','amber'], ['eos_count','OS 지원 종료','red'], ['os_missing','OS 미입력','amber']];
   $('site-summary').innerHTML =
-      `<div class="wr-sum-i"><span>사이트</span><b>${_sites.length}</b></div>`
+      `<div class="wr-sum-i"><span>사이트</span><b>${base.length}</b></div>`
     + `<div class="wr-sum-i"><span>장비</span><b>${sum('device_count')}</b></div>`
-    + FILTERS.map(([k, name, cls]) => { const v = sum(k), n = _sites.filter(s => s[k]).length;
+    + FILTERS.map(([k, name, cls]) => { const v = _siteArchived ? 0 : sum(k), n = base.filter(s => s[k]).length;   // 보관한 사이트는 확인할 것을 세지 않음
         return `<div class="wr-sum-i st-f ${v ? cls : 'zero'}${_siteFilter === k ? ' on' : ''}" ${v ? `onclick="siteFilter('${k}')" title="눌러서 해당 사이트만 보기 (다시 누르면 해제)"` : ''}>
           <span>${name}${v ? ` <em>${n}곳</em>` : ''}</span><b>${v}</b></div>`; }).join('');
-  const list = _sites.filter(s => (!q || [s.name, s.location, s.manager, s.contact, s.memo].some(v => (v || '').toLowerCase().includes(q)))
+  const list = base.filter(s => (!q || [s.name, s.location, s.manager, s.contact, s.memo].some(v => (v || '').toLowerCase().includes(q)))
                                && (!_siteFilter || s[_siteFilter]));
   const fname = (FILTERS.find(f => f[0] === _siteFilter) || [])[1];
-  $('site-list-sub').innerHTML = `${list.length}곳${fname ? ` · <b>${fname}</b> 있는 사이트만 <a href="#" onclick="siteFilter('');return false">전체 보기</a>` : ''} · 줄을 누르면 상세 화면을 엽니다`;
-  if(!list.length){ el.innerHTML = `<div class="empty">${_sites.length ? '조건에 맞는 사이트가 없습니다' : '사이트가 없습니다. [+ 사이트 추가]로 등록해주세요'}</div>`; return; }
+  $('site-list-sub').innerHTML = `${_siteArchived ? '<b>보관한 사이트</b> ' : ''}${list.length}곳${fname ? ` · <b>${fname}</b> 있는 사이트만 <a href="#" onclick="siteFilter('');return false">전체 보기</a>` : ''} · 줄을 누르면 상세 화면을 엽니다`
+    + (_siteArchived ? ` · <a href="#" onclick="siteShowArchived(false);return false">사용 중인 사이트 보기</a>`
+                     : nArch ? ` · <a href="#" onclick="siteShowArchived(true);return false">보관한 사이트 ${nArch}곳</a>` : '');
+  if(!list.length){ el.innerHTML = `<div class="empty">${base.length ? '조건에 맞는 사이트가 없습니다' : _siteArchived ? '보관한 사이트가 없습니다' : '사이트가 없습니다. [+ 사이트 추가]로 등록해주세요'}</div>`; return; }
   const none = '<span class="lab-none">-</span>';
   el.innerHTML = `<div class="svh-table-wrap"><table class="wr-tbl st-tbl">
     <thead><tr><th style="width:19%">사이트</th><th>위치</th><th style="width:9%">담당자</th><th style="width:13%">연락처</th>
@@ -1035,18 +1062,21 @@ function drawSites(){
       const badges = [
         s.open_issues ? `<span class="badge b-red" title="미해결 이슈">이슈 ${s.open_issues}</span>` : '',
         s.late_sched ? `<span class="badge b-red" title="날짜가 지난 미완료 점검">점검 지연 ${s.late_sched}</span>` : '',
+        s.check_missing ? `<span class="badge b-red" title="${s.check_cycle} 점검 계약인데 ${esc(s.check_missing_label)} 점검 일정이 없습니다">${esc(s.check_missing_label)} 점검 없음</span>` : '',
+        s.contract_due ? `<span class="badge ${s.contract_days < 0 ? 'b-red' : 'b-amber'}" title="유지보수 계약 종료 ${esc(s.contract_end)}">${s.contract_days < 0 ? '계약 만료' : '계약 D-' + s.contract_days}</span>` : '',
         s.checklist_todo ? `<span class="badge b-amber" title="이번 주기에 남은 체크리스트">체크 ${s.checklist_todo}</span>` : '',
         s.expiring_count ? `<span class="badge b-amber" title="90일 이내 워런티 만료">워런티 ${s.expiring_count}</span>` : '',
         s.eos_count ? `<span class="badge b-red" title="OS 지원 종료(EOL)·1년 안에 종료되는 장비 (OS별 EOS 현황 기준)">OS ${s.eos_count}</span>` : '',
+        s.os_missing ? `<span class="badge b-gray" title="OS 칸이 비어 있어 지원 종료를 확인할 수 없는 장비 (철수 제외) — 장비 리스트의 엑셀 올리기로 한 번에 채울 수 있습니다">OS 미입력 ${s.os_missing}</span>` : '',
       ].filter(Boolean).join(' ');
       return `<tr id="site-card-${s.id}" onclick="openSiteDetail('${s.id}')">
-        <td><div class="wr-site">${esc(s.name)}</div>${s.memo ? `<div class="st-memo" title="${esc(s.memo)}">${esc(s.memo)}</div>` : ''}</td>
+        <td><div class="wr-site">${esc(s.name)}${s.archived ? ' <span class="badge b-gray">보관</span>' : ''}</div>${s.memo ? `<div class="st-memo" title="${esc(s.memo)}">${esc(s.memo)}</div>` : ''}</td>
         <td class="st-loc">${esc(s.location) || none}</td>
         <td>${esc(s.manager) || none}</td>
         <td class="st-tel">${esc(s.contact) || none}</td>
         <td class="c"><b id="dev-count-${s.id}">${s.device_count}</b></td>
         <td class="c">${_stMonth(s.month_sched)}</td>
-        <td>${badges || '<span class="st-ok">이상 없음</span>'}</td>
+        <td>${s.archived ? '<span class="lab-none">-</span>' : badges || '<span class="st-ok">이상 없음</span>'}</td>
         <td class="lab-act">
           <button class="icon-btn edit" title="정보 수정" onclick="event.stopPropagation();openEditSite('${s.id}')">${ICO_EDIT}</button>
           <button class="icon-btn del" title="삭제" onclick="event.stopPropagation();deleteSite('${s.id}')">${ICO_DEL}</button>
@@ -1064,8 +1094,9 @@ $('site-search').addEventListener('input', () => { clearTimeout(window._siteT); 
 function openAddSite(){
   $('site-modal-title').textContent = '사이트 추가';
   $('s-id').value = '';
-  ['s-name','s-loc','s-mgr','s-contact','s-memo'].forEach(id => $(id).value = '');
+  ['s-name','s-loc','s-mgr','s-contact','s-memo','s-cstart','s-cend','s-cycle'].forEach(id => $(id).value = '');
   $('s-name-note').style.display = 'none';
+  $('s-archived').checked = false; $('s-archived-row').style.display = 'none';
   openModal('modal-add-site');
 }
 async function openEditSite(id){
@@ -1076,6 +1107,8 @@ async function openEditSite(id){
   $('s-id').value = s.id;
   $('s-name').value = s.name; $('s-loc').value = s.location || ''; $('s-mgr').value = s.manager || '';
   $('s-contact').value = s.contact || ''; $('s-memo').value = s.memo || '';
+  $('s-cstart').value = s.contract_start || ''; $('s-cend').value = s.contract_end || ''; $('s-cycle').value = s.check_cycle || '';
+  $('s-archived').checked = !!s.archived; $('s-archived-row').style.display = '';
   $('s-name-note').style.display = '';
   openModal('modal-add-site');
 }
@@ -1093,7 +1126,10 @@ async function saveSite(){
   const name = $('s-name').value.trim();
   if(!name){ toast('사이트명을 입력해주세요'); return; }
   const id = $('s-id').value;
-  const body = {name, location:$('s-loc').value, manager:$('s-mgr').value, contact:$('s-contact').value, memo:$('s-memo').value};
+  const body = {name, location:$('s-loc').value, manager:$('s-mgr').value, contact:$('s-contact').value, memo:$('s-memo').value,
+                contract_start:$('s-cstart').value, contract_end:$('s-cend').value, check_cycle:$('s-cycle').value};
+  if(body.contract_start && body.contract_end && body.contract_start > body.contract_end){ toast('계약 종료일이 시작일보다 빠릅니다'); return; }
+  if(id) body.archived = $('s-archived').checked;
   try {
     if(id) await _apiSend('PATCH', `/api/engineers/${ENG_ID}/sites/${id}`, body);
     else   await _apiSend('POST',  `/api/engineers/${ENG_ID}/sites`, body);
@@ -1107,7 +1143,7 @@ async function deleteSite(id){
   let sm;
   try { sm = await _apiSend('GET', `/api/engineers/${ENG_ID}/sites/${id}/summary`); }
   catch(e){ toast(e.message); return; }
-  const parts = [['장비',sm.devices,'대'],['접속 정보',sm.accesses,'건'],['점검표 파일',sm.reports,'개'],['특이사항',sm.notes,'건'],
+  const parts = [['장비',sm.devices,'대'],['접속 정보',sm.accesses,'건'],['파일(점검표·구성도)',sm.reports,'개'],['특이사항',sm.notes,'건'],
                  ['점검일정',sm.schedules,'건'],['이슈',sm.issues,'건'],['체크리스트',sm.checklists,'건']]
     .filter(x => x[1]).map(x => `· ${x[0]} ${x[1]}${x[2]}`).join('\n');
   const typed = prompt(`'${sm.name}' 사이트를 삭제합니다.\n아래 데이터도 모두 함께 삭제되며 되돌릴 수 없습니다.\n\n${parts || '· (연결된 데이터 없음)'}\n\n※ 기술지원·장애처리 기록은 남습니다.\n\n삭제하려면 사이트명을 정확히 입력하세요.`);
@@ -1122,7 +1158,8 @@ function _drawSiteHead(){
   const s = _sites.find(x => x.id === currentSiteId);
   $('detail-site-name').textContent = s ? s.name : '';
   $('detail-site-info').innerHTML = s
-    ? [s.location, s.manager ? `담당 ${s.manager}` : '', s.contact].filter(Boolean).map(esc).join(' · ') || '<span style="color:#cbd5e1">위치·담당자 미입력</span>'
+    ? ([s.location, s.manager ? `담당 ${s.manager}` : '', s.contact, _contractTxt(s)].filter(Boolean).map(esc).join(' · ') || '<span style="color:#cbd5e1">위치·담당자 미입력</span>')
+      + (s.archived ? ' <span class="badge b-gray">보관</span>' : '')
     : '';
 }
 function _siteTabCnt(key, n){ const e = $('tcnt-' + key); if(e) e.textContent = n === '' ? '' : n; }
@@ -1132,7 +1169,7 @@ function _siteTab(tab){
 }
 async function openSiteDetail(siteId, tab='overview'){
   currentSiteId = siteId; revealedPw = {};
-  _devType = ''; ['dev-search','acc-search','rep-search','note-search'].forEach(i => $(i).value = '');
+  _devType = ''; _repCat = ''; ['dev-search','acc-search','rep-search','note-search'].forEach(i => $(i).value = '');
   ['devices','access','reports','notes'].forEach(k => _siteTabCnt(k, ''));
   if(!_sites.some(s => s.id === siteId)){ try { _sites = await api.get(`/api/engineers/${ENG_ID}/sites`); } catch(e){} }
   _drawSiteHead();
@@ -1217,7 +1254,7 @@ async function loadOverview(){
     <div class="ov-stats">
       ${stat('devices','장비', c.devices, c.no_warranty ? `<span class="ov-warn" title="워런티 만료일 미입력 장비">워런티 미입력 ${c.no_warranty}</span>` : '')}
       ${stat('access','접속 정보', c.accesses)}
-      ${stat('reports','점검표 파일', c.reports)}
+      ${stat('reports','파일', c.reports)}
       ${stat('notes','특이사항', c.notes)}
     </div>
     ${d.site.memo ? `<div class="ov-memo">${esc(d.site.memo)}</div>` : ''}
@@ -1279,6 +1316,45 @@ async function openDeviceHistory(devId, siteId){
       <td>${x.parts.length ? x.parts.map(part).join('') : '<span class="dev-muted">-</span>'}</td>
       <td><span class="badge ${INC_ST_CLS[x.status] || (x.status === '완료' ? 'b-green' : 'b-gray')}">${esc(x.status)}</span></td>
     </tr>`).join('')}</tbody></table>`;
+}
+
+// 장비 엑셀 올리기: 고른 파일로 미리 보기(apply=false) → 창에서 확인 → 반영(apply=true)
+let _devImportFile = null;
+async function _devImportSend(apply){
+  const fd = new FormData(); fd.append('file', _devImportFile); fd.append('apply', apply ? 'true' : 'false');
+  const r = await fetch(`/api/engineers/${ENG_ID}/sites/${currentSiteId}/devices/import`, {method:'POST', body: fd});
+  let d = null; try { d = await r.json(); } catch(e) {}
+  if(!r.ok) throw new Error((d && typeof d.detail === 'string') ? d.detail : `서버 오류 (HTTP ${r.status})`);
+  return d;
+}
+async function devImportPick(ev){
+  const f = ev.target.files[0]; ev.target.value = '';
+  if(!f) return;
+  _devImportFile = f;
+  let d;
+  try { d = await _devImportSend(false); } catch(e){ toast(e.message); return; }
+  const n = d.added + d.updated;
+  $('di-sum').innerHTML = `<b>${esc(f.name)}</b> · 추가 <b>${d.added}</b>대 · 수정 <b>${d.updated}</b>대 · 그대로 ${d.unchanged}대`
+    + (d.errors.length ? ` · <span style="color:var(--red-600)">건너뛸 줄 ${d.errors.length}</span>` : '') + ' · 빈 칸은 기존 값을 그대로 둡니다';
+  const rows = d.rows.map(r => `<tr><td class="c">${r.row}</td><td><span class="badge ${r.action === '추가' ? 'b-green' : 'b-blue'}">${r.action}</span></td>
+      <td class="dev-name">${esc(r.name)}</td>
+      <td>${r.changes.length ? r.changes.map(c => `<div><span class="dev-muted">${esc(c.field)}</span> ${c.old ? `${esc(c.old)} → ` : ''}<b>${esc(c.new)}</b></div>`).join('') : '<span class="dev-muted">새 장비</span>'}</td></tr>`).join('');
+  const errs = d.errors.map(e => `<tr><td class="c">${e.row}</td><td><span class="badge b-red">건너뜀</span></td><td class="dev-name">${esc(e.name || '-')}</td><td style="color:var(--red-600)">${esc(e.msg)}</td></tr>`).join('');
+  $('di-list').innerHTML = (rows || errs) ? `<div class="cl-panel pj-panel"><table class="cl-table">
+      <thead><tr><th class="c" style="width:72px">엑셀 행</th><th style="width:80px">처리</th><th style="width:28%">장비명</th><th>바뀌는 칸</th></tr></thead>
+      <tbody>${errs}${rows}</tbody></table></div>` : '<div class="empty">바뀌는 내용이 없습니다 (파일의 값이 포털과 같습니다)</div>';
+  $('di-apply').disabled = !n;
+  $('di-apply').textContent = n ? `반영 (${n}대)` : '반영';
+  openModal('modal-dev-import');
+}
+async function devImportApply(){
+  if(!_devImportFile) return;
+  let d;
+  $('di-apply').disabled = true;
+  try { d = await _devImportSend(true); } catch(e){ toast(e.message); $('di-apply').disabled = false; return; }
+  closeModal('modal-dev-import'); _devImportFile = null;
+  await Promise.all([loadDevices(), loadOverview()]); renderSites();
+  toast(`장비 추가 ${d.added}대 · 수정 ${d.updated}대 반영${d.errors.length ? ` · ${d.errors.length}줄 건너뜀` : ''}`);
 }
 
 async function loadDevices(){
@@ -1506,8 +1582,17 @@ async function deleteAccess(id){
   loadAccesses(); loadOverview(); toast('삭제됨');
 }
 
-// ── Reports ───────────────────────────────
-let _siteReps = [];
+// ── 사이트 파일 (구분: 점검표 / 구성도 / 기타) ──────────
+let _siteReps = [], _repCat = '';
+const REPORT_CATS = ['점검표', '구성도', '기타'];
+const _repInline = n => /\.(png|jpe?g|gif|webp|pdf)$/i.test(n || '');   // 브라우저에서 바로 볼 수 있는 파일
+function repSetCat(c){ _repCat = c; drawReports(); }
+async function repSetCategory(id, cat){
+  try { await _apiSend('PATCH', `/api/engineers/${ENG_ID}/sites/${currentSiteId}/reports/${id}`, {category: cat}); }
+  catch(e){ toast(e.message); return; }
+  const r = _siteReps.find(x => x.id === id); if(r) r.category = cat;
+  drawReports(); toast(`구분을 '${cat}'(으)로 바꿈`);
+}
 async function loadReports(){
   const sid = currentSiteId;
   const items=await api.get(`/api/engineers/${ENG_ID}/sites/${sid}/reports`);
@@ -1518,15 +1603,21 @@ async function loadReports(){
 }
 function drawReports(){
   const el = $('report-table'), items = _siteReps, sid = currentSiteId;
-  if(!items.length){ el.innerHTML = '<div class="empty">업로드된 파일이 없습니다. [↑ 파일 업로드]로 점검표를 올려 두세요</div>'; return; }
+  $('rep-cat-tabs').innerHTML = [['', `전체 ${items.length}`], ...REPORT_CATS.map(c => [c, `${c} ${items.filter(r => r.category === c).length}`])]
+    .map(([c, label]) => `<button class="svh-tab ${c === _repCat ? 'active' : ''}" onclick="repSetCat('${c}')">${label}</button>`).join('');
+  $('rep-upload-btn').textContent = `↑ ${_repCat || '점검표'} 올리기`;
+  if(!items.length){ el.innerHTML = '<div class="empty">올린 파일이 없습니다. 점검표·구성도(이미지·PDF 등)를 올려 두세요</div>'; return; }
   const q = ($('rep-search').value || '').trim().toLowerCase();
-  const list = items.filter(r => !q || (r.filename || '').toLowerCase().includes(q));
-  if(!list.length){ el.innerHTML = '<div class="empty">조건에 맞는 파일이 없습니다</div>'; return; }
+  const list = items.filter(r => (!_repCat || r.category === _repCat) && (!q || (r.filename || '').toLowerCase().includes(q)));
+  if(!list.length){ el.innerHTML = `<div class="empty">${_repCat && !q ? `${_repCat} 파일이 없습니다` : '조건에 맞는 파일이 없습니다'}</div>`; return; }
+  const url = r => `/api/engineers/${ENG_ID}/sites/${sid}/reports/${r.id}/download`;
   el.innerHTML = `<div class="dev-wrap"><table class="dev-tbl">
-    <colgroup><col><col style="width:120px"><col style="width:90px"><col style="width:130px"></colgroup>
-    <thead><tr><th>파일명</th><th>업로드일</th><th>크기</th><th></th></tr></thead><tbody>
+    <colgroup><col><col style="width:100px"><col style="width:110px"><col style="width:80px"><col style="width:130px"></colgroup>
+    <thead><tr><th>파일명</th><th>구분</th><th>올린 날</th><th>크기</th><th></th></tr></thead><tbody>
     ${list.map(r => `<tr>
-      <td class="dev-name" title="${esc(r.filename)}">${esc(r.filename)}</td>
+      <td class="dev-name" title="${esc(r.filename)}${_repInline(r.filename) ? ' — 눌러서 새 탭으로 보기' : ''}">${_repInline(r.filename)
+        ? `<a href="${url(r)}?inline=true" target="_blank" rel="noopener">${esc(r.filename)}</a>` : esc(r.filename)}</td>
+      <td><select class="rep-cat" onchange="repSetCategory('${r.id}', this.value)" title="구분 바꾸기">${REPORT_CATS.map(c => `<option ${c === r.category ? 'selected' : ''}>${c}</option>`).join('')}</select></td>
       <td>${esc(r.uploaded_at)}</td>
       <td>${esc(r.size)}</td>
       <td class="dev-act">
@@ -1538,9 +1629,11 @@ function drawReports(){
 }
 async function uploadReport(event){
   const file=event.target.files[0]; if(!file)return;
-  const fd=new FormData(); fd.append('file',file);
-  await fetch(`/api/engineers/${ENG_ID}/sites/${currentSiteId}/reports`,{method:'POST',body:fd});
-  event.target.value=''; loadReports(); loadOverview(); toast('파일 업로드 완료');
+  const fd=new FormData(); fd.append('file',file); fd.append('category', _repCat || '점검표');
+  const r = await fetch(`/api/engineers/${ENG_ID}/sites/${currentSiteId}/reports`,{method:'POST',body:fd});
+  event.target.value='';
+  if(!r.ok){ let d=null; try { d = await r.json(); } catch(e){} toast((d && d.detail) || `올리지 못했습니다 (HTTP ${r.status})`); return; }
+  loadReports(); loadOverview(); toast(`${_repCat || '점검표'} 파일을 올렸습니다`);
 }
 async function deleteReport(id){
   if(!confirm('파일을 삭제하시겠습니까?'))return;
@@ -2153,7 +2246,7 @@ async function openEntry(id, types = ['기술지원'], tab){
   document.querySelectorAll('#wp-types input').forEach(c => c.checked = e.types.includes(c.value));
   const manualName = e.site_id ? '' : (e.site_name || '');
   $('wp-site').innerHTML = '<option value="">— 선택 —</option>'
-    + sites.map(x => `<option value="${esc(x.id)}" ${x.id === e.site_id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')
+    + _liveSites(sites, e.site_id).map(x => `<option value="${esc(x.id)}" ${x.id === e.site_id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')
     + `<option value="${ENTRY_SITE_MANUAL}" ${manualName ? 'selected' : ''}>✎ 직접 입력 (목록에 없는 사이트)</option>`;
   $('wp-site-manual').value = manualName;
   $('wp-site-manual').style.display = manualName ? '' : 'none';
@@ -2714,6 +2807,7 @@ async function renderWeeklyReport(){
     $('wr-' + w).value = saved === null ? d[w] : saved;
     $(`wr-${w}-ed`).classList.toggle('on', saved !== null);
   });
+  _wrSubLoad();
   $('wr-download').disabled = !d.template_ok;
   $('wr-download').title = d.template_ok ? '' : '양식 파일(data/report_templates/weekly_report.xlsx)이 없습니다';
 
@@ -2774,14 +2868,39 @@ function wrReset(which){
   $('wr-' + which).value = _wrData[which];
   wrSaveText(which);
 }
+// 화면의 지금 내용 (엑셀 다운로드·제출 공통)
+const _wrBody = () => ({ start: _wrStart, notes: $('wr-notes').value, confirmed: $('wr-confirmed').value,
+  remarks: Object.fromEntries([...document.querySelectorAll('#wr-rows .wr-remark-in')].map(t => [t.dataset.key, t.value])) });
+// 제출 상태: 미제출 / 제출함(시각) / 제출 뒤 포털 내용이 바뀜 → 다시 제출
+function _wrSubShow(st){
+  const el = $('wr-sub-st'), btn = $('wr-submit');
+  if(!st || !st.submitted){ el.innerHTML = '<span class="badge b-gray" title="팀장에게 아직 제출하지 않았습니다">미제출</span>'; btn.textContent = '제출'; return; }
+  const t = st.submitted_at.slice(5).replace('-', '/');
+  el.innerHTML = st.changed
+    ? `<span class="badge b-amber" title="제출한 뒤 일정·제목 등 포털 내용이 바뀌었습니다. 다시 제출하면 팀장 화면에 반영됩니다">제출 후 바뀜</span> <span class="wr-dates">${t} 제출</span>`
+    : `<span class="badge b-green">제출함</span> <span class="wr-dates">${t}</span>`;
+  btn.textContent = '다시 제출';
+}
+async function _wrSubLoad(){
+  const start = _wrStart;
+  try { const st = await _apiSend('GET', `/api/engineers/${ENG_ID}/reports/weekly/submission?start=${start}`); if(start === _wrStart) _wrSubShow(st); }
+  catch(e){ $('wr-sub-st').textContent = ''; }
+}
+async function submitWeeklyReport(){
+  if(!_wrData) return;
+  if(!_wrData.rows.length && !confirm('이 주에 집계된 지원 내역이 없습니다. 그래도 제출할까요?')) return;
+  const btn = $('wr-submit'); btn.disabled = true;
+  try { _wrSubShow(await _apiSend('POST', `/api/engineers/${ENG_ID}/reports/weekly/submit`, _wrBody())); toast('주간보고서를 제출했습니다'); }
+  catch(e){ toast('제출 실패: ' + e.message); }
+  finally { btn.disabled = false; }
+}
 async function downloadWeeklyReport(){
   const btn = $('wr-download');
   btn.disabled = true; const label = btn.textContent; btn.textContent = '생성 중...';
   try {
     const r = await fetch(`/api/engineers/${ENG_ID}/reports/weekly/xlsx`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ start: _wrStart, notes: $('wr-notes').value, confirmed: $('wr-confirmed').value,
-        remarks: Object.fromEntries([...document.querySelectorAll('.wr-remark-in')].map(t => [t.dataset.key, t.value])) }) });
+      body: JSON.stringify(_wrBody()) });
     if(!r.ok){ let m = `HTTP ${r.status}`; try { m = (await r.json()).detail || m; } catch(e){} throw new Error(m); }
     const blob = await r.blob();
     const cd = r.headers.get('Content-Disposition') || '';
@@ -3024,7 +3143,7 @@ $('n-date').value=new Date().toISOString().slice(0,10);
 
 (async()=>{
   const me=await api.get('/api/auth/me').catch(()=>null);
-  if(me&&me.engineer_id){ENG_ID=me.engineer_id;ENG_NAME=me.engineer_name;IS_ADMIN=!!me.is_admin;initApp()}
+  if(me&&me.engineer_id){ENG_ID=me.engineer_id;ENG_NAME=me.engineer_name;IS_ADMIN=!!me.is_admin;IS_LEAD=!!me.is_lead;initApp()}
 })();
 
 // ── PROJECTS ─────────────────────────────────
@@ -3167,7 +3286,7 @@ async function _pjFormPrep(p){
   if(!_sites.length){ try { _sites = await api.get(`/api/engineers/${ENG_ID}/sites`); } catch(e){} }
   const sel = $('p-site');
   sel.innerHTML = '<option value="">— 사이트 관리에 없는 고객 (직접 입력) —</option>'
-    + [..._sites].sort((a, b) => a.name.localeCompare(b.name)).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
+    + _liveSites(_sites, p.site_id).sort((a, b) => a.name.localeCompare(b.name)).map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
   sel.value = p.site_id || '';
   const req = p.req_docs || ['완료보고서', '검수확인서'];
   $('p-docs').innerHTML = PROJ_DOC_CATS.map(d => `<label class="nt-chk"><input type="checkbox" value="${d}" ${req.includes(d) ? 'checked' : ''}> ${d}</label>`).join('');
@@ -3785,7 +3904,7 @@ function drawGcal(){
     <optgroup label="장애처리"><option value="장애처리|" ${sel === '장애처리|' ? 'selected' : ''}>장애처리</option></optgroup>`;
   const placeLabel = e => e.kind === '장애처리' ? '장애처리'
     : (e.kind === '점검' ? '점검' : '기술지원') + ' - ' + (e.sub_type || '') + (e.with_incident ? ' + 장애' : '');
-  const siteOpts = `<option value="">사이트 선택</option>` + _gcalSites.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+  const siteOpts = `<option value="">사이트 선택</option>` + _liveSites(_gcalSites).map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
   const stCls = { '등록': 'ok', '무시': 'off', '포털에서 삭제': 'off' };
 
   $('gcal-content').innerHTML = `
@@ -5234,4 +5353,80 @@ function drawSanFound(){
       <td><b>${esc(x.device)}</b><div class="pj-desc">${esc(x.date)}</div></td><td>${x.zone ? esc(x.zone) + (x.vsan ? ` <span class="pj-muted">VSAN ${esc(x.vsan)}</span>` : '') : '<span class="badge b-amber">존에 없음</span>'}</td>
       <td>${x.active ? '<span class="badge b-green">활성</span>' : '<span class="pj-muted">-</span>'}</td><td>${esc(x.member || '-')}</td><td>${x.wwn ? `<span class="san-wwn">${esc(x.wwn)}</span>` : '-'}</td></tr>`).join('')}</tbody></table></div>`
     : '<div class="empty">찾은 것이 없습니다</div>'}`;
+}
+
+
+// ── 팀 주간보고서 (팀장, routers/team.py): 엔지니어가 제출한 주간보고서를 일자별로 합쳐 본다 ──
+let _trStart = '', _trData = null, _trEng = '';
+function trMove(delta){
+  if(delta === 0 || !_trStart) _trStart = _ymd(_wrMonday(new Date()));
+  else { const [y,m,d] = _trStart.split('-').map(Number); _trStart = _ymd(new Date(y, m-1, d + 7*delta)); }
+  _trEng = ''; renderTeamReport();
+}
+function trSetEng(id){ _trEng = _trEng === id ? '' : id; _trDraw(); }
+async function renderTeamReport(){
+  if(!_trStart) _trStart = _ymd(_wrMonday(new Date()));
+  let d;
+  try { d = await _apiSend('GET', `/api/team/weekly?start=${_trStart}`); }
+  catch(e){ $('tr-rows').innerHTML = `<div class="empty" style="color:var(--red-600)">${esc(e.message)}</div>`; return; }
+  _trData = d; _trDraw();
+}
+function _trDraw(){
+  const d = _trData; if(!d) return;
+  const fmt = x => `${Number(x.slice(5,7))}/${Number(x.slice(8,10))}`;
+  const thisWeek = d.start === _ymd(_wrMonday(new Date())), wk = _wrWeekNo(d.start);
+  $('tr-range').innerHTML = `${wk.y}년 ${wk.m}월 ${wk.no}주차 <span class="wr-dates">${fmt(d.start)} (월) ~ ${fmt(d.end)} (일)</span>${thisWeek ? ' <span class="wr-now">이번 주</span>' : ''}`;
+  $('tr-today').disabled = thisWeek;
+  $('tr-download').disabled = !d.submitted || !d.template_ok;
+  $('tr-download').title = !d.template_ok ? '양식 파일(data/report_templates/weekly_report.xlsx)이 없습니다' : d.submitted ? '제출된 보고서를 일자별로 합쳐 양식에 채웁니다' : '이 주에 제출한 엔지니어가 없습니다';
+  const COLS = [['F','정기점검'],['G','장애지원'],['H','기술지원'],['I','납품'],['J','원격'],['K','이전'],['L','기타']];
+  const engs = d.engineers, nm = Object.fromEntries(engs.map(e => [e.id, e.name]));
+  const rows = _trEng ? d.rows.filter(r => r.engineers.includes(_trEng)) : d.rows;
+  const t = _trEng ? Object.fromEntries(COLS.map(([c]) => [c, rows.reduce((a, r) => a + r.counts[c], 0)])) : d.totals;
+  const total = Object.values(t).reduce((a, b) => a + b, 0);
+  $('tr-summary').innerHTML = `<div class="wr-sum-i${d.submitted < engs.length ? ' amber' : ''}"><span>제출</span><b>${d.submitted} / ${engs.length}</b></div>`
+    + COLS.map(([c, name]) => `<div class="wr-sum-i${t[c] ? '' : ' zero'}${c === 'G' && t[c] ? ' red' : ''}"><span>${name}</span><b>${t[c]}</b></div>`).join('')
+    + `<div class="wr-sum-i total"><span>합계</span><b>${total}건</b></div>`;
+  const n = v => v ? `<b>${v}</b>` : '';
+  $('tr-eng-sub').innerHTML = `${d.submitted}명 제출 · ${engs.length - d.submitted}명 미제출 · 줄을 누르면 그 엔지니어가 들어간 지원 내역만 봅니다`
+    + (_trEng ? ` · <b>${esc(nm[_trEng])}</b>만 보는 중 <a href="#" onclick="trSetEng('');return false">전체 보기</a>` : '');
+  $('tr-engs').innerHTML = `<div class="svh-table-wrap"><table class="wr-tbl">
+    <thead><tr><th style="width:16%">엔지니어</th><th style="width:150px">제출</th>${COLS.map(([, name]) => `<th class="c">${name.length === 4 ? name.slice(0,2) + '<br>' + name.slice(2) : name}</th>`).join('')}
+      <th class="c">합계</th><th>특이사항</th></tr></thead>
+    <tbody>${engs.map(e => `<tr class="${e.submitted ? 'clickable' : 'tr-none'}${_trEng === e.id ? ' tr-on' : ''}" ${e.submitted ? `onclick="trSetEng('${e.id}')"` : ''}>
+      <td class="wr-site">${esc(e.name)}${e.position ? ` <span class="wr-dates">${esc(e.position)}</span>` : ''}</td>
+      <td>${e.submitted ? `<span class="badge b-green">제출</span> <span class="wr-dates">${esc(e.submitted_at.slice(5).replace('-', '/'))}</span>` : '<span class="badge b-gray">미제출</span>'}</td>
+      ${COLS.map(([c]) => `<td class="c${e.totals[c] ? ' on' : ''}">${e.submitted ? n(e.totals[c]) : ''}</td>`).join('')}
+      <td class="c">${e.submitted ? `<b>${e.total}</b>` : ''}</td>
+      <td class="tr-note" title="${esc(e.notes)}">${e.notes ? esc(e.notes.split('\n')[0]) + (e.notes.includes('\n') ? ' …' : '') : '<span class="lab-none">-</span>'}</td></tr>`).join('')}</tbody></table></div>`;
+  $('tr-rows-sub').textContent = rows.length ? `${rows.length}줄${!_trEng && rows.length > 9 ? ' · 양식 9줄을 넘는 만큼 엑셀에 행이 추가됩니다' : ''}` : '';
+  $('tr-rows').innerHTML = !rows.length ? `<div class="empty">${d.submitted ? '제출된 지원 내역이 없습니다' : '이 주에 제출한 엔지니어가 없습니다'}</div>`
+    : `<div class="svh-table-wrap"><table class="wr-tbl">
+    <thead><tr><th style="width:14%">고객사</th><th style="width:92px">지원일자</th><th style="min-width:220px">지원요약</th><th style="width:150px">교체파트</th>
+      ${COLS.map(([, name]) => `<th class="c">${name.length === 4 ? name.slice(0,2) + '<br>' + name.slice(2) : name}</th>`).join('')}
+      <th style="width:96px">지원<br>엔지니어</th><th style="width:20%">비고</th></tr></thead>
+    <tbody>${rows.map(r => `<tr>
+      <td class="wr-site">${esc(r.site)}</td><td class="wr-date">${fmt(r.date)} (${r.weekday})</td>
+      <td class="wr-pre">${r.summary.map(x => '- ' + esc(x)).join('<br>')}</td>
+      <td class="wr-pre wr-parts">${(r.parts || []).map(esc).join('<br>')}</td>
+      ${COLS.map(([c]) => `<td class="c${r.counts[c] ? ' on' : ''}">${n(r.counts[c])}</td>`).join('')}
+      <td>${esc(r.workers)}</td><td class="wr-pre">${esc(r.remark).replace(/\n/g, '<br>')}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td colspan="4">합계</td>${COLS.map(([c]) => `<td class="c">${t[c] || ''}</td>`).join('')}<td colspan="2">총 ${total}건</td></tr></tfoot>
+  </table></div>`;
+  const txt = (v, empty) => v ? esc(v).replace(/\n/g, '<br>') : `<span class="lab-none">${empty}</span>`;
+  $('tr-notes').innerHTML = txt(d.notes, '제출된 특이사항이 없습니다');
+  $('tr-confirmed').innerHTML = txt(d.confirmed, '제출된 확정사항이 없습니다');
+}
+async function downloadTeamReport(){
+  const btn = $('tr-download'); btn.disabled = true;
+  try {
+    const r = await fetch(`/api/team/weekly/xlsx?start=${_trStart}`);
+    if(!r.ok){ let m = `HTTP ${r.status}`; try { m = (await r.json()).detail || m; } catch(e){} throw new Error(m); }
+    const blob = await r.blob(), m = (r.headers.get('Content-Disposition') || '').match(/filename\*=UTF-8''([^;]+)/);
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = m ? decodeURIComponent(m[1]) : '서비스지원본부_팀_주간보고.xlsx';
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    toast('팀 주간보고서를 내려받았습니다');
+  } catch(e){ toast('생성 실패: ' + e.message); }
+  finally { btn.disabled = false; }
 }

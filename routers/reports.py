@@ -15,9 +15,9 @@ from typing import Optional
 from datetime import datetime, date, timedelta
 from copy import copy
 from urllib.parse import quote
-import io, os
+import io, os, json, uuid
 
-from database import get_db, Engineer, Site, Schedule, WorkPlan, Incident, Issue, CalendarEvent
+from database import get_db, Engineer, Site, Schedule, WorkPlan, Incident, Issue, CalendarEvent, WeeklySubmission
 from routers.technotes import support_only
 
 router = APIRouter(prefix="/api/engineers/{eng_id}/reports", tags=["reports"])
@@ -84,11 +84,11 @@ def _summary(title: str, text: str, from_calendar: bool) -> list:
     return [title]
 
 
-def _wrapped_lines(ws, col: str, text, size: float = 15) -> float:
+def _wrapped_lines(ws, col: str, text, size: float = 15, width: float = None) -> float:
     """셀 글자가 칸 너비에서 몇 줄로 보이는지 어림해 15pt 줄 기준 높이로 돌려준다 (한글·전각 = 2칸, 들여쓰기·여백 감안)."""
     if not text:
         return 0
-    width = (ws.column_dimensions[col].width or 10) * 11 / size - 3
+    width = (width or ws.column_dimensions[col].width or 10) * 11 / size - 3   # width = 병합 칸이면 열 너비 합
     n = 0
     for line in str(text).split("\n"):
         w = sum(2 if ord(ch) > 0x2E7F else 1 for ch in line)
@@ -361,6 +361,14 @@ def write_weekly_xlsx(data: dict, notes: str, confirmed: str) -> bytes:
 
     ws[f"C{note_row}"] = " 특이사항\n" + (notes or "")
     ws[f"I{note_row}"] = " 확정사항\n" + (confirmed or "")
+    # 특이사항·확정사항 칸(두 행 병합): 줄이 많으면 (팀 보고서 등) 두 행 높이를 늘려 잘리지 않게
+    wsum = lambda cols: sum(ws.column_dimensions[c].width or 10 for c in cols)
+    need = max(_wrapped_lines(ws, "C", ws[f"C{note_row}"].value, width=wsum("CDEFGH")),
+               _wrapped_lines(ws, "I", ws[f"I{note_row}"].value, width=wsum("IJKLMNO")), 1)
+    cur = sum((ws.row_dimensions[r].height or 25.05) for r in (note_row, note_row + 1))
+    if 21 * need + 10 > cur:
+        for r in (note_row, note_row + 1):
+            ws.row_dimensions[r].height = (21 * need + 10) / 2
 
     for col in COUNT_COLS:
         ws[f"{col}{total_row}"] = f"=SUM({col}{DATA_START}:{col}{last})"
@@ -375,12 +383,9 @@ def write_weekly_xlsx(data: dict, notes: str, confirmed: str) -> bytes:
 
 @router.post("/weekly/xlsx")
 def weekly_export(eng_id: str, body: WeeklyExportIn, db: Session = Depends(get_db)):
-    data = build_weekly(eng_id, body.start, db)
+    data = _apply_remarks(build_weekly(eng_id, body.start, db), body.remarks)
     notes = data["notes"] if body.notes is None else body.notes
     confirmed = data["confirmed"] if body.confirmed is None else body.confirmed
-    for row in data["rows"]:
-        if body.remarks and row["key"] in body.remarks:
-            row["remark"] = str(body.remarks[row["key"]] or "")
     content = write_weekly_xlsx(data, notes, confirmed)
     eng = db.query(Engineer).filter(Engineer.id == eng_id).first()
     # 파일명: 서비스지원본부_<이름>_주간보고-<다운로드한 날짜 yymmdd>
@@ -388,3 +393,55 @@ def weekly_export(eng_id: str, body: WeeklyExportIn, db: Session = Depends(get_d
     return StreamingResponse(io.BytesIO(content),
                              media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                              headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname}"})
+
+
+# ── 제출 (팀장이 팀 주간보고서에서 본다, routers/team.py) ─────────────
+def _core(rows) -> list:
+    """제출 후 바뀌었는지 비교할 내용 (비고처럼 화면에서 직접 쓰는 칸은 뺀다)."""
+    return [(r["date"], r["site"], r["summary"], r.get("parts") or [], r["workers"], r["counts"]) for r in rows]
+
+def _apply_remarks(data: dict, remarks: Optional[dict]):
+    for row in data["rows"]:
+        if remarks and row["key"] in remarks:
+            row["remark"] = str(remarks[row["key"]] or "")
+    return data
+
+def _sub_dict(sub, cur=None):
+    if not sub:
+        return {"submitted": False}
+    snap = json.loads(sub.data or "{}")
+    return {"submitted": True, "submitted_at": sub.submitted_at,
+            "changed": cur is not None and _core(cur["rows"]) != _core(snap.get("rows", []))}
+
+@router.get("/weekly/submission")
+def weekly_submission(eng_id: str, start: Optional[str] = None, db: Session = Depends(get_db)):
+    """이 주 제출 상태 + 제출 뒤 포털 내용(일정·제목 등)이 바뀌었는지."""
+    cur = build_weekly(eng_id, start, db)
+    sub = db.query(WeeklySubmission).filter(WeeklySubmission.engineer_id == eng_id,
+                                            WeeklySubmission.week_start == cur["start"]).first()
+    return _sub_dict(sub, cur)
+
+@router.post("/weekly/submit")
+def weekly_submit(eng_id: str, body: WeeklyExportIn, db: Session = Depends(get_db)):
+    """화면의 지금 내용(비고·특이사항·확정사항 포함)을 그 주 보고서로 제출한다. 다시 제출하면 덮어쓴다."""
+    data = _apply_remarks(build_weekly(eng_id, body.start, db), body.remarks)
+    snap = {k: data[k] for k in ("start", "end", "title", "rows", "totals", "total")}
+    sub = db.query(WeeklySubmission).filter(WeeklySubmission.engineer_id == eng_id,
+                                            WeeklySubmission.week_start == data["start"]).first()
+    if not sub:
+        sub = WeeklySubmission(id=str(uuid.uuid4()), engineer_id=eng_id, week_start=data["start"])
+        db.add(sub)
+    sub.data = json.dumps(snap, ensure_ascii=False)
+    sub.notes = data["notes"] if body.notes is None else body.notes
+    sub.confirmed = data["confirmed"] if body.confirmed is None else body.confirmed
+    sub.submitted_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    db.commit()
+    return _sub_dict(sub, data)
+
+@router.delete("/weekly/submission")
+def weekly_unsubmit(eng_id: str, start: Optional[str] = None, db: Session = Depends(get_db)):
+    mon, _ = _week(start)
+    db.query(WeeklySubmission).filter(WeeklySubmission.engineer_id == eng_id,
+                                      WeeklySubmission.week_start == mon.isoformat()).delete()
+    db.commit()
+    return {"ok": True}
