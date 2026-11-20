@@ -178,6 +178,7 @@ class DeviceIn(BaseModel):
     serial_no: Optional[str] = ""
     dev_type:  Optional[str] = "서버"
     os:        Optional[str] = ""
+    firmware:  Optional[str] = ""
     purchase:  Optional[str] = ""
     warranty:  Optional[str] = ""
     status:    Optional[str] = "운영중"
@@ -198,6 +199,7 @@ class DeviceUpdate(BaseModel):
     serial_no: Optional[str] = None
     dev_type:  Optional[str] = None
     os:        Optional[str] = None
+    firmware:  Optional[str] = None
     purchase:  Optional[str] = None
     warranty:  Optional[str] = None
     status:    Optional[str] = None
@@ -225,7 +227,7 @@ def delete_device(eng_id: str, site_id: str, dev_id: str, db: Session = Depends(
 def _dev_dict(d, idx=None):
     return {
         "id": d.id, "name": d.name, "model": d.model, "serial_no": d.serial_no,
-        "dev_type": d.dev_type, "os": d.os, "purchase": d.purchase,
+        "dev_type": d.dev_type, "os": d.os, "firmware": d.firmware or "", "purchase": d.purchase,
         "warranty": d.warranty, "status": d.status, "memo": d.memo,
         "warranty_days": _warranty_days(d.warranty),
         "eos": eos_match.match_os(d.os, idx) if idx else None,

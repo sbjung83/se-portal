@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=88">
+<link rel="stylesheet" href="/static/css/style.css?v=98">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -294,7 +294,6 @@
         </div>
         <span id="sm-others"></span>
         <span style="flex:1"></span>
-        <button class="btn" onclick="openSchedCopy()">이전 달 일정 복사</button>
         <button class="btn btn-primary" id="btn-sm-add">+ 점검 등록</button>
       </div>
       <div id="sm-summary" class="pj-summary"></div>
@@ -682,7 +681,7 @@
     <div class="tab-pane active" id="dtab-overview"><div id="site-overview"></div></div>
     <div class="tab-pane" id="dtab-devices">
       <div class="dev-bar">
-        <input type="text" id="dev-search" placeholder="장비명, 모델, S/N, OS 검색...">
+        <input type="text" id="dev-search" placeholder="장비명, 모델, S/N, OS, 펌웨어 검색...">
         <div class="svh-tabs" id="dev-type-tabs"></div>
         <button class="btn btn-sm btn-primary" onclick="openModal('modal-add-device');devTypeChanged('d')">+ 장비 추가</button>
       </div>
@@ -727,9 +726,10 @@
     </div>
     <div class="grid2">
       <div class="form-row"><label>OS</label><input type="text" id="d-os" placeholder="AIX 7.2, RHEL 9..."></div>
-      <div class="form-row"><label>상태</label><select id="d-status"><option>운영중</option><option>점검중</option><option>교체예정</option><option>철수</option></select></div>
+      <div class="form-row"><label>펌웨어</label><input type="text" id="d-fw" placeholder="예: BIOS 2.19.1 / iDRAC 7.10, FOS 9.1.1, 8.6.0.5"></div>
     </div>
-    <div class="grid2">
+    <div class="pjf-grid3">
+      <div class="form-row"><label>상태</label><select id="d-status"><option>운영중</option><option>점검중</option><option>교체예정</option><option>철수</option></select></div>
       <div class="form-row"><label>구입일</label><input type="date" id="d-purchase"></div>
       <div class="form-row"><label>워런티 만료일</label><input type="date" id="d-warranty"></div>
     </div>
@@ -760,9 +760,10 @@
     </div>
     <div class="grid2">
       <div class="form-row"><label>OS</label><input type="text" id="ed-os"></div>
-      <div class="form-row"><label>상태</label><select id="ed-status"><option>운영중</option><option>점검중</option><option>교체예정</option><option>철수</option></select></div>
+      <div class="form-row"><label>펌웨어</label><input type="text" id="ed-fw" placeholder="예: BIOS 2.19.1 / iDRAC 7.10, FOS 9.1.1, 8.6.0.5"></div>
     </div>
-    <div class="grid2">
+    <div class="pjf-grid3">
+      <div class="form-row"><label>상태</label><select id="ed-status"><option>운영중</option><option>점검중</option><option>교체예정</option><option>철수</option></select></div>
       <div class="form-row"><label>구입일</label><input type="date" id="ed-purchase"></div>
       <div class="form-row"><label>워런티 만료일</label><input type="date" id="ed-warranty"></div>
     </div>
@@ -1083,40 +1084,61 @@
     </div>
     <div class="pj-pane" id="pj-pane-overview"></div>
     <div class="pj-pane" id="pj-pane-devices" style="display:none">
-      <div class="dev-bar"><span class="pj-hint" id="pj-dev-hint"></span><span style="flex:1"></span>
+      <div class="pj-tbar"><div class="pj-tbar-t" id="pj-dev-hint"></div>
         <button class="btn btn-sm" id="pj-dev-reg" onclick="registerPjDevs()">사이트 장비 리스트에 등록</button>
         <button class="btn btn-primary btn-sm" onclick="openPjDev()">+ 장비 추가</button></div>
       <div id="pj-dev-list"></div>
     </div>
     <div class="pj-pane" id="pj-pane-logs" style="display:none">
-      <div class="pj-logform">
-        <input type="date" id="pl-date"><select id="pl-kind"><option>메모</option><option>회의</option><option>협의</option><option>이슈</option><option>결정</option><option>작업</option></select>
-        <textarea id="pl-content" rows="2" placeholder="회의·협의 내용, 이슈, 결정 사항, 작업 메모 (Ctrl+Enter 로 추가)"></textarea>
-        <button class="btn btn-primary btn-sm" id="pl-btn" onclick="savePjLog()">추가</button>
-      </div>
+      <div class="pj-tbar"><div class="pj-tbar-t" id="pj-log-sum"></div>
+        <button class="btn btn-primary btn-sm" onclick="openPjLog()">+ 기록 추가</button></div>
       <div id="pj-log-list"></div>
-      <div class="pjo-h" style="margin-top:18px">이 사이트의 점검 · 기술지원 · 장애처리 <span class="pj-hint" id="pj-rel-range"></span></div>
-      <div id="pj-rel-list"></div>
     </div>
     <div class="pj-pane" id="pj-pane-tasks" style="display:none">
-      <div class="sec-head">
-        <span class="sec-label">태스크 목록</span>
-        <button class="btn btn-sm" onclick="openAddTask()">+ 태스크 추가</button>
-      </div>
+      <div class="pj-tbar"><div class="pj-tbar-t" id="pj-task-sum"></div>
+        <button class="btn btn-primary btn-sm" onclick="openAddTask()">+ 태스크 추가</button></div>
       <div id="task-list"></div>
     </div>
     <div class="pj-pane" id="pj-pane-files" style="display:none">
-      <div class="pj-docbar" id="pj-docbar"></div>
-      <div class="pj-upbar" id="pj-upbar">
-        <select id="pj-file-cat" class="filter-select" title="첨부할 파일의 구분">
-          <option>완료보고서</option><option>검수확인서</option><option>구성도</option><option>회의록</option><option>기타</option>
-        </select>
-        <input type="text" id="pj-file-note" class="pj-search" placeholder="메모 (선택) 예: 고객 서명본">
-        <button class="btn btn-primary btn-sm" id="pj-file-btn" onclick="$('pj-file-input').click()">+ 파일 첨부</button>
-        <input type="file" id="pj-file-input" multiple style="display:none" onchange="uploadProjFiles(this.files);this.value=''">
-        <span class="pj-uphelp">여러 개 선택 가능 · 파일을 이 창에 끌어다 놓아도 됩니다 · 파일당 최대 50MB</span>
-      </div>
+      <div class="pj-tbar"><div class="pj-tbar-t" id="pj-docbar"></div>
+        <button class="btn btn-primary btn-sm" onclick="openPjFile()">+ 파일 첨부</button></div>
       <div id="pj-file-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 프로젝트 작업 기록 추가/수정 -->
+<div class="overlay" id="modal-pj-log">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title" id="pl-title">작업 기록 추가</div><button class="btn btn-sm" onclick="closeModal('modal-pj-log')">✕</button></div>
+    <input type="hidden" id="pl-id">
+    <div class="grid2">
+      <div class="form-row"><label>날짜 *</label><input type="date" id="pl-date"></div>
+      <div class="form-row"><label>구분</label><select id="pl-kind"><option>메모</option><option>회의</option><option>협의</option><option>이슈</option><option>결정</option><option>작업</option></select></div>
+    </div>
+    <div class="form-row"><label>내용 *</label><textarea id="pl-content" style="min-height:140px" placeholder="회의·협의 내용, 이슈, 결정 사항, 작업 메모 (Ctrl+Enter 로 저장)"></textarea></div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-pj-log')">취소</button>
+      <button class="btn btn-primary" id="pl-btn" onclick="savePjLog()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 프로젝트 제출자료 첨부 / 구분·메모 수정 -->
+<div class="overlay" id="modal-pj-file">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title" id="pf-title">파일 첨부</div><button class="btn btn-sm" onclick="closeModal('modal-pj-file')">✕</button></div>
+    <input type="hidden" id="pf-id">
+    <div class="form-row" id="pf-file-row"><label>파일 * <span class="en-hint">여러 개 선택 가능 · 파일당 최대 50MB · 제출자료 탭에 끌어다 놓아도 됩니다</span></label>
+      <input type="file" id="pf-file" multiple onchange="_pjPicked = [...this.files]; _pfDrawPicked()"><div class="pj-hint" id="pf-picked"></div></div>
+    <div class="form-row" id="pf-name-row"><label>파일</label><div id="pf-name"></div></div>
+    <div class="grid2">
+      <div class="form-row"><label>구분</label><select id="pf-cat" title="내야 할 산출물과 같은 구분이면 '제출'로 표시됩니다"><option>완료보고서</option><option>검수확인서</option><option>구성도</option><option>회의록</option><option>기타</option></select></div>
+      <div class="form-row"><label>메모</label><input type="text" id="pf-note" placeholder="예: 고객 서명본"></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeModal('modal-pj-file')">취소</button>
+      <button class="btn btn-primary" id="pf-btn" onclick="savePjFile()">저장</button>
     </div>
   </div>
 </div>
@@ -1180,6 +1202,7 @@
     <div class="modal-head"><div class="modal-title" id="wp-modal-title">일정 등록</div>
       <div style="display:flex;gap:6px"><button class="btn btn-sm" id="wp-excel" style="display:none;color:#16a34a;border-color:#16a34a" onclick="downloadEntryExcel()">작업계획서 Excel</button><button class="btn btn-sm" id="wp-inc-excel" style="display:none;color:#b91c1c;border-color:#b91c1c" onclick="downloadEntryIncReport()">장애처리 보고서 Excel</button><button class="btn btn-sm" onclick="closeModal('modal-add-workplan')">✕</button></div></div>
     <input type="hidden" id="wp-id">
+    <div class="en-review" id="wp-review-note" style="display:none"><b>내용 확인</b> 구글 캘린더에서 가져온 일정입니다. 제목(주간보고서 지원요약에 들어감)과 내용을 확인·수정하고 <b>저장</b>하면 확인된 것으로 바뀌고, 그 뒤로는 캘린더가 내용을 덮어쓰지 않습니다.</div>
 
     <div class="form-section">
       <div class="form-row"><label>구분 * <span class="en-hint">여러 개 선택 가능 · 주간보고서에서 체크한 구분마다 1건씩 집계</span></label>
@@ -1199,9 +1222,18 @@
         <div class="form-row"><label>제목 *</label><input type="text" id="wp-title" placeholder="예: PM, vCenter 통합 작업"></div>
       </div>
       <div class="form-row" id="wp-dev-row" style="display:none">
-        <div class="en-devhead"><label>대상 장비 <span class="en-hint">선택 · 고르면 장비별 이력에 남습니다</span><span class="en-devcnt" id="wp-dev-cnt"></span></label>
-          <input type="text" id="wp-dev-q" class="en-devq" placeholder="장비 찾기" oninput="_entryDrawDevs()"></div>
-        <div id="wp-devs" class="en-devs"></div></div>
+        <label>대상 장비 <span class="en-hint">선택 · 고르면 장비별 이력에 남습니다</span></label>
+        <div class="en-devbox" id="wp-devbox">
+          <div class="en-devsel"><div id="wp-devs" class="en-devchips"></div>
+            <button type="button" class="btn btn-sm en-devbtn" id="wp-dev-btn" onclick="entryDevPop()">+ 장비 선택</button></div>
+          <div class="en-devpop" id="wp-dev-pop" style="display:none">
+            <input type="search" id="wp-dev-q" class="en-devq" placeholder="장비명 · 모델 · S/N · OS 찾기" oninput="_entryDrawPop()">
+            <div class="en-devlist" id="wp-dev-list"></div>
+            <div class="en-devfoot"><span id="wp-dev-cnt"></span><span style="flex:1"></span>
+              <button type="button" class="btn btn-sm" onclick="entryDevClear()">모두 해제</button>
+              <button type="button" class="btn btn-primary btn-sm" onclick="entryDevPop(false)">완료</button></div>
+          </div>
+        </div></div>
       <div class="grid3">
         <div class="form-row"><label><span id="wp-day-lbl">날짜</span> *</label><input type="date" id="wp-day" onchange="entrySyncOccurred()"></div>
         <div class="form-row"><label><span id="wp-time-lbl">시간</span> <span class="en-hint">선택</span></label><input type="time" id="wp-time" onchange="entrySyncOccurred()"></div>
@@ -1212,7 +1244,7 @@
         <div class="form-row" id="wp-reviewer-row"><label>결재자/공유자</label><input type="text" id="wp-reviewer" placeholder="예: 김팀장"></div>
         <div class="form-row" id="wp-sched-type-row"><label>점검 유형</label><select id="wp-sched-type"><option>월간</option><option>분기</option><option>특별</option></select></div>
       </div>
-      <div class="form-row" id="wp-purpose-row" style="margin-bottom:0"><label>작업 내용 / 메모 <span class="en-hint">구글 캘린더의 설명이 들어오는 칸</span></label><textarea id="wp-purpose" style="min-height:64px" placeholder="무슨 작업을 하는지 적습니다. 여러 줄이면 줄마다 한 항목으로 봅니다."></textarea></div>
+      <div class="form-row" id="wp-purpose-row" style="margin-bottom:0"><label>작업 내용 / 메모 <span class="en-hint">구글 캘린더의 설명이 들어오는 칸 (제목은 설명의 첫 줄)</span></label><textarea id="wp-purpose" style="min-height:64px" placeholder="무슨 작업을 하는지 적습니다. 여러 줄이면 줄마다 한 항목으로 봅니다."></textarea></div>
     </div>
 
     <div class="en-plan" id="wp-plan">
@@ -1251,7 +1283,7 @@
         </div>
         <div class="form-row"><label>장애 증상</label><textarea id="inc-symptom" style="min-height:70px" placeholder="장애 현상, 영향 범위, 인지 경로 등을 기재합니다."></textarea></div>
         <div class="form-row"><label>원인</label><textarea id="inc-cause" style="min-height:70px" placeholder="확인된 장애 원인을 기재합니다."></textarea></div>
-        <div class="form-row"><label>조치 내용</label><textarea id="inc-action" style="min-height:90px" placeholder="복구를 위해 수행한 조치를 순서대로 기재합니다."></textarea></div>
+        <div class="form-row"><label>조치 내용</label><textarea id="inc-action" style="min-height:180px" placeholder="복구를 위해 수행한 조치를 순서대로 기재합니다."></textarea></div>
         <div class="form-row"><label>사용 파트 <span class="en-hint">교체·투입한 부품 — 없으면 비워 두세요</span></label>
           <table class="wr-tbl doc-tbl inc-parts">
             <colgroup><col style="width:36px"><col><col style="width:16%"><col style="width:66px"><col style="width:16%"><col style="width:16%"><col style="width:15%"><col style="width:40px"></colgroup>
@@ -1429,6 +1461,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=122"></script>
+<script src="/static/js/app.js?v=138"></script>
 </body>
 </html>

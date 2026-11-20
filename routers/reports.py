@@ -72,7 +72,7 @@ def _one_line(text: str, n: int = 60):
 IMPORT_NOTE = "구글 캘린더에서 가져옴"
 
 def _summary(title: str, text: str, from_calendar: bool) -> list:
-    """지원요약에 넣을 줄 목록. 구글 캘린더에서 가져온 건은 캘린더 '설명' 내용(점검=메모, 기술지원=작업 목적)을 줄 단위로,
+    """점검의 지원요약 줄 목록. 구글 캘린더에서 가져온 건은 캘린더 설명(점검 메모)을 줄 단위로,
     설명이 없거나 포털에서 직접 등록한 건은 제목을 넣는다."""
     t = (text or "").strip()
     if from_calendar and t and t != IMPORT_NOTE:
@@ -81,6 +81,19 @@ def _summary(title: str, text: str, from_calendar: bool) -> list:
         if lines:
             return lines
     return [title]
+
+
+def _part_lines(raw) -> list:
+    """장애처리 보고서의 사용 파트 → 교체파트 칸 줄 목록: 파트마다 'PN : 파트넘버' / '[ 파트명 ]' 두 줄 (있는 것만)."""
+    from routers.incidents import load_parts
+    out = []
+    for q in load_parts(raw):
+        no, name = str(q.get("part_no") or "").strip(), str(q.get("name") or "").strip()
+        if no:
+            out.append(f"PN : {no}")
+        if name:
+            out.append(f"[ {name} ]")
+    return out
 
 
 def build_weekly(eng_id: str, start: Optional[str], db: Session):
@@ -94,14 +107,21 @@ def build_weekly(eng_id: str, start: Optional[str], db: Session):
     # 구글 캘린더에서 가져온 건(routers/gcal.py) — 지원요약에 캘린더 설명을 쓴다
     from_cal = {e.target_id for e in db.query(CalendarEvent).filter(CalendarEvent.engineer_id == eng_id,
                                                                     CalendarEvent.state == "등록")}
+    # 가져온 뒤 아직 내용을 확인(공통 입력 창에서 저장)하지 않은 기술지원·장애처리 — 화면에서 알려 준다
+    from routers.gcal import review_ids
+    unreviewed, review = review_ids(db, eng_id), []
+    def check(r, obj_id, kind, day, site, title):
+        if obj_id in unreviewed:
+            r["review"] = True
+            review.append({"id": obj_id, "kind": kind, "date": day[:10], "site": site, "title": title})
 
     rows = {}   # (date, site) -> row
 
     def row(day: str, site: str):
         key = (day[:10], site or "(사이트 미지정)")
         if key not in rows:
-            rows[key] = {"date": key[0], "site": key[1], "summary": [], "remarks": [], "workers": [],
-                         "counts": {c: 0 for c in COUNT_COLS}, "planned": False}
+            rows[key] = {"date": key[0], "site": key[1], "summary": [], "remarks": [], "workers": [], "parts": [],
+                         "counts": {c: 0 for c in COUNT_COLS}, "planned": False, "review": False}
         return rows[key]
 
     # 정기점검: 이번 주 완료된 점검일정 (작업자는 점검일정 모달의 연동 레코드에서)
@@ -115,6 +135,7 @@ def build_weekly(eng_id: str, start: Optional[str], db: Session):
             continue
         r = row(s.sched_date, sites[s.site_id].name if s.site_id in sites else "")
         r["summary"] += _summary(s.title, s.memo, s.id in from_cal)
+        check(r, s.id, "점검", s.sched_date, r["site"], s.title)
         r["planned"] = r["planned"] or s.status != "완료"
         r["counts"]["F"] += 1
         for t in (s.extra_types or "").split(","):          # 점검과 함께 한 지원(체크한 구분마다 1건)
@@ -128,7 +149,8 @@ def build_weekly(eng_id: str, start: Optional[str], db: Session):
         if not _in(p.work_date, mon, sun) or not (p.status == "완료" or _weekend(p.work_date)):
             continue
         r = row(p.work_date, p.site)
-        r["summary"] += _summary(p.title, p.purpose, p.id in from_cal)
+        r["summary"].append(p.title)                     # 포털에 저장된 제목(캘린더에서 가져온 건은 설명 첫 줄 → 사용자가 확인·수정)
+        check(r, p.id, "기술지원", p.work_date, r["site"], p.title)
         r["planned"] = r["planned"] or p.status != "완료"
         cols = [SUPPORT_COL[t] for t in (p.support_type or "").split(",") if t in SUPPORT_COL] or ["H"]
         for c in cols:
@@ -141,8 +163,11 @@ def build_weekly(eng_id: str, start: Optional[str], db: Session):
             continue
         r = row(i.occurred_at, i.site)
         r["summary"].append(i.title if "장애" in (i.title or "") else f"{i.title} 장애처리")
+        if not (i.entry_id and i.entry_id in unreviewed):   # 일정과 함께 등록한 장애는 그 일정 한 번만
+            check(r, i.id, "장애처리", i.occurred_at, r["site"], i.title)
         r["counts"]["G"] += 1
         r["workers"] += _workers(i.worker)
+        r["parts"] += _part_lines(i.parts)
         detail = " → ".join(x for x in [_one_line(i.symptom, 40), _one_line(i.action, 50)] if x)
         status = "" if i.status == "완료" else f" [{i.status}]"
         if detail or status:
@@ -166,6 +191,7 @@ def build_weekly(eng_id: str, start: Optional[str], db: Session):
     for key in sorted(rows):
         r = rows[key]
         r["workers"] = ", ".join(dict.fromkeys(r["workers"])) or eng.name
+        r["summary"] = list(dict.fromkeys(r["summary"]))       # 같은 줄에 같은 문장은 한 번만
         out.append(r)
 
     # 특이사항 기본값: 미해결 이슈 + 진행 중 장애
@@ -206,10 +232,12 @@ def build_weekly(eng_id: str, start: Optional[str], db: Session):
         "rows": [{"date": r["date"], "weekday": WD[date.fromisoformat(r["date"]).weekday()], "site": r["site"],
                   "key": f'{r["date"]}|{r["site"]}', "summary": r["summary"],
                   "remark": "\n".join(f"- {t}" for t in r["remarks"]),     # 비고 기본값(장애 건만 자동) — 화면에서 직접 고쳐 쓴다
-                  "workers": r["workers"], "counts": r["counts"], "planned": r["planned"]}
+                  "parts": r["parts"], "workers": r["workers"], "counts": r["counts"], "planned": r["planned"],
+                  "review": r["review"]}
                  for r in out],
         "totals": totals, "total": sum(totals.values()),
         "pending": pending,
+        "review": sorted(review, key=lambda x: (x["date"], x["site"])),
         "notes": "\n".join(notes), "confirmed": "\n".join(confirmed),
         "template_ok": os.path.exists(TEMPLATE_PATH),
     }
@@ -299,16 +327,17 @@ def write_weekly_xlsx(data: dict, notes: str, confirmed: str) -> bytes:
         ws[f"C{r}"] = date.fromisoformat(item["date"])
         ws[f"C{r}"].number_format = "yyyy/mm/dd"
         ws[f"D{r}"] = "\n".join(f"- {t}" for t in item["summary"])
+        ws[f"E{r}"] = "\n".join(item.get("parts") or []) or None
         for col in COUNT_COLS:
             ws[f"{col}{r}"] = item["counts"][col] or None
         ws[f"N{r}"] = item["workers"]
         remark = (item.get("remark") or "").strip()
         ws[f"O{r}"] = remark or None
-        for col in "DO":
+        for col in "DEO":
             c = ws[f"{col}{r}"]
             al = copy(c.alignment); al.wrap_text = True; al.vertical = "center"
             c.alignment = al
-        lines = max(len(item["summary"]), len(remark.splitlines()), 1)
+        lines = max(len(item["summary"]), len(item.get("parts") or []), len(remark.splitlines()), 1)
         ws.row_dimensions[r].height = max(25.05, 21 * lines + 6)
     for r in range(DATA_START + len(rows), last + 1):
         ws.row_dimensions[r].height = 25.05

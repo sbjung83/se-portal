@@ -97,6 +97,7 @@ class Device(Base):
     serial_no = Column(String, default="")
     dev_type  = Column(String, default="서버")
     os        = Column(String, default="")
+    firmware  = Column(String, default="")       # 펌웨어 버전 (BIOS/iDRAC/XCC, 스토리지 코드, FOS 등 자유 입력)
     purchase  = Column(String, default="")
     warranty  = Column(String, default="")
     status    = Column(String, default="운영중")
@@ -514,6 +515,7 @@ class CalendarEvent(Base):
     target_type = Column(String, default="")        # schedule / workplan
     target_id   = Column(String, default="")
     adopted     = Column(Boolean, default=False)    # 포털에 이미 있던 일정에 연결한 경우(구글에서 지워도 포털 건은 지우지 않음)
+    need_review = Column(Boolean, nullable=True)    # 기술지원·장애처리: 가져온 뒤 사용자가 공통 입력 창에서 확인·저장하기 전(True). NULL = 예전 건(동기화 때 판정)
 
 class SessionToken(Base):
     __tablename__ = "sessions"
@@ -629,6 +631,7 @@ def init_db():
     _ensure_column("calendar_links", "start_date", "VARCHAR DEFAULT ''")
     _ensure_column("calendar_events", "adopted", "BOOLEAN DEFAULT 0")
     _ensure_column("calendar_events", "description", "TEXT DEFAULT ''")
+    _ensure_column("calendar_events", "need_review", "BOOLEAN")
     _ensure_column("schedules", "extra_types", "VARCHAR DEFAULT ''")
     _ensure_column("leave_records", "apply_date", "VARCHAR DEFAULT ''")
     _ensure_column("users", "is_admin", "BOOLEAN DEFAULT 0")
@@ -640,6 +643,7 @@ def init_db():
                      ("cust_contact", "VARCHAR DEFAULT ''"), ("cust_phone", "VARCHAR DEFAULT ''"),
                      ("req_docs", "VARCHAR DEFAULT '완료보고서,검수확인서'")):
         _ensure_column("projects", col, typ)
+    _ensure_column("devices", "firmware", "VARCHAR DEFAULT ''")
     for t in ("schedules", "workplans", "incidents"):
         _ensure_column(t, "device_ids", "VARCHAR DEFAULT ''")
     _ensure_column("car_profiles", "driver_name", "VARCHAR DEFAULT ''")

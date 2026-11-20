@@ -9,6 +9,10 @@
    구글에서 지워져도 보고서 내용(원인·조치·파트 등)을 적었거나 처리를 시작한 장애는 지우지 않고 남긴다.
  - 사이트를 못 찾거나 종류를 알 수 없으면 '확인 대기' 로 두고 사용자가 직접 등록한다.
  - 구글에서 날짜·제목이 바뀌거나 일정이 지워지면 반영하되, 포털에서 완료 처리한 건은 건드리지 않는다.
+ - 기술지원·장애처리의 포털 제목 = 캘린더 설명의 첫 줄(없으면 "고객사 기술지원/장애처리").
+   가져온 뒤에는 '내용 확인'(need_review)으로 표시하고, 사용자가 공통 입력 창에서 저장하면 확인된 것으로 본다.
+   확인 전에는 캘린더 설명이 바뀌면 제목·내용도 따라 바꾸고, 확인한 뒤에는 내용(제목·목적·증상)을 덮어쓰지 않는다.
+   주간보고서는 포털에 저장된 제목을 쓴다.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -176,6 +180,68 @@ def _apply_desc(obj, old_desc: str, new_desc: str, only_empty: bool = False):
     return False
 
 
+def desc_title(desc: str, fallback: str = "") -> str:
+    """캘린더 설명의 첫 줄 → 포털 제목 (앞의 '-', '•', '#', '1.' 같은 머리 기호는 뗀다)."""
+    for line in (desc or "").splitlines():
+        t = re.sub(r"^[\s\-–—•·*#>]+", "", line)
+        t = re.sub(r"^\d{1,2}[.)]\s+", "", t).strip()
+        if t and t != IMPORT_NOTE:
+            return t[:100]
+    return fallback
+
+
+def _auto_titles(row: CalendarEvent) -> set:
+    """예전 규칙으로 자동으로 붙인 제목들 — 이 제목이면 사용자가 고친 제목이 아니다."""
+    c = row.customer or ""
+    return {f"{c} 장애처리", f"{c} 기술지원", f"{c} {(row.sub_type or '기술지원').replace(',', '·')}"}
+
+
+def _review_objs(db, row: CalendarEvent, obj) -> list:
+    """확인할 대상: 기술지원·장애처리 레코드와 일정에 함께 등록된 장애."""
+    out = [obj] if isinstance(obj, (WorkPlan, Incident)) else []
+    if not isinstance(obj, Incident):
+        out += _linked_incidents(db, obj)
+    return out
+
+
+def _retitle(db, row: CalendarEvent, obj, old_desc: str, new_desc: str):
+    """확인 전인 기술지원·장애처리의 제목을 바뀐 캘린더 설명의 첫 줄로 (사용자가 고친 제목은 그대로)."""
+    for o in _review_objs(db, row, obj):
+        cur = (o.title or "").strip()
+        if cur in _auto_titles(row) or (old_desc and cur == desc_title(old_desc)):
+            o.title = desc_title(new_desc, cur)
+
+
+def _legacy_review(db, row: CalendarEvent):
+    """need_review 가 없던 때 가져온 건: 자동 제목을 설명 첫 줄로 바꾸고, 손대지 않은 건만 '내용 확인'으로 둔다."""
+    row.need_review = False
+    obj = _target(db, row) if row.state == ST_DONE else None
+    if obj is None or row.adopted:
+        return
+    objs = _review_objs(db, row, obj)
+    untouched = bool(objs)
+    for o in objs:
+        if (o.title or "").strip() in _auto_titles(row):
+            o.title = desc_title(row.description, o.title)
+        if _is_finished(o):
+            untouched = False
+        elif isinstance(o, Incident):
+            untouched = untouched and not _inc_in_use(o, row.description if o is obj else "")
+        else:
+            untouched = untouched and (o.purpose or "").strip() in ("", IMPORT_NOTE, (row.description or "").strip())
+    row.need_review = untouched
+
+
+def review_ids(db, eng_id: str) -> set:
+    """'내용 확인'이 남은 포털 레코드 id (기술지원·장애처리·그 장애가 연결된 일정)."""
+    ids = set()
+    for r in db.query(CalendarEvent).filter(CalendarEvent.engineer_id == eng_id, CalendarEvent.state == ST_DONE,
+                                            CalendarEvent.need_review == True):  # noqa: E712
+        ids.add(r.target_id)
+        ids |= {i.id for i in db.query(Incident).filter(Incident.engineer_id == eng_id, Incident.entry_id == r.target_id)}
+    return ids
+
+
 def _used_ids(db, eng):
     return {r.target_id for r in db.query(CalendarEvent).filter(CalendarEvent.engineer_id == eng.id, CalendarEvent.target_id != "")}
 
@@ -197,7 +263,7 @@ def _new_incident(db, eng, row: CalendarEvent, site, entry_id: str = ""):
         if not entry_id:
             _apply_desc(inc, "", row.description, only_empty=True)
         return inc, True
-    inc = Incident(id=str(uuid.uuid4()), engineer_id=eng.id, title=f"{row.customer} 장애처리",
+    inc = Incident(id=str(uuid.uuid4()), engineer_id=eng.id, title=desc_title(row.description, f"{row.customer} 장애처리"),
                    site=site.name if site else row.customer, severity="보통", status="접수",
                    occurred_at=row.event_date, worker=row.workers or eng.name,
                    symptom="" if entry_id else (row.description or ""),
@@ -259,12 +325,15 @@ def _make_target(db, eng, row: CalendarEvent, site, sub: str, extra=(), inc: boo
         _apply_desc(old, "", row.description, only_empty=True)
         if row.kind == KIND_SCHEDULE and extra and not (old.extra_types or ""):
             old.extra_types = ",".join(extra)
+        row.need_review = False                         # 포털에 이미 있던 건은 사용자가 쓴 내용
         if inc and row.kind != KIND_INCIDENT and not _linked_incidents(db, old):
-            _new_incident(db, eng, row, site, entry_id=old.id)
+            _, found = _new_incident(db, eng, row, site, entry_id=old.id)
+            row.need_review = not found
         return
     row.adopted = False
     if row.kind == KIND_INCIDENT:
         obj, _ = _new_incident(db, eng, row, site)
+        row.need_review = True
         row.target_type, row.target_id, row.site_id, row.sub_type = "incident", obj.id, (site.id if site else ""), ""
         row.state, row.reason = ST_DONE, ""
         return
@@ -279,13 +348,15 @@ def _make_target(db, eng, row: CalendarEvent, site, sub: str, extra=(), inc: boo
                             worker=row.workers, status="예정", purpose="", support_type="기술지원"))
     else:
         sub = ",".join(t for t in SUPPORT_TYPES if t in (sub or "").split(",")) or "기술지원"
-        obj = WorkPlan(id=f"wp-{uuid.uuid4().hex[:8]}", engineer_id=eng.id, title=f"{row.customer} {sub.replace(',', '·')}",
+        obj = WorkPlan(id=f"wp-{uuid.uuid4().hex[:8]}", engineer_id=eng.id,
+                       title=desc_title(row.description, f"{row.customer} {sub.replace(',', '·')}"),
                        work_date=row.event_date, site=(site.name if site else row.customer), worker=row.workers or eng.name,
                        status="예정", support_type=sub, purpose=row.description or IMPORT_NOTE)
         row.target_type = "workplan"
     db.add(obj)
     row.target_id, row.site_id, row.sub_type = obj.id, (site.id if site else ""), sub
     row.state, row.reason = ST_DONE, ""
+    row.need_review = row.kind == KIND_SUPPORT or inc     # 기술지원·장애처리는 사용자가 내용을 확인한다
     if inc:
         _new_incident(db, eng, row, site, entry_id=obj.id)
 
@@ -318,6 +389,18 @@ def _resolve(db, eng, row: CalendarEvent, tag: str, sites):
     _make_target(db, eng, row, site, sub, extra, inc)
 
 
+def _sync_desc(db, row: CalendarEvent, obj, old_desc: str, new_desc: str) -> bool:
+    """캘린더 설명이 바뀐 것을 포털 내용에 반영. 사용자가 확인(저장)한 기술지원·장애처리는 덮어쓰지 않는다."""
+    if row.adopted:
+        return _apply_desc(obj, old_desc, new_desc, only_empty=True)
+    if row.need_review is False and row.kind != KIND_SCHEDULE:
+        return False
+    done = _apply_desc(obj, old_desc, new_desc)
+    if row.need_review:
+        _retitle(db, row, obj, old_desc, new_desc)
+    return done
+
+
 def sync_engineer(db: Session, eng_id: str, events=None) -> dict:
     """한 엔지니어의 캘린더를 읽어 반영하고 결과 요약을 돌려준다. events 를 넘기면 주소를 읽지 않는다(시험용)."""
     eng = db.query(Engineer).filter(Engineer.id == eng_id).first()
@@ -334,6 +417,9 @@ def sync_engineer(db: Session, eng_id: str, events=None) -> dict:
 
     sites = db.query(Site).filter(Site.engineer_id == eng_id).all()
     rows = {r.event_key: r for r in db.query(CalendarEvent).filter(CalendarEvent.engineer_id == eng_id).all()}
+    for r in rows.values():
+        if r.need_review is None:
+            _legacy_review(db, r)
     me, seen = _norm(eng.name), set()
     n = {"added": 0, "linked": 0, "waiting": 0, "updated": 0, "removed": 0}
     def count(row):
@@ -372,10 +458,10 @@ def sync_engineer(db: Session, eng_id: str, events=None) -> dict:
             if obj is None:
                 row.state = ST_GONE                    # 포털에서 직접 지운 건은 다시 만들지 않는다
             elif not _is_finished(obj) and old_desc != new_desc and not changed:
-                if _apply_desc(obj, old_desc, new_desc, only_empty=bool(row.adopted)):
+                if _sync_desc(db, row, obj, old_desc, new_desc):
                     n["updated"] += 1
             elif changed and not _is_finished(obj):
-                _apply_desc(obj, old_desc, new_desc, only_empty=bool(row.adopted))
+                _sync_desc(db, row, obj, old_desc, new_desc)
                 kind = classify(tag)[0]
                 if kind == row.kind:                   # 종류가 바뀐 경우는 건드리지 않음
                     site = match_site(customer, sites)
@@ -481,6 +567,12 @@ def get_calendar(eng_id: str, db: Session = Depends(get_db)):
         "sync_minutes": SYNC_MINUTES,
         "events": [_ev_dict(r, names, inc_links) for r in rows],
     }
+
+
+@router.get("/review")
+def get_review(eng_id: str, db: Session = Depends(get_db)):
+    """구글 캘린더에서 가져와 아직 내용을 확인하지 않은 기술지원·장애처리 (목록의 '내용 확인' 표시용)."""
+    return {"ids": sorted(review_ids(db, eng_id))}
 
 
 @router.post("/link")

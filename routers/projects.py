@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from database import get_db, Project, ProjectTask, ProjectFile, ProjectDevice, ProjectLog, Site, Device, Schedule, WorkPlan, Incident
+from database import get_db, Project, ProjectTask, ProjectFile, ProjectDevice, ProjectLog, Site, Device
 import os
 import shutil
 import uuid
@@ -587,39 +587,3 @@ def delete_plog(eng_id: str, proj_id: str, log_id: str, db: Session = Depends(ge
         raise HTTPException(404, detail="기록을 찾을 수 없습니다")
     db.delete(l); db.commit()
     return {"ok": True}
-
-@router.get("/{proj_id}/related")
-def related_records(eng_id: str, proj_id: str, db: Session = Depends(get_db)):
-    """같은 사이트에서 프로젝트 기간(시작 ~ 검수 예정/종료, 없으면 오늘)에 있었던 점검·기술지원·장애처리."""
-    p = _get_valid_project(eng_id, proj_id, db)
-    if not p.site_id:
-        return {"items": [], "from": "", "to": "", "no_site": True}
-    today = datetime.now().strftime("%Y-%m-%d")
-    frm = p.start_date or ""
-    to = max([d for d in (p.accept_date, p.end_date, p.delivery_date) if d] or [today])
-    if p.status != "완료":
-        to = max(to, today)
-    inr = lambda d: bool(d) and (not frm or d[:10] >= frm) and d[:10] <= to
-    site = db.query(Site).filter(Site.id == p.site_id, Site.engineer_id == eng_id).first()
-    sname = site.name if site else ""
-    out = []
-    for s in db.query(Schedule).filter(Schedule.engineer_id == eng_id, Schedule.site_id == p.site_id).all():
-        if inr(s.sched_date):
-            kinds = ["점검"] + [k for k in (s.extra_types or "").split(",") if k]
-            out.append({"date": s.sched_date, "kinds": kinds, "title": s.title, "status": s.status, "open_id": s.id})
-    for w in db.query(WorkPlan).filter(WorkPlan.engineer_id == eng_id, WorkPlan.site == sname,
-                                       WorkPlan.id.like("wp-%")).all():
-        if inr(w.work_date):
-            out.append({"date": w.work_date, "kinds": [k for k in (w.support_type or "기술지원").split(",") if k],
-                        "title": w.title, "status": w.status, "open_id": w.id})
-    for i in db.query(Incident).filter(Incident.engineer_id == eng_id, Incident.site == sname).all():
-        if not inr(i.occurred_at):
-            continue
-        host = next((r for r in out if i.entry_id and r["open_id"] == i.entry_id), None)
-        if host:
-            host["kinds"].append("장애처리")
-        else:
-            out.append({"date": i.occurred_at[:10], "kinds": ["장애처리"], "title": i.title, "status": i.status,
-                        "open_id": i.id})
-    out.sort(key=lambda r: r["date"], reverse=True)
-    return {"items": out, "from": frm, "to": to, "no_site": False}

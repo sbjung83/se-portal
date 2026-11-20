@@ -42,7 +42,14 @@ const api = {
 };
 
 function toast(msg){const e=$('toast');e.textContent=msg;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),2200)}
-function openModal(id){const o=$(id); o._ov0=new Map(); o.classList.add('open'); o.querySelectorAll('.mop-grid textarea').forEach(mopGrow)}
+// 나중에 연 창이 늘 위에 온다(HTML 순서와 무관 — 예: 프로젝트 상세 창에서 '수정' 창). Esc 도 맨 위 창부터.
+const _ovZ = o => Number(o.style.zIndex) || 100;
+const _ovTop = () => [...document.querySelectorAll('.overlay.open')].sort((a, b) => _ovZ(a) - _ovZ(b)).pop();
+function openModal(id){
+  const o = $(id), top = _ovTop();
+  o.style.zIndex = top && top !== o ? _ovZ(top) + 1 : '';
+  o._ov0 = new Map(); o.classList.add('open'); o.querySelectorAll('.mop-grid textarea').forEach(mopGrow);
+}
 function closeModal(id){$(id).classList.remove('open')}
 // ── 창 닫기 규칙 ──────────────────────────────
 // 입력 창(저장 버튼 줄 .form-actions + 입력 칸이 있는 창)은 바깥을 눌러도 닫지 않고 흔들어 알린다 — ✕·취소·Esc 로 닫음.
@@ -80,12 +87,14 @@ document.querySelectorAll('.overlay').forEach(o => {
 });
 document.addEventListener('keydown', e => {
   if(e.key !== 'Escape' || e.isComposing) return;
+  const dp = $('wp-dev-pop');                                           // 대상 장비 목록이 펼쳐져 있으면 그것만 접음
+  if(dp && dp.style.display !== 'none' && dp.offsetParent){ dp.style.display = 'none'; e.preventDefault(); return; }
   if(typeof _ympEl !== 'undefined' && _ympEl) return;                 // 년도·월 고르기 창이 먼저 닫힘
   if($('sb-user') && $('sb-user').classList.contains('open')) return; // 계정 메뉴가 먼저 닫힘
-  const open = [...document.querySelectorAll('.overlay.open')];
-  if(!open.length) return;
+  const top = _ovTop();
+  if(!top) return;
   e.preventDefault();
-  _ovTryClose(open[open.length - 1], true);
+  _ovTryClose(top, true);
 });
 
 // ── 페이지네이션 헬퍼 ──────────────────────
@@ -1252,7 +1261,7 @@ async function openDeviceHistory(devId, siteId){
   catch(e){ $('dh-list').innerHTML = `<div class="empty" style="color:var(--red-600)">이력을 불러오지 못했습니다</div>`; return; }
   if(_devHistId !== devId) return;
   const d = r.device, it = r.items;
-  const info = [['유형', d.dev_type], ['모델', d.model], ['S/N', d.serial_no], ['OS', d.os ? esc(d.os) + (d.eos ? ' ' + (_eosBadge(d.eos) || `<span class="dev-muted" style="font-size:11px">EOL ${esc(d.eos.eol)}</span>`) : '') : ''],
+  const info = [['유형', d.dev_type], ['모델', d.model], ['S/N', d.serial_no], ['펌웨어', d.firmware], ['OS', d.os ? esc(d.os) + (d.eos ? ' ' + (_eosBadge(d.eos) || `<span class="dev-muted" style="font-size:11px">EOL ${esc(d.eos.eol)}</span>`) : '') : ''],
                 ['워런티', d.warranty], ['상태', d.status]].filter(x => x[1]);
   $('dh-info').innerHTML = info.map(([k, v]) => `<span><em>${k}</em>${k === 'OS' ? v : esc(v)}</span>`).join('')
     + `<span><em>기록</em>${it.length}건${r.parts_total ? ` · 파트 교체 ${r.parts_total}줄` : ''}</span>`;
@@ -1298,7 +1307,7 @@ function drawDevices(){
 
   const q = ($('dev-search').value || '').trim().toLowerCase();
   const list = devs.filter(d => (!_devType || d.dev_type === _devType)
-      && (!q || [d.name, d.model, d.serial_no, d.os, d.memo].some(v => (v || '').toLowerCase().includes(q))))
+      && (!q || [d.name, d.model, d.serial_no, d.os, d.firmware, d.memo].some(v => (v || '').toLowerCase().includes(q))))
     .sort((a,b) => _devTypeIdx(a.dev_type) - _devTypeIdx(b.dev_type) || (a.dev_type||'').localeCompare(b.dev_type||'', 'ko') || (a.name||'').localeCompare(b.name||'', 'ko', {numeric:true}));
   if(!list.length){ el.innerHTML = '<div class="empty">조건에 맞는 장비가 없습니다</div>'; return; }
 
@@ -1313,11 +1322,11 @@ function drawDevices(){
   const sCls={'점검중':'b-amber','교체예정':'b-red','철수':'b-gray'};
   const cell = (v, cls='') => `<td class="${cls}" title="${esc(v||'')}">${v ? esc(v) : '<span class="dev-muted">-</span>'}</td>`;
   el.innerHTML=`<div class="dev-wrap"><table class="dev-tbl">
-    <colgroup><col style="width:19%"><col style="width:8%"><col style="width:17%"><col style="width:15%"><col style="width:13%"><col style="width:9%"><col style="width:13%"><col style="width:${list.some(_devHasSan) ? 122 : 92}px"></colgroup>
-    <thead><tr><th>장비명</th><th>유형</th><th>모델</th><th>OS</th><th>S/N</th><th>워런티</th><th>메모</th><th></th></tr></thead><tbody>
+    <colgroup><col style="width:16%"><col style="width:8%"><col style="width:14%"><col style="width:13%"><col style="width:12%"><col style="width:12%"><col style="width:9%"><col style="width:11%"><col style="width:${list.some(_devHasSan) ? 122 : 92}px"></colgroup>
+    <thead><tr><th>장비명</th><th>유형</th><th>모델</th><th>OS</th><th>펌웨어</th><th>S/N</th><th>워런티</th><th>메모</th><th></th></tr></thead><tbody>
     ${list.map(d=>`<tr class="clickable" onclick="openEditDevice('${d.id}')">
       <td class="dev-name" title="${esc(d.name)}">${esc(d.name)}${d.status && d.status!=='운영중' ? ` <span class="badge ${sCls[d.status]||'b-gray'}">${esc(d.status)}</span>` : ''}</td>
-      ${cell(d.dev_type)}${cell(d.model)}<td title="${esc(d.eos ? d.os + ' — ' + _eosTip(d.eos) : d.os || '')}">${d.os ? esc(d.os) : '<span class="dev-muted">-</span>'}${_eosBadge(d.eos) ? '<br>' + _eosBadge(d.eos) : ''}</td>${cell(d.serial_no,'mono')}
+      ${cell(d.dev_type)}${cell(d.model)}<td title="${esc(d.eos ? d.os + ' — ' + _eosTip(d.eos) : d.os || '')}">${d.os ? esc(d.os) : '<span class="dev-muted">-</span>'}${_eosBadge(d.eos) ? '<br>' + _eosBadge(d.eos) : ''}</td>${cell(d.firmware)}${cell(d.serial_no,'mono')}
       <td>${wBadge(d)}</td>${cell(d.memo,'dev-memo')}
       <td class="dev-act" onclick="event.stopPropagation()">
         ${_devHasSan(d) ? `<button class="icon-btn san" title="SAN 설정 (${d.config_count ? `${d.config_count}개 · 최근 ${esc(d.config_date)}` : '없음 — 눌러서 올리기'})" onclick="openSanConfig('${d.id}')">${ICO_SAN}${d.config_count ? '' : '<i class="san-dot"></i>'}</button>` : ''}
@@ -1335,14 +1344,14 @@ async function saveDevice(){
   if(!name){toast('장비명을 입력해주세요');return}
   const r=await api.post(`/api/engineers/${ENG_ID}/sites/${currentSiteId}/devices`,{
     name,model:$('d-model').value,serial_no:$('d-sn').value,dev_type:$('d-type').value,
-    os:$('d-os').value,purchase:$('d-purchase').value,warranty:$('d-warranty').value,
+    os:$('d-os').value,firmware:$('d-fw').value.trim(),purchase:$('d-purchase').value,warranty:$('d-warranty').value,
     status:$('d-status').value,memo:$('d-memo').value
   });
   if(r && r.id && $('d-type').value === 'SAN Switch' && _sanPicked('d')){
     try { await _sanSend(r.id, 'd'); } catch(e){ toast('장비는 저장했지만 SAN 설정을 올리지 못했습니다: ' + e.message); }
   }
   closeModal('modal-add-device');
-  ['d-name','d-model','d-sn','d-os','d-memo','d-purchase','d-warranty','d-san-file','d-san-memo'].forEach(id=>$(id).value='');
+  ['d-name','d-model','d-sn','d-os','d-fw','d-memo','d-purchase','d-warranty','d-san-file','d-san-memo'].forEach(id=>$(id).value='');
   const cntEl=$(`dev-count-${currentSiteId}`);
   if(cntEl&&r.site_device_count!==undefined) cntEl.textContent=r.site_device_count;
   loadDevices(); loadOverview(); toast('장비 추가됨');
@@ -1351,7 +1360,7 @@ function openEditDevice(d){
   if(typeof d === 'string') d = _siteDevs.find(x => x.id === d);
   if(!d){ toast('장비를 찾을 수 없습니다'); return; }
   $('ed-id').value=d.id; $('ed-name').value=d.name; $('ed-model').value=d.model||'';
-  $('ed-sn').value=d.serial_no||''; $('ed-type').value=d.dev_type; $('ed-os').value=d.os||'';
+  $('ed-sn').value=d.serial_no||''; $('ed-type').value=d.dev_type; $('ed-os').value=d.os||''; $('ed-fw').value=d.firmware||'';
   $('ed-status').value=d.status; $('ed-purchase').value=d.purchase||''; $('ed-warranty').value=d.warranty||'';
   $('ed-memo').value=d.memo||'';
   $('ed-san-file').value=''; $('ed-san-memo').value=''; $('ed-san-date').value=_ymd(new Date());
@@ -1366,7 +1375,7 @@ async function updateDevice(){
   if(!name){toast('장비명을 입력해주세요');return}
   await api.patch(`/api/engineers/${ENG_ID}/sites/${currentSiteId}/devices/${id}`,{
     name,model:$('ed-model').value,serial_no:$('ed-sn').value,dev_type:$('ed-type').value,
-    os:$('ed-os').value,purchase:$('ed-purchase').value,warranty:$('ed-warranty').value,
+    os:$('ed-os').value,firmware:$('ed-fw').value.trim(),purchase:$('ed-purchase').value,warranty:$('ed-warranty').value,
     status:$('ed-status').value,memo:$('ed-memo').value
   });
   let msg = '장비 수정됨';
@@ -1808,10 +1817,16 @@ const _svcCheck = (isDone, fn) => `<td class="c" onclick="event.stopPropagation(
 let _incByEntry = {};
 async function _loadIncLinks(){
   try {
-    const list = await api.get(`/api/engineers/${ENG_ID}/incidents`);
+    const [list] = await Promise.all([api.get(`/api/engineers/${ENG_ID}/incidents`), _loadReview()]);
     _incByEntry = {}; list.forEach(i => { if(i.entry_id) _incByEntry[i.entry_id] = i; });
   } catch(e){}
 }
+// 구글 캘린더에서 가져와 아직 내용을 확인(공통 입력 창에서 저장)하지 않은 기술지원·장애처리
+let _reviewIds = new Set();
+async function _loadReview(){
+  try { _reviewIds = new Set((await api.get(`/api/engineers/${ENG_ID}/calendar/review`)).ids || []); } catch(e){}
+}
+const _svcReview = id => _reviewIds.has(id) ? '<span class="badge b-review" title="구글 캘린더에서 가져온 내용 — 눌러서 제목·내용을 확인하고 저장하면 주간보고서에 그대로 들어갑니다">내용 확인</span>' : '';
 const _svcIncLink = id => { const i = _incByEntry[id]; return i ? _svcKind('장애처리', `함께 등록된 장애: ${i.title} (${i.status})`) : ''; };
 
 // ── WORK PLANS ──────────────────────────────
@@ -1926,7 +1941,7 @@ function drawWorkPlans() {
     return `<tr class="${isDone ? 'done' : ''} ${day === today ? 'today' : ''}" onclick="openEditWorkPlan('${p.id}')" style="cursor:pointer">
       ${_svcDate(day, time, isDone, today)}
       <td class="sm-s" title="${esc(p.site)}">${esc(p.site || '-')}</td>
-      <td class="sm-t">${esc(p.title)}${_wpImpactBadge(p.impact) ? ' ' + _wpImpactBadge(p.impact) : ''}
+      <td class="sm-t">${esc(p.title)}${_svcReview(p.id)}${_wpImpactBadge(p.impact) ? ' ' + _wpImpactBadge(p.impact) : ''}
         ${p.purpose ? `<div class="wp-purpose" title="${esc(p.purpose)}">${esc(p.purpose)}</div>` : ''}</td>
       <td class="c"><div class="svc-kind">${p.from_schedule ? _svcKind('점검', '점검 일정에 함께 등록된 건 — 삭제는 점검 일정에서') : ''}${_wpTypes(p).map(t => _svcKind(t)).join('')}${_svcIncLink(p.id)}</div></td>
       <td class="wp-worker" title="${esc(p.worker)}">${esc(p.worker || '-')}</td>
@@ -1984,17 +1999,39 @@ async function _entryLoadDevs(siteId, keep){
     _entryDevs.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko', {numeric: true}));
   }
   $('wp-dev-row').style.display = _entryDevs.length ? '' : 'none';
-  $('wp-dev-q').style.display = _entryDevs.length > 12 ? '' : 'none';
+  $('wp-dev-pop').style.display = 'none';
   _entryDrawDevs();
 }
 function _entryDrawDevs(){
-  const q = $('wp-dev-q').value.trim().toLowerCase();
-  const list = _entryDevs.filter(d => _entryDevSel.has(d.id) || !q || [d.name, d.model, d.serial_no, d.os].some(v => (v || '').toLowerCase().includes(q)));
-  $('wp-devs').innerHTML = list.map(d => `<button type="button" class="en-dev${_entryDevSel.has(d.id) ? ' on' : ''}" onclick="entryDevToggle('${d.id}')"
-      title="${esc([d.model, d.serial_no && 'S/N ' + d.serial_no, d.os].filter(Boolean).join(' · '))}">${esc(d.name)}</button>`).join('')
-    || '<span class="en-hint" style="margin:0">찾는 장비가 없습니다</span>';
-  $('wp-dev-cnt').textContent = _entryDevSel.size ? `${_entryDevSel.size}대 선택` : '';
+  const sel = _entryDevs.filter(d => _entryDevSel.has(d.id));
+  $('wp-devs').innerHTML = sel.length ? sel.map(d => `<span class="en-devchip" title="${esc([d.model, d.serial_no && 'S/N ' + d.serial_no, d.os].filter(Boolean).join(' · '))}">${esc(d.name)}<button type="button" title="빼기" onclick="entryDevToggle('${d.id}')">×</button></span>`).join('')
+    : '<span class="en-devnone">선택 안 함</span>';
+  $('wp-dev-btn').textContent = `+ 장비 선택 (${_entryDevs.length}대 중)`;
+  $('wp-dev-cnt').textContent = sel.length ? `${sel.length}대 선택` : '';
+  if($('wp-dev-pop').style.display !== 'none') _entryDrawPop();
 }
+function _entryDrawPop(){
+  const q = $('wp-dev-q').value.trim().toLowerCase();
+  const list = _entryDevs.filter(d => !q || [d.name, d.model, d.serial_no, d.os].some(v => (v || '').toLowerCase().includes(q)));
+  const groups = {};
+  list.forEach(d => (groups[d.dev_type || '기타'] = groups[d.dev_type || '기타'] || []).push(d));
+  const keys = Object.keys(groups).sort((a, b) => _devTypeIdx(a) - _devTypeIdx(b) || a.localeCompare(b, 'ko'));
+  $('wp-dev-list').innerHTML = keys.length ? keys.map(k => `<div class="en-devgrp">${esc(k)} <span>${groups[k].length}</span></div>`
+    + groups[k].map(d => `<label class="en-devitem${_entryDevSel.has(d.id) ? ' on' : ''}"><input type="checkbox" ${_entryDevSel.has(d.id) ? 'checked' : ''} onchange="entryDevToggle('${d.id}')">
+        <b>${esc(d.name)}</b><span class="en-devmeta">${esc([d.model, d.serial_no].filter(Boolean).join(' · '))}</span></label>`).join('')).join('')
+    : '<div class="en-devnone" style="padding:14px">찾는 장비가 없습니다</div>';
+}
+function entryDevPop(open){
+  const pop = $('wp-dev-pop');
+  const on = open === undefined ? pop.style.display === 'none' : open;
+  pop.style.display = on ? '' : 'none';
+  if(on){ $('wp-dev-q').value = ''; _entryDrawPop(); setTimeout(() => $('wp-dev-q').focus(), 0); }
+}
+function entryDevClear(){ _entryDevSel = new Set(); _entryDrawDevs(); }
+document.addEventListener('mousedown', e => {      // 목록 밖을 누르면 접음
+  const pop = $('wp-dev-pop');
+  if(pop && pop.style.display !== 'none' && !$('wp-devbox').contains(e.target)) pop.style.display = 'none';
+});
 function entryDevToggle(id){ _entryDevSel.has(id) ? _entryDevSel.delete(id) : _entryDevSel.add(id); _entryDrawDevs(); }
 function _entryTypes(){ return [...document.querySelectorAll('#wp-types input:checked')].map(c => c.value); }
 let _entryTab = '';          // 펼쳐 놓은 탭 ('' = 접힘 | plan | report)
@@ -2123,6 +2160,7 @@ async function openEntry(id, types = ['기술지원'], tab){
   _entryDevSel = new Set(e.device_ids || []);
   _entryLoadDevs(e.site_id || '', true);
   $('wp-title').value = e.title;
+  $('wp-review-note').style.display = e.need_review ? '' : 'none';
   $('wp-day').value = e.day; $('wp-time').value = e.time || '';
   $('wp-sched-type').value = e.sched_type || '월간';
   $('wp-worker').value = e.worker || ''; $('wp-reviewer').value = e.reviewer || '';
@@ -2198,6 +2236,7 @@ async function _entryRefresh(){
   if($('page-work-plan').classList.contains('active')) renderWorkPlans();
   if($('page-incidents').classList.contains('active')) renderIncidents();
   else _allIncidents = [];                       // 다음에 열 때 다시 읽는다
+  if($('page-weekly-report').classList.contains('active')) renderWeeklyReport();
   _refreshSvcHistory();
 }
 
@@ -2283,7 +2322,7 @@ function incSetOnly(k){ _incOnly = _incOnly === k ? '' : k; drawIncidents(); }
 
 async function renderIncidents(){
   try {
-    _allIncidents = await api.get(`/api/engineers/${ENG_ID}/incidents`);
+    [_allIncidents] = await Promise.all([api.get(`/api/engineers/${ENG_ID}/incidents`), _loadReview()]);
   } catch(e) {
     console.error('장애 목록 조회 실패:', e);
     $('inc-list').innerHTML = '<div class="empty" style="color:#dc2626">장애 목록을 불러오지 못했습니다.</div>';
@@ -2354,7 +2393,7 @@ function drawIncidents(){
     return `<tr class="${isOpen(i) ? '' : 'done'} ${day === today ? 'today' : ''}" onclick="openEditIncident('${i.id}')" style="cursor:pointer">
       ${_svcDate(day, time, !isOpen(i), today, '미처리')}
       <td class="sm-s" title="${esc(i.site)}">${esc(i.site || '-')}</td>
-      <td class="sm-t">${esc(i.title)}${sub ? `<div class="wp-purpose" title="${esc(sub)}">${esc(sub)}</div>` : ''}</td>
+      <td class="sm-t">${esc(i.title)}${_svcReview(i.id)}${sub ? `<div class="wp-purpose" title="${esc(sub)}">${esc(sub)}</div>` : ''}</td>
       <td class="c"><div class="svc-kind"><span class="badge ${INC_SEV_CLS[i.severity] || 'b-gray'}" title="장애 등급">${esc(i.severity)}</span>${link}</div></td>
       <td class="wp-worker" title="${esc(i.worker)}">${esc(i.worker || '-')}</td>
       <td class="inc-down" title="${i.recovered_at ? `복구 ${esc(fmtDT(i.recovered_at))}` : '복구 일시가 아직 없습니다'}">${i.downtime_min !== null && i.downtime_min !== undefined ? fmtDuration(i.downtime_min) : '<span class="inc-nodown">복구 전</span>'}</td>
@@ -2677,24 +2716,34 @@ async function renderWeeklyReport(){
       <td class="b"><button class="btn btn-sm" onclick="wrComplete('${x.kind}','${x.id}')">완료 처리</button></td>
     </tr>`).join('')}</tbody></table></div>`;
 
+  const rev = d.review || [];
+  if(rev.length) $('wr-pending').insertAdjacentHTML('beforeend', `<div class="wr-pend">
+    <div class="wr-pend-head">구글 캘린더에서 가져와 아직 내용을 확인하지 않은 일정 ${rev.length}건 — 확인·수정해 저장하면 그 제목이 지원요약에 들어갑니다</div>
+    <table><tbody>${rev.map(x => `<tr>
+      <td class="k">${esc(x.kind)}</td><td class="d">${fmt(x.date)}</td>
+      <td class="s">${esc(x.site || '-')}</td><td>${esc(x.title)}</td>
+      <td class="b"><button class="btn btn-sm" onclick="openEntry('${x.id}')">내용 확인</button></td>
+    </tr>`).join('')}</tbody></table></div>`);
+
   if(!d.rows.length){
     el.innerHTML = `<div class="empty">이 주에 집계된 지원 내역이 없습니다${pend.length ? ' — 위의 일정을 완료 처리하면 여기에 들어옵니다' : ''}</div>`;
     return;
   }
   const n = v => v ? `<b>${v}</b>` : '';
   el.innerHTML = `<div class="svh-table-wrap"><table class="wr-tbl">
-    <thead><tr><th style="width:14%">고객사</th><th style="width:92px">지원일자</th><th>지원요약</th>
+    <thead><tr><th style="width:14%">고객사</th><th style="width:92px">지원일자</th><th style="min-width:220px">지원요약</th><th style="width:150px">교체파트</th>
       ${COLS.map(([c, name]) => `<th class="c">${name.length === 4 ? name.slice(0,2) + '<br>' + name.slice(2) : name}</th>`).join('')}
-      <th style="width:76px">지원<br>엔지니어</th><th style="width:22%">비고</th></tr></thead>
-    <tbody>${d.rows.map(r => `<tr>
+      <th style="width:76px;min-width:76px">지원<br>엔지니어</th><th style="width:22%">비고</th></tr></thead>
+    <tbody>${d.rows.map(r => `<tr${r.review ? ' class="wr-review-row"' : ''}>
       <td class="wr-site">${esc(r.site)}</td>
       <td class="wr-date">${fmt(r.date)} (${r.weekday})${r.planned ? '<br><span class="badge b-amber" title="아직 완료 처리하지 않은 주말 일정입니다. 엑셀에는 그대로 들어갑니다">완료 전</span>' : ''}</td>
-      <td class="wr-pre">${r.summary.map(x => '- ' + esc(x)).join('<br>')}</td>
+      <td class="wr-pre${r.review ? ' wr-sum-cell' : ''}">${r.summary.map(x => '- ' + esc(x)).join('<br>')}${r.review ? '<div><span class="badge b-review" style="margin:4px 0 0" title="구글 캘린더에서 가져와 아직 확인하지 않은 일정이 들어 있습니다">내용 확인 필요</span></div>' : ''}</td>
+      <td class="wr-pre wr-parts">${(r.parts || []).map(esc).join('<br>')}</td>
       ${COLS.map(([c]) => `<td class="c${r.counts[c] ? ' on' : ''}">${n(r.counts[c])}</td>`).join('')}
       <td>${esc(r.workers)}</td>
       <td class="wr-remark"><textarea class="wr-remark-in" data-key="${esc(r.key)}" rows="1" placeholder="직접 입력" oninput="wrSaveRemark(this); wrGrow(this)">${esc(_wrRemark(r))}</textarea></td>
     </tr>`).join('')}</tbody>
-    <tfoot><tr><td colspan="3">합계</td>${COLS.map(([c]) => `<td class="c">${t[c] || ''}</td>`).join('')}<td colspan="2">총 ${d.total}건</td></tr></tfoot>
+    <tfoot><tr><td colspan="4">합계</td>${COLS.map(([c]) => `<td class="c">${t[c] || ''}</td>`).join('')}<td colspan="2">총 ${d.total}건</td></tr></tfoot>
   </table></div>`;
   el.querySelectorAll('.wr-remark-in').forEach(wrGrow);
 }
@@ -2825,7 +2874,7 @@ function drawSchedMgmt(){
     return `<tr class="${isDone ? 'done' : ''} ${day === today ? 'today' : ''}" onclick="openEditSched('${s.id}')" style="cursor:pointer">
       ${_svcDate(day, time, isDone, today)}
       <td class="sm-s" title="${esc(s.site_name)}">${esc(s.site_name)}</td>
-      <td class="sm-t">${esc(s.title)}${s.memo ? `<div class="wp-purpose" title="${esc(s.memo)}">${esc(s.memo)}</div>` : ''}</td>
+      <td class="sm-t">${esc(s.title)}${_svcReview(s.id)}${s.memo ? `<div class="wp-purpose" title="${esc(s.memo)}">${esc(s.memo)}</div>` : ''}</td>
       <td class="c"><div class="svc-kind"><span class="badge ${SCHED_TYPE_CLS[s.sched_type] || 'b-gray'}" title="점검 유형">${esc(s.sched_type || '-')}</span>${(s.extra_types || []).map(t => _svcKind(t)).join('')}${_svcIncLink(s.id)}</div></td>
       <td class="wp-worker" title="${esc(worker)}">${esc(worker || '-')}</td>
       ${_svcCheck(isDone, `toggleSchedStatusMgmt('${s.id}')`)}
@@ -2833,7 +2882,7 @@ function drawSchedMgmt(){
     </tr>`;
   };
   const emptyMsg = !month.length
-    ? `${mon}월에 등록된 점검이 없습니다<br><button class="btn btn-sm" style="margin-top:10px" onclick="openSchedCopy()">이전 달 일정 복사</button>`
+    ? `${mon}월에 등록된 점검이 없습니다`
     : '조건에 맞는 일정이 없습니다';
   // 표 상자 하나: 위쪽 줄(일정 목록 제목 + 유형·사이트 필터 + 진행 상황) → 열 제목 → 일정
   const cols = _svcCols();
@@ -3197,11 +3246,8 @@ async function openProjectDetail(id, tab = 'overview') {
     try { _projs = await _apiSend('GET', _projBase()); } catch(e){ toast('조회 실패: ' + e.message); return; }
   }
   if(!_projs.some(x => x.id === id)) return;
-  _projFiles = []; _pjDevs = []; _pjLogs = []; _pjRel = null;
-  $('pj-file-note').value = '';
-  $('pj-file-cat').value = '완료보고서';
-  $('pl-date').value = _ymd(new Date()); $('pl-kind').value = '메모'; $('pl-content').value = ''; $('pl-btn').textContent = '추가'; _pjLogEdit = '';
-  $('pj-dev-list').innerHTML = $('pj-log-list').innerHTML = $('pj-rel-list').innerHTML = '<div class="empty">불러오는 중…</div>';
+  _projFiles = []; _pjDevs = []; _pjLogs = [];
+  $('pj-dev-list').innerHTML = $('pj-log-list').innerHTML = '<div class="empty">불러오는 중…</div>';
   drawProjectDetail();
   pjSwitchTab(tab);
   openModal('modal-project-detail');
@@ -3234,31 +3280,59 @@ function drawProjFiles(){
   const p = _curProj();
   if(p){
     const have = new Set(_projFiles.map(f => f.category));
-    $('pj-docbar').innerHTML = p.docs.required.length
-      ? `<b>산출물</b>${p.docs.required.map(d => `<span class="pj-doc ${have.has(d) ? 'ok' : (_pjDocsDue(p) ? 'need' : '')}">${have.has(d) ? '✓ ' : ''}${esc(d)} ${have.has(d) ? '제출' : '미제출'}</span>`).join('')}
-         <span class="pj-hint">아래에서 구분을 골라 올리면 제출로 바뀝니다 · 내야 할 산출물은 '프로젝트 수정'에서 고릅니다</span>`
-      : '<span class="pj-hint">정해진 산출물이 없습니다 (프로젝트 수정 → 산출물에서 고를 수 있음)</span>';
+    const docs = p.docs.required.map(d => `${esc(d)} ${have.has(d) ? '<b class="pjo-ok">제출</b>' : `<b class="${_pjDocsDue(p) ? 'pjo-ng' : 'pjo-wait'}">미제출</b>`}`).join(' · ');
+    $('pj-docbar').innerHTML = `제출자료 <b>${_projFiles.length}</b>건${docs ? ` · 산출물: ${docs}` : ''}`;
   }
   const base = `${_projBase()}/${_currentProjectId}/files`;
-  $('pj-file-list').innerHTML = `<div class="cl-panel" style="margin-bottom:0"><table class="cl-table">
-    <thead><tr><th style="width:132px">구분</th><th>파일</th><th style="width:90px">크기</th><th style="width:140px">등록</th><th class="c" style="width:150px">관리</th></tr></thead>
-    <tbody>${_projFiles.length ? _projFiles.map(f => `<tr>
-      <td><select class="filter-select pj-cat-sel" title="구분 변경" onchange="updateProjFile('${f.id}',this.value)">${PROJ_FILE_CATS.map(c => `<option ${c === f.category ? 'selected' : ''}>${c}</option>`).join('')}</select></td>
-      <td><a class="pj-file-name" href="${base}/${f.id}/download" download title="내려받기">${esc(f.filename)}</a>${f.note ? `<div class="pj-desc" title="${esc(f.note)}">${esc(f.note)}</div>` : ''}</td>
+  $('pj-file-list').innerHTML = !_projFiles.length ? _pjEmpty('첨부된 제출자료가 없습니다. 오른쪽 위 \'+ 파일 첨부\'를 누르거나 파일을 이 탭에 끌어다 놓으세요.')
+    : `<div class="cl-panel pj-panel"><table class="cl-table">
+    <thead><tr><th style="width:110px">구분</th><th>파일</th><th style="width:90px">크기</th><th style="width:130px">등록</th><th class="c" style="width:90px">관리</th></tr></thead>
+    <tbody>${_projFiles.map(f => `<tr class="clickable" onclick="openPjFile('${f.id}')">
+      <td>${esc(f.category)}</td>
+      <td onclick="event.stopPropagation()"><a class="pj-file-name" href="${base}/${f.id}/download" download title="내려받기">${esc(f.filename)}</a>${f.note ? `<div class="pj-desc" title="${esc(f.note)}">${esc(f.note)}</div>` : ''}</td>
       <td class="pj-period">${_fmtSize(f.size)}</td>
       <td class="pj-period">${esc(f.uploaded_at)}</td>
-      <td class="c cl-act"><a class="btn btn-sm" href="${base}/${f.id}/download" download>내려받기</a><button class="icon-btn del" title="삭제" onclick="deleteProjFile('${f.id}')">${ICO_DEL}</button></td>
-    </tr>`).join('') : '<tr class="cl-msg"><td colspan="5">첨부된 제출자료가 없습니다. 위의 "+ 파일 첨부"를 누르거나 파일을 끌어다 놓으세요.</td></tr>'}</tbody></table></div>`;
+      ${_pjActs(`openPjFile('${f.id}')`, `deleteProjFile('${f.id}')`)}
+    </tr>`).join('')}</tbody></table></div>`;
 }
-async function uploadProjFiles(fileList){
-  const files = [...(fileList || [])];
-  if(!files.length || !_currentProjectId) return;
-  const pid = _currentProjectId, btn = $('pj-file-btn');
-  const category = $('pj-file-cat').value, note = $('pj-file-note').value.trim();
+// 파일 첨부 / 구분·메모 수정 창 (끌어다 놓은 파일은 _pjPicked 로 받아 창을 연다)
+let _pjPicked = [];
+function _pfDrawPicked(){
+  $('pf-picked').textContent = _pjPicked.length ? `고른 파일 ${_pjPicked.length}개: ${_pjPicked.map(f => f.name).join(', ')}` : '';
+}
+function openPjFile(id, dropped){
+  const f = id ? _projFiles.find(x => x.id === id) : null;
+  $('pf-title').textContent = f ? '제출자료 수정' : '파일 첨부';
+  $('pf-id').value = f ? f.id : '';
+  $('pf-file-row').style.display = f ? 'none' : '';
+  $('pf-name-row').style.display = f ? '' : 'none';
+  $('pf-name').textContent = f ? f.filename : '';
+  $('pf-file').value = ''; _pjPicked = dropped ? [...dropped] : []; _pfDrawPicked();
+  $('pf-cat').value = f ? f.category : '완료보고서';
+  $('pf-note').value = f ? (f.note || '') : '';
+  $('pf-btn').disabled = false; $('pf-btn').textContent = f ? '저장' : '올리기';
+  openModal('modal-pj-file');
+}
+async function savePjFile(){
+  const id = $('pf-id').value, category = $('pf-cat').value, note = $('pf-note').value.trim();
+  if(id){
+    try { await _apiSend('PATCH', `${_projBase()}/${_currentProjectId}/files/${id}`, {category, note}); }
+    catch(e){ toast('저장 실패: ' + e.message); return; }
+    closeModal('modal-pj-file'); await loadProjFiles(); await _reloadProj(); toast('수정됨');
+    return;
+  }
+  if(!_pjPicked.length){ toast('올릴 파일을 골라주세요'); return; }
+  const btn = $('pf-btn'); btn.disabled = true;
+  const r = await uploadProjFiles(_pjPicked, category, note, n => btn.textContent = `올리는 중... (${n}/${_pjPicked.length})`);
+  btn.disabled = false; btn.textContent = '올리기';
+  if(r) closeModal('modal-pj-file');
+}
+async function uploadProjFiles(files, category, note, progress){
+  if(!files.length || !_currentProjectId) return false;
+  const pid = _currentProjectId;
   let ok = 0; const fails = [];
-  btn.disabled = true;
   for(const [i, file] of files.entries()){
-    btn.textContent = `올리는 중... (${i + 1}/${files.length})`;
+    progress && progress(i + 1);
     if(file.size > PROJ_FILE_MAX){ fails.push(`${file.name}: 50MB를 넘습니다`); continue; }
     if(!file.size){ fails.push(`${file.name}: 빈 파일입니다`); continue; }
     const fd = new FormData(); fd.append('file', file); fd.append('category', category); fd.append('note', note);
@@ -3271,19 +3345,11 @@ async function uploadProjFiles(fileList){
       ok++;
     } catch(e){ fails.push(`${file.name}: ${e.message}`); }
   }
-  btn.disabled = false; btn.textContent = '+ 파일 첨부';
-  if(ok) $('pj-file-note').value = '';
   if(pid === _currentProjectId) await loadProjFiles();
   await _reloadProj();
   if(fails.length) alert(`첨부하지 못한 파일 ${fails.length}개\n\n` + fails.join('\n'));
   if(ok) toast(`파일 ${ok}개 첨부됨`);
-}
-async function updateProjFile(fid, category){
-  try {
-    const res = await _apiSend('PATCH', `${_projBase()}/${_currentProjectId}/files/${fid}`, {category});
-    const f = _projFiles.find(x => x.id === fid); if(f) Object.assign(f, res);
-    toast('구분 변경됨');
-  } catch(e){ toast('변경 실패: ' + e.message); drawProjFiles(); }
+  return ok > 0 && !fails.length;
 }
 async function deleteProjFile(fid){
   const f = _projFiles.find(x => x.id === fid);
@@ -3292,12 +3358,12 @@ async function deleteProjFile(fid){
   catch(e){ toast('삭제 실패: ' + e.message); return; }
   await loadProjFiles(); await _reloadProj(); toast('삭제됨');
 }
-// 제출자료 탭에 파일을 끌어다 놓으면 첨부
+// 제출자료 탭에 파일을 끌어다 놓으면 첨부 창을 그 파일로 연다(구분·메모를 고른 뒤 올림)
 (() => {
   const pane = $('pj-pane-files');
   ['dragenter', 'dragover'].forEach(ev => pane.addEventListener(ev, e => { e.preventDefault(); pane.classList.add('drag'); }));
   ['dragleave', 'drop'].forEach(ev => pane.addEventListener(ev, e => { e.preventDefault(); if(ev === 'drop' || !pane.contains(e.relatedTarget)) pane.classList.remove('drag'); }));
-  pane.addEventListener('drop', e => uploadProjFiles(e.dataTransfer.files));
+  pane.addEventListener('drop', e => { if(e.dataTransfer.files.length) openPjFile('', e.dataTransfer.files); });
 })();
 
 function drawProjectDetail(){
@@ -3325,46 +3391,47 @@ function drawProjectDetail(){
   if(_projFiles) drawProjFiles();
 }
 
+// ── 프로젝트 상세 탭 공통 형식 ──
+// 탭마다: 위 줄 .pj-tbar(왼쪽 요약 글자 · 오른쪽 버튼, 추가 = 파란 버튼) + .cl-panel 표 하나. 줄 클릭 = 수정 창, 관리 칸 = [수정][삭제].
+const _pjEmpty = msg => `<div class="cl-panel pj-panel"><div class="empty" style="padding:22px">${msg}</div></div>`;
+const _pjActs = (edit, del, delTitle = '삭제') => `<td class="c cl-act" onclick="event.stopPropagation()"><button class="icon-btn edit" title="수정" onclick="${edit}">${ICO_EDIT}</button><button class="icon-btn del" title="${delTitle}" onclick="${del}">${ICO_DEL}</button></td>`;
+
 function drawPjOverview(p){
+  // 개요 탭 = 테두리 표 하나(칸 이름 | 값 | 칸 이름 | 값). 개요·범위도 같은 표의 마지막 줄. 수정은 위의 '프로젝트 수정' 하나로.
   const done = p.status === '완료';
-  const it = (label, v) => `<div class="pjo-it"><div class="pjo-l">${label}</div><div class="pjo-v">${v || '<span class="pj-muted">-</span>'}</div></div>`;
-  const dd = d => d ? `${esc(d)} ${_pjDday(d, done)}` : '';
+  const v = x => x || '<span class="pjo-none">-</span>';
+  const day = (d, dd = true) => d ? `${esc(d)} (${_dowKo(d)})${dd ? ' ' + _pjDday(d, done) : ''}` : '';   // 시작일은 마감이 아니라 D-day 없음
+  const row = (l1, v1, l2, v2) => `<tr><th>${l1}</th><td>${v(v1)}</td><th>${l2}</th><td>${v(v2)}</td></tr>`;
+  const site = p.site_id ? `<button class="pj-site" onclick="openSiteDetail('${p.site_id}')">${esc(p.site_name || p.customer)}</button>` : esc(p.customer);
   const nt = p.next_task;
-  const ms = [['시작', p.start_date], ['납품', p.delivery_date], ['종료', p.end_date], ['검수(완료)', p.accept_date]].filter(x => x[1]).sort((a, b) => a[1].localeCompare(b[1]));
-  const today = _ymd(new Date());
+  const next = done ? '완료된 프로젝트' : nt ? `${esc(nt.name)}${nt.end_date ? ` (${_pjMd(nt.end_date)}까지) ${_pjDday(nt.end_date)}` : ''}` : '';
+  const docs = p.docs.required.map(d => `${esc(d)} ${p.docs.done.includes(d) ? '<b class="pjo-ok">제출</b>' : `<b class="${_pjDocsDue(p) ? 'pjo-ng' : 'pjo-wait'}">미제출</b>`}`).join(' · ');
+  const hasDesc = !!(p.description || '').trim();
   $('pj-pane-overview').innerHTML = `
-    <div class="pjo-grid">
-      <div class="pjo-card">
-        <div class="pjo-h">기본 정보</div>
-        <div class="pjo-items">
-          ${it('종류', esc(p.kind))}${it('상태', _projBadges(p))}
-          ${it('사이트 · 고객사', p.site_id ? `<button class="pj-site" onclick="openSiteDetail('${p.site_id}')">${esc(p.site_name || p.customer)}</button>` : esc(p.customer))}
-          ${it('PM · 작업자', esc(p.pm))}${it('영업 담당', esc(p.sales))}
-          ${it('고객 담당자', esc([p.cust_contact, p.cust_phone].filter(Boolean).join(' · ')))}
-        </div>
-      </div>
-      <div class="pjo-card">
-        <div class="pjo-h">일정 · 다음 할 일</div>
-        <div class="pjo-ms">${ms.length ? ms.map(([l, d]) => `<div class="pjo-m ${d < today ? 'past' : ''}"><span>${l}</span><b>${esc(d)}</b>${l === '종료' || l === '검수(완료)' ? _pjDday(d, done) : ''}</div>`).join('') : '<span class="pj-muted">날짜 없음</span>'}</div>
-        <div class="pjo-next">${done ? '<span class="pj-muted">완료된 프로젝트입니다</span>'
-          : nt ? `<span class="pjo-l">다음 할 일</span> <b>${esc(nt.name)}</b> ${nt.end_date ? `<span class="pj-muted">${_pjMd(nt.end_date)}까지</span> ${_pjDday(nt.end_date)}` : ''}`
-          : '<span class="pj-muted">태스크가 없습니다 — 일정 탭에서 추가하세요</span>'}</div>
-        <div class="pjo-sub">
-          <span onclick="pjSwitchTab('devices')">장비 <b>${p.device_count}</b>대${p.device_unreg ? ` <em>(미등록 ${p.device_unreg})</em>` : ''}</span>
-          <span onclick="pjSwitchTab('logs')">작업 기록 <b>${p.log_count}</b>건</span>
-          <span onclick="pjSwitchTab('files')">산출물 ${_pjDocChips(p, true)}</span>
-        </div>
-      </div>
-    </div>
-    <div class="pjo-h" style="margin-top:14px">개요 · 범위 <button class="btn btn-sm" style="margin-left:auto" onclick="openEditProject('${p.id}')">고치기</button></div>
-    ${(p.description || '').trim() ? '<div class="tn-body pjo-desc" id="pjo-desc"></div>' : '<div class="empty" style="padding:18px">작성된 개요가 없습니다. \'고치기\'에서 범위·장비 사양·특이사항을 적어 두세요.</div>'}`;
-  if((p.description || '').trim()) _tnRender($('pjo-desc'), p.description);
+    <div class="pj-tbar"><div class="pj-tbar-t">프로젝트 정보 <span class="pjo-none">· 고치려면 위의 '프로젝트 수정'</span></div></div>
+    <div class="cl-panel pj-panel"><table class="pjo-tbl">
+      <colgroup><col style="width:120px"><col><col style="width:120px"><col></colgroup>
+      <tbody>
+        ${row('종류', esc(p.kind), '상태', esc(p.status))}
+        ${row('사이트', site, '고객사', p.site_id && p.customer === p.site_name ? '' : esc(p.customer))}
+        ${row('PM · 작업자', esc(p.pm), '영업 담당', esc(p.sales))}
+        ${row('고객 담당자', esc(p.cust_contact), '고객 연락처', esc(p.cust_phone))}
+        ${row('시작일', day(p.start_date, false), '종료일', day(p.end_date))}
+        ${row('납품일', day(p.delivery_date), '검수(완료) 예정', day(p.accept_date))}
+        ${row('다음 할 일', next, '산출물', docs)}
+        <tr><th>개요 · 범위</th><td colspan="3">${hasDesc ? '<div class="tn-body pjo-desc" id="pjo-desc"></div>' : v('')}</td></tr>
+      </tbody>
+    </table></div>`;
+  if(hasDesc) _tnRender($('pjo-desc'), p.description);
 }
+const _dowKo = d => '일월화수목금토'[new Date(d + 'T00:00:00').getDay()];
 
 function renderTasks(p) {
   const tasks = p.tasks || [];
   const el = $('task-list');
-  if(!tasks.length) { el.innerHTML = '<div class="empty">등록된 태스크가 없습니다. 위의 "+ 태스크 추가"로 등록하세요.</div>'; return; }
+  const fin = tasks.filter(t => t.status === '완료').length;
+  $('pj-task-sum').innerHTML = `태스크 <b>${tasks.length}</b>건 · 완료 <b>${fin}</b>건`;
+  if(!tasks.length) { el.innerHTML = _pjEmpty('등록된 태스크가 없습니다. 오른쪽 위 \'+ 태스크 추가\'를 누르세요.'); return; }
 
   // 간트 범위: 프로젝트·태스크 날짜 전체를 포함하는 주(월~일) 단위
   const dates = [p.start_date, p.end_date, ...tasks.flatMap(t => [t.start_date, t.end_date])].filter(d => /^\d{4}-\d{2}-\d{2}/.test(d || '')).map(d => d.slice(0, 10)).sort();
@@ -3397,12 +3464,12 @@ function renderTasks(p) {
       bar = `<div class="pj-bar st-${t.status === '완료' ? 'done' : t.status === '진행중' ? 'doing' : 'wait'} ${late ? 'late' : ''}" style="left:${pct(left)}%;width:${pct(len)}%" title="${esc(t.name)}\n${s} ~ ${e}${late ? '\n종료일이 지났습니다' : ''}"></div>`;
     }
     const lateTxt = t.status !== '완료' && e && e < today;
-    return `<div class="pj-trow ${t.status === '완료' ? 'done' : ''}">
-      <div><button class="badge ${TASK_ST_CLS[t.status] || 'b-gray'} pj-st" title="눌러서 상태 변경 (대기 → 진행중 → 완료)" onclick="cycleTask('${t.id}')">${esc(t.status || '대기')}</button></div>
+    return `<div class="pj-trow clickable ${t.status === '완료' ? 'done' : ''}" onclick="openEditTask('${t.id}')">
+      <div onclick="event.stopPropagation()"><button class="badge ${TASK_ST_CLS[t.status] || 'b-gray'} pj-st" title="눌러서 상태 변경 (대기 → 진행중 → 완료)" onclick="cycleTask('${t.id}')">${esc(t.status || '대기')}</button></div>
       <div class="pj-tname"><div class="pj-tname-txt" title="${esc(t.name)}">${esc(t.name)}</div>
         <div class="pj-tdate ${lateTxt ? 'late' : ''}">${s ? `${s.slice(5).replace('-', '/')} ~ ${e.slice(5).replace('-', '/')}` : '날짜 미정'}${lateTxt ? ' · 지연' : ''}</div></div>
       <div class="pj-track">${grid}${bar}${todayLine}</div>
-      <div class="pj-tact">
+      <div class="pj-tact" onclick="event.stopPropagation()">
         <button class="icon-btn" title="위로" ${i === 0 ? 'disabled' : ''} onclick="moveTask('${t.id}',-1)">▲</button>
         <button class="icon-btn" title="아래로" ${i === tasks.length - 1 ? 'disabled' : ''} onclick="moveTask('${t.id}',1)">▼</button>
         <button class="icon-btn edit" title="수정" onclick="openEditTask('${t.id}')">${ICO_EDIT}</button>
@@ -4841,7 +4908,7 @@ async function licReset(){
 
 
 // ── 프로젝트 장비 · 작업 기록 (상세 창 탭) ─────────────────
-let _pjDevs = [], _pjLogs = [], _pjRel = null, _pjLogEdit = '', _pjSiteDevs = [];
+let _pjDevs = [], _pjLogs = [], _pjSiteDevs = [];
 async function loadPjDevs(){
   const pid = _currentProjectId;
   try { const r = await _apiSend('GET', `${_projBase()}/${pid}/devices`); if(pid !== _currentProjectId) return; _pjDevs = r; }
@@ -4852,20 +4919,20 @@ function drawPjDevs(){
   const p = _curProj(); if(!p) return;
   const unreg = _pjDevs.filter(d => !d.device_id).length;
   $('pj-dev-cnt').textContent = _pjDevs.length || '';
-  $('pj-dev-hint').innerHTML = !p.site_id ? '사이트가 연결되지 않아 사이트 장비 리스트에 등록할 수 없습니다 (프로젝트 수정 → 사이트)'
-    : unreg ? `미등록 <b>${unreg}</b>대 — '사이트 장비 리스트에 등록'을 누르면 같은 S/N(없으면 같은 이름) 장비는 연결하고, 없으면 새로 등록합니다`
-    : _pjDevs.length ? '모든 장비가 사이트 장비 리스트와 연결되어 있습니다 — 장비 이력에 이 프로젝트가 남습니다' : '이 프로젝트로 납품·구축하는 장비를 추가하세요';
+  $('pj-dev-hint').innerHTML = `장비 <b>${_pjDevs.length}</b>대${_pjDevs.length ? ` · 사이트 장비 미등록 <b>${unreg}</b>대` : ''}${p.site_id ? '' : ' · <span class="pjo-none">사이트가 연결되지 않음</span>'}`;
   $('pj-dev-reg').disabled = !p.site_id || !unreg;
-  $('pj-dev-reg').textContent = unreg ? `사이트 장비 리스트에 등록 (${unreg})` : '사이트 장비 리스트에 등록';
-  $('pj-dev-list').innerHTML = `<div class="cl-panel" style="margin-bottom:0"><table class="cl-table pj-dev-tbl">
-    <thead><tr><th>장비명</th><th style="width:80px">유형</th><th style="width:16%">모델</th><th style="width:13%">S/N</th><th style="width:13%">OS</th><th style="width:100px">워런티</th><th style="width:150px">사이트 장비</th><th class="c" style="width:80px">관리</th></tr></thead>
+  $('pj-dev-reg').title = !p.site_id ? '사이트가 연결되지 않아 등록할 수 없습니다 (프로젝트 수정 → 사이트)'
+    : '미등록 장비를 사이트 장비 리스트에 넣습니다 — 같은 S/N(없으면 같은 이름) 장비는 연결하고, 없으면 새로 등록. 장비 이력에 이 프로젝트가 남습니다';
+  if(!_pjDevs.length){ $('pj-dev-list').innerHTML = _pjEmpty('등록된 장비가 없습니다. 오른쪽 위 \'+ 장비 추가\'를 누르세요.'); return; }
+  $('pj-dev-list').innerHTML = `<div class="cl-panel pj-panel"><table class="cl-table pj-dev-tbl">
+    <thead><tr><th>장비명</th><th style="width:80px">유형</th><th style="width:16%">모델</th><th style="width:13%">S/N</th><th style="width:13%">OS</th><th style="width:100px">워런티</th><th style="width:150px">사이트 장비</th><th class="c" style="width:90px">관리</th></tr></thead>
     <tbody>${_pjDevs.length ? _pjDevs.map(d => `<tr onclick="openPjDev('${d.id}')" class="clickable">
       <td><b>${esc(d.name)}</b>${d.memo ? `<div class="pj-desc" title="${esc(d.memo)}">${esc(_tnPreview(d.memo))}</div>` : ''}</td>
       <td>${esc(d.dev_type)}</td><td>${esc(d.model || '-')}</td><td class="pj-period">${esc(d.serial_no || '-')}</td><td>${esc(d.os || '-')}</td>
       <td class="pj-period">${esc(d.warranty || '-')}</td>
       <td onclick="event.stopPropagation()">${d.device_id ? `<button class="pj-doc ok pj-link" title="사이트 장비 이력 보기" onclick="openDeviceHistory('${d.device_id}','${p.site_id}')">✓ 등록됨 · 이력</button>` : '<span class="pj-doc">미등록</span>'}</td>
-      <td class="c cl-act" onclick="event.stopPropagation()"><button class="icon-btn edit" title="수정" onclick="openPjDev('${d.id}')">${ICO_EDIT}</button><button class="icon-btn del" title="프로젝트에서 빼기" onclick="deletePjDev('${d.id}')">${ICO_DEL}</button></td>
-    </tr>`).join('') : '<tr class="cl-msg"><td colspan="8">등록된 장비가 없습니다. "+ 장비 추가"로 납품·구축 장비를 넣으세요.</td></tr>'}</tbody></table></div>`;
+      ${_pjActs(`openPjDev('${d.id}')`, `deletePjDev('${d.id}')`, '프로젝트에서 빼기')}
+    </tr>`).join('') : ''}</tbody></table></div>`;
 }
 async function openPjDev(id){
   const p = _curProj(); if(!p) return;
@@ -4919,52 +4986,50 @@ const PJ_LOG_CLS = {'회의':'b-blue', '협의':'b-purple', '이슈':'b-red', '�
 async function loadPjLogs(){
   const pid = _currentProjectId;
   try {
-    const [logs, rel] = await Promise.all([_apiSend('GET', `${_projBase()}/${pid}/logs`), _apiSend('GET', `${_projBase()}/${pid}/related`)]);
+    const logs = await _apiSend('GET', `${_projBase()}/${pid}/logs`);
     if(pid !== _currentProjectId) return;
-    _pjLogs = logs; _pjRel = rel;
+    _pjLogs = logs;
   } catch(e){ $('pj-log-list').innerHTML = `<div class="empty">작업 기록을 불러오지 못했습니다: ${esc(e.message)}</div>`; return; }
   drawPjLogs();
 }
 function drawPjLogs(){
   $('pj-log-cnt').textContent = _pjLogs.length || '';
-  let last = '';
-  $('pj-log-list').innerHTML = _pjLogs.length ? `<div class="pj-logs">${_pjLogs.map(l => {
-    const head = l.log_date !== last ? `<div class="pj-log-day">${esc(l.log_date)}</div>` : ''; last = l.log_date;
-    return `${head}<div class="pj-log${_pjLogEdit === l.id ? ' editing' : ''}"><span class="badge ${PJ_LOG_CLS[l.kind] || 'b-gray'}">${esc(l.kind)}</span>
-      <div class="pj-log-txt">${esc(l.content)}</div>
-      <span class="cl-act"><button class="icon-btn edit" title="수정" onclick="editPjLog('${l.id}')">${ICO_EDIT}</button><button class="icon-btn del" title="삭제" onclick="deletePjLog('${l.id}')">${ICO_DEL}</button></span></div>`;
-  }).join('')}</div>` : '<div class="empty" style="padding:16px">아직 기록이 없습니다. 위에 회의·협의 내용, 이슈, 결정 사항을 짧게 남겨 두세요.</div>';
-  const r = _pjRel;
-  if(!r) return;
-  $('pj-rel-range').textContent = r.no_site ? '' : `· ${r.from || '처음'} ~ ${r.to}`;
-  $('pj-rel-list').innerHTML = r.no_site ? '<div class="empty" style="padding:12px">사이트가 연결되지 않아 관련 일정을 찾을 수 없습니다</div>'
-    : r.items.length ? `<div class="cl-panel" style="margin-bottom:0"><table class="cl-table"><thead><tr><th style="width:110px">날짜</th><th style="width:200px">구분</th><th>제목</th><th style="width:90px">상태</th></tr></thead>
-      <tbody>${r.items.map(x => `<tr class="clickable" onclick="openEntry('${x.open_id}', undefined, ${x.kinds.includes('장애처리') && x.kinds.length === 1 ? "'report'" : 'undefined'})">
-        <td class="pj-period">${esc(x.date.slice(0, 10))}</td><td><div class="svc-kind">${[...new Set(x.kinds)].map(k => _svcKind(k)).join('')}</div></td>
-        <td>${esc(x.title)}</td><td>${esc(x.status)}</td></tr>`).join('')}</tbody></table></div>`
-    : '<div class="empty" style="padding:12px">프로젝트 기간에 이 사이트에서 등록된 점검·기술지원·장애처리가 없습니다</div>';
+  $('pj-log-sum').innerHTML = `작업 기록 <b>${_pjLogs.length}</b>건`;
+  $('pj-log-list').innerHTML = !_pjLogs.length ? _pjEmpty('작업 기록이 없습니다. 오른쪽 위 \'+ 기록 추가\'로 회의·협의 내용, 이슈, 결정 사항을 남겨 두세요.')
+    : `<div class="cl-panel pj-panel"><table class="cl-table">
+    <thead><tr><th style="width:130px">날짜</th><th style="width:80px" class="c">구분</th><th>내용</th><th class="c" style="width:90px">관리</th></tr></thead>
+    <tbody>${_pjLogs.map(l => `<tr class="clickable" onclick="openPjLog('${l.id}')">
+      <td class="pj-period">${esc(l.log_date)} (${_dowKo(l.log_date)})</td>
+      <td class="c"><span class="badge ${PJ_LOG_CLS[l.kind] || 'b-gray'}">${esc(l.kind)}</span></td>
+      <td class="pj-log-txt">${esc(l.content)}</td>
+      ${_pjActs(`openPjLog('${l.id}')`, `deletePjLog('${l.id}')`)}
+    </tr>`).join('')}</tbody></table></div>`;
+}
+function openPjLog(id){
+  const l = id ? _pjLogs.find(x => x.id === id) : null;
+  $('pl-title').textContent = l ? '작업 기록 수정' : '작업 기록 추가';
+  $('pl-id').value = l ? l.id : '';
+  $('pl-date').value = l ? l.log_date : _ymd(new Date());
+  $('pl-kind').value = l ? l.kind : '메모';
+  $('pl-content').value = l ? l.content : '';
+  openModal('modal-pj-log');
+  setTimeout(() => $('pl-content').focus(), 50);
 }
 async function savePjLog(){
   const content = $('pl-content').value.trim();
   if(!content){ toast('내용을 입력해주세요'); return; }
+  const id = $('pl-id').value;
   const body = {log_date: $('pl-date').value || _ymd(new Date()), kind: $('pl-kind').value, content};
   const base = `${_projBase()}/${_currentProjectId}/logs`;
-  try { _pjLogEdit ? await _apiSend('PATCH', `${base}/${_pjLogEdit}`, body) : await _apiSend('POST', base, body); }
+  try { id ? await _apiSend('PATCH', `${base}/${id}`, body) : await _apiSend('POST', base, body); }
   catch(e){ toast('저장 실패: ' + e.message); return; }
-  const wasEdit = _pjLogEdit;
-  _pjLogEdit = ''; $('pl-content').value = ''; $('pl-btn').textContent = '추가';
-  toast(wasEdit ? '수정됨' : '기록했습니다');
+  closeModal('modal-pj-log');
+  toast(id ? '수정됨' : '기록했습니다');
   await loadPjLogs(); await _reloadProj();
-}
-function editPjLog(id){
-  const l = _pjLogs.find(x => x.id === id); if(!l) return;
-  _pjLogEdit = id; $('pl-date').value = l.log_date; $('pl-kind').value = l.kind; $('pl-content').value = l.content;
-  $('pl-btn').textContent = '수정 저장'; $('pl-content').focus(); drawPjLogs();
 }
 async function deletePjLog(id){
   if(!confirm('이 기록을 삭제할까요?')) return;
   try { await _apiSend('DELETE', `${_projBase()}/${_currentProjectId}/logs/${id}`); } catch(e){ toast('삭제 실패: ' + e.message); return; }
-  if(_pjLogEdit === id){ _pjLogEdit = ''; $('pl-content').value = ''; $('pl-btn').textContent = '추가'; }
   await loadPjLogs(); await _reloadProj();
 }
 $('pl-content').addEventListener('keydown', e => { if(e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); savePjLog(); } });

@@ -154,14 +154,23 @@ def get_entry(eng_id: str, entry_id: str, db: Session = Depends(get_db)):
     elif plan:
         d = _from_workplan(plan, sites)
     elif inc:
-        return _from_incident(inc, sites)
+        d = _from_incident(inc, sites)
+        d["need_review"] = _need_review(db, eng_id, [inc.id])
+        return d
     else:
         raise HTTPException(404, detail="일정을 찾을 수 없습니다")
     d.update(_inc_fields(inc))
     if inc:
         d["types"].append(INCIDENT)
     d["device_ids"] = split_ids((sch.device_ids if sch else plan.device_ids) or (inc.device_ids if inc else ""))
+    d["need_review"] = _need_review(db, eng_id, [(sch or plan).id] + ([inc.id] if inc else []))
     return d
+
+
+def _need_review(db, eng_id, ids) -> bool:
+    """구글 캘린더에서 가져와 아직 확인(저장)하지 않은 건인지 — routers/gcal.py 의 need_review."""
+    return db.query(CalendarEvent).filter(CalendarEvent.engineer_id == eng_id, CalendarEvent.target_id.in_(ids),
+                                          CalendarEvent.need_review == True).first() is not None  # noqa: E712
 
 
 def _save(db, eng_id: str, data: EntryIn, entry_id: Optional[str]):
@@ -300,6 +309,10 @@ def _save(db, eng_id: str, data: EntryIn, entry_id: Optional[str]):
     elif old_inc is not None:                            # 체크를 풀었으면 보고서를 지운다
         db.delete(old_inc)
 
+    # 공통 입력 창에서 저장 = 사용자가 내용을 확인한 것 → 구글 캘린더 동기화가 더는 내용을 덮어쓰지 않고, 주간보고서는 이 내용을 쓴다
+    seen_ids = [x for x in (base_id, old_inc.id if old_inc is not None else None, new_id, inc_id) if x]
+    for ev in db.query(CalendarEvent).filter(CalendarEvent.engineer_id == eng_id, CalendarEvent.target_id.in_(seen_ids)):
+        ev.need_review = False
     old_target = base_id or (old_inc.id if old_inc is not None else None)   # 구글 캘린더가 가리키던 레코드
     if old_target and new_id != old_target:              # 구글 캘린더 연결도 새 레코드로 옮긴다 (장애처리만 남기면 장애로)
         for ev in db.query(CalendarEvent).filter(CalendarEvent.engineer_id == eng_id, CalendarEvent.target_id == old_target):
