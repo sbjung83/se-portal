@@ -1532,3 +1532,16 @@ button.wr-range{border:none;background:none;font-family:inherit;font-size:15px;f
 th.act-h{text-align:center}
 th.act-h.r{text-align:right}
 .pj-table .cl-act{white-space:nowrap}
+
+/* SAN 설정 > 복구 매뉴얼 (단계별 명령 + 복사) */
+.san-step{margin-bottom:10px}
+.san-step .wr-box-head .btn{margin-left:auto}
+.san-step .wr-box-head>span:first-child{white-space:nowrap}
+.san-act a.btn{text-decoration:none}
+.san-cmd{margin:0;border:none;border-radius:0;max-height:none;white-space:pre;overflow-x:auto;word-break:normal}   /* 명령 줄은 접지 않음 (한 줄 = 한 명령) */
+.san-warn{font-size:12.5px;color:var(--slate-700);margin-bottom:8px}
+.san-opt{margin-bottom:10px;font-size:12.5px}
+.san-opt>summary{cursor:pointer;color:var(--slate-600);padding:4px 0}
+.san-opt[open]>summary{margin-bottom:6px}
+.san-skip{padding:8px 12px;border:1px solid var(--line);background:var(--card-bg);line-height:1.8;color:var(--slate-600)}
+.san-skip b{color:var(--slate-800);margin-right:6px}

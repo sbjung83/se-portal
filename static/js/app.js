@@ -5276,7 +5276,7 @@ async function _sanGet(id, raw){
   return _sanCache[k];
 }
 async function sanShow(){
-  const tabs = [['zones', '존'], ['aliases', '별칭'], ['raw', '원문'], ['diff', '이전과 비교']];
+  const tabs = [['zones', '존'], ['aliases', '별칭'], ['restore', '복구 매뉴얼'], ['raw', '원문'], ['diff', '이전과 비교']];
   if(_sanFound) tabs.push(['found', `검색 결과 ${_sanFound.items.length}`]);
   $('san-tabs').innerHTML = tabs.map(([k, l]) => `<div class="tab ${k === _sanTab ? 'active' : ''}" onclick="sanSetTab('${k}')">${l}</div>`).join('');
   const el = $('san-view');
@@ -5286,6 +5286,7 @@ async function sanShow(){
   const sel = _sanSel, tab = _sanTab;
   try {
     if(tab === 'diff'){ await drawSanDiff(); return; }
+    if(tab === 'restore'){ await drawSanRestore(); return; }
     const c = await _sanGet(sel, tab === 'raw');
     if(sel !== _sanSel || tab !== _sanTab) return;
     if(tab === 'raw'){
@@ -5310,6 +5311,36 @@ async function sanShow(){
           <td>${a.wwns.map(wchip).join(' ') || '<span class="pj-muted">-</span>'}</td><td>${a.zones.length ? esc(a.zones.join(', ')) : '<span class="badge b-amber">존에 없음</span>'}</td></tr>`).join('')}</tbody></table></div>`;
     }
   } catch(e){ el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+// 복구 매뉴얼: 활성 cfg(zoneset) 에 든 존·별칭만으로 alias → zone → cfg → save/enable 명령 (단계별 복사)
+let _sanPlan = null;
+async function drawSanRestore(){
+  const el = $('san-view'), sel = _sanSel;
+  const k = sel + ':restore';
+  if(!_sanCache[k]) _sanCache[k] = await _apiSend('GET', `/api/engineers/${ENG_ID}/sites/${currentSiteId}/devices/${_sanDev}/configs/${sel}/restore`);
+  if(sel !== _sanSel || _sanTab !== 'restore') return;
+  const p = _sanPlan = _sanCache[k], u = p.used, sk = p.skipped, cisco = p.vendor === 'cisco';
+  const cfgW = cisco ? 'zoneset' : 'cfg';
+  const box = (b, i, idx) => `<div class="wr-box san-step">
+      <div class="wr-box-head"><span>${idx}${esc(b.title)}</span><span class="wr-box-sub">${esc(b.desc || '')}</span>
+        <button class="btn btn-sm" onclick="sanCopyStep(${i})">복사</button></div>
+      <pre class="san-raw san-cmd">${esc(b.lines.join('\n'))}</pre></div>`;
+  const skipN = sk.zones.length + sk.aliases.length + sk.cfgs.length;
+  el.innerHTML = `<div class="san-act">기준: 활성 ${cfgW} ${u.cfgs.map(c => `<b>${esc(c)}</b>`).join(', ') || '<span class="pj-muted">없음</span>'}
+      · 존 ${u.zones.length} · 별칭 ${u.aliases.length}${skipN ? ` · <span class="pj-muted">안 쓰는 것 ${skipN}개 제외</span>` : ''}
+      <span style="flex:1"></span><button class="btn btn-sm" onclick="sanCopyStep(-1)" title="1단계부터 끝까지 (작업 전 확인 제외)">전체 복사</button>
+      <a class="btn btn-sm" href="/api/engineers/${ENG_ID}/sites/${currentSiteId}/devices/${_sanDev}/configs/${sel}/restore?txt=1">텍스트로 받기</a></div>
+    ${p.warnings.map(w => `<div class="san-warn"><span class="badge b-amber">주의</span> ${esc(w)}</div>`).join('')}
+    <details class="san-opt"><summary>작업 전 확인 (선택)${cisco ? '' : ' — 기존 zoning 을 지우는 명령(cfgclear) 포함, 필요할 때만'}</summary>${box(p.pre, -2, '')}</details>
+    ${p.steps.map((b, i) => box(b, i, `${i + 1}. `)).join('')}
+    ${skipN ? `<details class="san-opt"><summary>제외한 것 — 활성 ${cfgW} 에서 쓰지 않는 ${cfgW} ${sk.cfgs.length} · 존 ${sk.zones.length} · 별칭 ${sk.aliases.length}</summary>
+      <div class="san-skip">${[['cfgs', cfgW], ['zones', '존'], ['aliases', '별칭']].filter(([k2]) => sk[k2].length)
+        .map(([k2, l]) => `<div><b>${l}</b> ${sk[k2].map(esc).join(', ')}</div>`).join('')}</div></details>` : ''}`;
+}
+function sanCopyStep(i){
+  const p = _sanPlan; if(!p) return;
+  const text = i === -1 ? p.steps.map(b => b.lines.join('\n')).join('\n') : (i === -2 ? p.pre : p.steps[i]).lines.join('\n');
+  _labCopyText(text + '\n', i === -1 ? '복구 명령 전체를 복사했습니다' : `복사했습니다: ${(i === -2 ? p.pre : p.steps[i]).title}`);
 }
 function sanFilter(inp){
   const q = inp.value.trim().toLowerCase(), qh = q.replace(/[:\-\s]/g, '');

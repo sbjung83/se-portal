@@ -104,7 +104,7 @@ def _parse_cisco(text: str):
             kind, name, vsan = m.groups()
             key = f"{name}@{vsan}"
             tgt = {"fcalias": aliases, "zone": zones, "zoneset": cfgs}[kind]
-            tgt.setdefault(key, [])
+            tgt[key] = []                  # Active / Full Zone Database 에 두 번 나오면 뒤의 것으로 (멤버 중복 방지)
             cur = tgt[key]; found = True
             continue
         if cur is not None and ln[:1].isspace():
@@ -181,6 +181,319 @@ def parse(text: str, vendor: str = ""):
     return {"vendor": vendor or "", "ok": True, "active": [nm(a) + (f" (VSAN {vs(a)})" if vs(a) else "") for a in active],
             "cfgs": {nm(k) + (f" (VSAN {vs(k)})" if vs(k) else ""): [nm(z) for z in v] for k, v in cfgs.items()},
             "zones": zl, "aliases": al}
+
+
+# ── 복구 매뉴얼 (활성 cfg/zoneset 기준으로 그대로 붙여 넣을 명령) ─────────
+CHUNK = 20      # cfgadd / zoneset member 한 줄에 넣을 존 수
+
+
+def _q(v: str) -> str:
+    return '"' + v.replace('"', '') + '"'
+
+
+DP_RE = re.compile(r"^\d+,\d+$")          # 포트 존 멤버 (Domain,Port)
+
+
+def _uniq(seq):
+    out = []
+    for x in seq:
+        if x not in out:
+            out.append(x)
+    return out
+
+
+def _brocade_effective(text: str):
+    """cfgshow 의 Effective configuration → (cfg 이름, {zone: [멤버(별칭은 풀린 값)]}) / 없으면 None."""
+    lines = text.splitlines()
+    try:
+        k = next(i for i, ln in enumerate(lines) if ln.strip().lower().startswith("effective configuration"))
+    except StopIteration:
+        return None
+    cfg, zones, cur = "", {}, None
+    for ln in lines[k + 1:]:
+        st = ln.strip()
+        if not st:
+            if zones:
+                break
+            continue
+        m = re.match(r"^(cfg|zone):\s+(\S+)\s*(.*)$", st)
+        if m:
+            if m.group(1) == "cfg":
+                cfg = m.group(2); cur = None
+            else:
+                cur = zones.setdefault(m.group(2), []); cur += _split(m.group(3))
+        elif cur is not None and ln[:1].isspace():
+            cur += _split(st)
+        else:
+            break
+    return (cfg, zones) if cfg else None
+
+
+def _restore_brocade(cfgs, zones, aliases, active, text=""):
+    """활성 cfg 에 든 존 + 그 존이 쓰는 별칭만. alicreate → zonecreate → cfgcreate/cfgadd → cfgsave → cfgenable.
+    cfgsave·cfgenable·cfgdisable·cfgclear 는 확인을 물으므로(yes/no) 바로 다음 줄에 y 를 둔다 — 여러 줄을 붙여 넣으면
+    다음 명령이 답으로 먹혀 저장·활성화가 취소되기 때문. (질문이 안 나오면 y 는 'command not found' 로 끝나 해가 없다)"""
+    warn = []
+    zones = {k: _uniq(v) for k, v in zones.items()}
+    aliases = {k: _uniq(v) for k, v in aliases.items()}
+    use_cfgs = _uniq([c for c in active if c in cfgs])
+    if not use_cfgs:
+        use_cfgs = list(cfgs)
+        warn.append("설정에 활성 cfg(enable / Effective configuration) 정보가 없어 정의된 cfg 전부를 만들고, cfgenable 은 넣지 않았습니다.")
+    missing_cfg = [c for c in active if c not in cfgs]
+    if missing_cfg:
+        warn.append(f"활성 cfg {', '.join(missing_cfg)} 의 정의(Defined)가 설정에 없습니다. 원문을 확인하세요.")
+    zone_names = _uniq([z for c in use_cfgs for z in cfgs[c]])
+    missing_z = [z for z in zone_names if z not in zones]
+    if missing_z:
+        warn.append(f"cfg 에 있지만 정의가 없는 존 {len(missing_z)}개는 넣지 않았습니다: {', '.join(missing_z)}")
+    zone_names = [z for z in zone_names if z in zones]
+    alias_names = []
+
+    def use_alias(name):
+        if name in aliases and name not in alias_names:
+            alias_names.append(name)
+    undef = []
+    for z in zone_names:
+        for m in zones[z]:
+            if WWN_RE.fullmatch(m) or DP_RE.match(m):
+                continue
+            if m in aliases:
+                use_alias(m)
+            else:
+                undef.append(m)
+    if undef:
+        warn.append(f"존 멤버 중 별칭 정의가 없는 이름 {len(_uniq(undef))}개: {', '.join(_uniq(undef)[:10])} — 스위치에서 cfgsave 가 실패할 수 있으니 원문을 확인하세요.")
+    peer = [z for z in zone_names if any(m.lower().startswith("00:02:00:00") for m in zones[z])]
+    if peer:
+        warn.append(f"피어 존(Peer zone)으로 보이는 존 {len(peer)}개: {', '.join(peer[:10])} — 일반 zonecreate 로 만들면 안 되므로 'zonecreate --peerzone' 으로 직접 만드세요.")
+    # 포트 존(Domain,Port): 새 스위치의 Domain ID·포트 연결이 같아야 한다
+    used_members = [m for z in zone_names for m in zones[z]] + [m for a in alias_names for m in aliases[a]]
+    doms = sorted({m.split(",")[0] for m in used_members if DP_RE.match(m)}, key=int)
+    if doms:
+        n_dp = sum(1 for m in used_members if DP_RE.match(m))
+        warn.append(f"포트 존(Domain,Port) 멤버 {n_dp}개 — Domain ID {', '.join(doms)} 기준입니다. 교체 스위치는 같은 Domain ID(switchshow 의 switchDomain, 바꾸려면 switchdisable → configure)로 맞추고 "
+                    f"장비를 같은 포트에 연결해야 존이 동작합니다. 다른 스위치 도메인 번호가 섞여 있으면 패브릭의 그 스위치 포트입니다.")
+    # Defined ↔ Effective 비교 (cfgshow): 고친 뒤 enable 하지 않은 변경이 있으면 알린다
+    eff = _brocade_effective(text) if text else None
+    if eff and eff[0] in cfgs:
+        def resolved(z):
+            out = []
+            for m in zones.get(z, []):
+                out += [x.lower() for x in aliases[m]] if m in aliases else [m.lower()]
+            return sorted(set(out))
+        ez = eff[1]
+        dz = set(cfgs[eff[0]])
+        only_d = sorted(dz - set(ez)); only_e = sorted(set(ez) - dz)
+        diff_m = sorted(z for z in dz & set(ez) if resolved(z) != sorted({m.lower() for m in ez[z]}))
+        if only_d or only_e or diff_m:
+            parts = []
+            if only_d: parts.append(f"정의에만 있는 존 {', '.join(only_d[:8])}")
+            if only_e: parts.append(f"실제 적용에만 있는 존 {', '.join(only_e[:8])}")
+            if diff_m: parts.append(f"멤버가 다른 존 {', '.join(diff_m[:8])}")
+            warn.append("정의(Defined)와 실제 적용(Effective)이 다릅니다 — 고친 뒤 cfgenable 하지 않은 변경이 있습니다. 이 매뉴얼은 정의 기준이니, 당시 실제 동작한 상태로 복구하려면 원문의 Effective 부분과 비교하세요: " + " / ".join(parts))
+    bad_names = [n for n in use_cfgs + zone_names + alias_names if not re.fullmatch(r"[A-Za-z0-9_$^\-]+", n)]
+    if bad_names:
+        warn.append(f"Brocade 이름에 쓸 수 없는 글자가 든 이름 {len(bad_names)}개: {', '.join(bad_names[:10])} — 그 줄은 실패하니 이름을 확인하세요.")
+    steps = []
+    if alias_names:
+        steps.append({"title": "별칭(alias) 만들기", "desc": f"존에서 쓰는 별칭 {len(alias_names)}개",
+                      "lines": [f"alicreate {_q(a)}, {_q('; '.join(aliases[a]))}" for a in alias_names]})
+    steps.append({"title": "존(zone) 만들기", "desc": f"활성 cfg 에 든 존 {len(zone_names)}개",
+                  "lines": [f"zonecreate {_q(z)}, {_q('; '.join(zones[z]))}" for z in zone_names]})
+    cl = []
+    for c in use_cfgs:
+        zs = _uniq([z for z in cfgs[c] if z in zones])
+        if not zs:
+            continue
+        cl.append(f"cfgcreate {_q(c)}, {_q(zs[0])}")
+        for i in range(1, len(zs), CHUNK):
+            cl.append(f"cfgadd {_q(c)}, {_q('; '.join(zs[i:i + CHUNK]))}")
+    steps.append({"title": "cfg 만들기 · 존을 cfg 에 추가", "desc": f"첫 존으로 cfgcreate 후 나머지는 cfgadd ({CHUNK}개씩)", "lines": cl})
+    en = [c for c in active if c in cfgs][:1]
+    steps.append({"title": "저장 · 활성화", "desc": "y 줄은 확인 질문(yes, y, no, n)의 답입니다 — 지우지 말고 함께 붙여 넣으세요",
+                  "lines": ["cfgsave", "y"] + [ln for c in en for ln in (f"cfgenable {_q(c)}", "y")]})
+    steps.append({"title": "확인", "desc": "활성 cfg 이름과 존 수가 원래 설정과 같은지 봅니다",
+                  "lines": ["cfgactvshow", "cfgshow"]})
+    pre = {"title": "작업 전 확인 (복구할 스위치)", "desc": "이미 같은 이름의 존·별칭이 있으면 create 가 실패합니다. 교체 스위치에 넣을 때만 기존 zoning 을 비웁니다(cfgclear 는 지금 zoning 을 모두 지움). y 줄은 확인 질문의 답입니다.",
+           "lines": ["switchshow", "cfgshow", "cfgdisable", "y", "cfgclear", "y", "cfgsave", "y"], "optional": True}
+    return {"pre": pre, "steps": steps, "warnings": warn,
+            "used": {"cfgs": use_cfgs, "zones": zone_names, "aliases": alias_names},
+            "skipped": {"cfgs": [c for c in cfgs if c not in use_cfgs],
+                        "zones": [z for z in zones if z not in zone_names],
+                        "aliases": [a for a in aliases if a not in alias_names]}}
+
+
+def _cisco_raw(text: str):
+    """복구용 MDS 읽기 — 멤버 줄을 'member ' 뒤 원문 그대로(종류·init/target 속성 유지) 보관.
+    running-config 에는 같은 존이 Active / Full Zone Database 두 곳에 나오므로 다시 나오면 새로 받는다(뒤의 Full 이 남음)."""
+    dev, fca, zones, sets, active, enhanced = {}, {}, {}, {}, [], set()
+    cur = None
+    for ln in text.splitlines():
+        s = ln.strip()
+        m = re.match(r"^device-alias name (\S+) pwwn (\S+)", s)
+        if m:
+            dev[m.group(1)] = m.group(2).lower(); cur = None; continue
+        m = re.match(r"^zone mode enhanced vsan (\d+)", s)
+        if m:
+            enhanced.add(m.group(1)); continue
+        m = re.match(r"^zoneset activate name (\S+) vsan (\d+)", s)
+        if m:
+            k = f"{m.group(1)}@{m.group(2)}"
+            if k not in active:
+                active.append(k)
+            cur = None; continue
+        m = re.match(r"^(fcalias|zone|zoneset) name (\S+) vsan (\d+)", s)
+        if m:
+            kind, name, vsan = m.groups()
+            tgt = {"fcalias": fca, "zone": zones, "zoneset": sets}[kind]
+            tgt[f"{name}@{vsan}"] = []
+            cur = tgt[f"{name}@{vsan}"]
+            continue
+        if cur is not None and ln[:1].isspace():
+            m = re.match(r"^member\s+(.*)$", s)
+            if m:
+                body = re.sub(r"\s+", " ", m.group(1).strip())
+                if body.lower().startswith("pwwn "):
+                    parts = body.split(" ")
+                    parts[1] = parts[1].lower()
+                    body = " ".join(parts)
+                if body not in cur:
+                    cur.append(body)
+            continue
+        if s and not ln[:1].isspace():
+            cur = None
+    return dev, fca, zones, sets, active, enhanced
+
+
+def _restore_cisco(text):
+    """활성 zoneset(VSAN 별)에 든 존 + 그 존이 쓰는 device-alias / fcalias 만."""
+    dev, fca, zones, sets, active, enhanced = _cisco_raw(text)
+    warn = []
+    nm = lambda k: k.split("@")[0]
+    vs = lambda k: k.split("@")[1] if "@" in k else ""
+    use_sets = [a for a in active if a in sets]
+    if not use_sets:
+        use_sets = list(sets)
+        warn.append("설정에 'zoneset activate' 정보가 없어 정의된 zoneset 전부를 만들고, 활성화 명령은 넣지 않았습니다.")
+    miss = [a for a in active if a not in sets]
+    if miss:
+        warn.append(f"활성 zoneset {', '.join(nm(a) + ' (VSAN ' + vs(a) + ')' for a in miss)} 의 정의가 설정에 없습니다.")
+    zone_keys, missing_z = [], []
+    for zs in use_sets:
+        for z in sets[zs]:
+            k = f"{z}@{vs(zs)}"
+            if k in zones:
+                if k not in zone_keys:
+                    zone_keys.append(k)
+            else:
+                missing_z.append(k)
+    if missing_z:
+        warn.append(f"zoneset 에 있지만 정의가 없는 존 {len(missing_z)}개는 넣지 않았습니다: {', '.join(nm(k) for k in missing_z[:10])}")
+    dev_used, fca_used, undef, special = [], [], [], []
+
+    def note(body, vsan):
+        w = body.split(" ")
+        if w[0] == "device-alias" and len(w) > 1:
+            if w[1] in dev:
+                if w[1] not in dev_used:
+                    dev_used.append(w[1])
+            else:
+                undef.append(w[1])
+        elif w[0] == "fcalias" and len(w) > 1:
+            k = f"{w[1]}@{vsan}"
+            if k in fca:
+                if k not in fca_used:
+                    fca_used.append(k)
+                    for b in fca[k]:
+                        note(b, vsan)
+            else:
+                undef.append(w[1])
+        elif w[0] in ("interface", "domain-id", "fcid", "fwwn", "symbolic-nodename", "ip-address", "fv", "lun"):
+            special.append(body)
+    for z in zone_keys:
+        for b in zones[z]:
+            note(b, vs(z))
+    if undef:
+        warn.append(f"정의가 없는 별칭 {len(_uniq(undef))}개: {', '.join(_uniq(undef)[:10])} — 원문을 확인하세요.")
+    if special:
+        warn.append(f"인터페이스·도메인·FCID 기준 멤버 {len(special)}개(예: {special[0]}) — 스위치 WWN(swwn)·Domain ID 가 원래 스위치 기준이라, 교체 스위치에서는 값을 고쳐야 합니다.")
+    steps = []
+    if dev_used:
+        steps.append({"title": "device-alias 만들기", "desc": f"존에서 쓰는 device-alias {len(dev_used)}개. device-alias 배포(distribute)를 쓰지 않는 스위치면 commit 줄은 오류가 나도 괜찮습니다",
+                      "lines": ["configure terminal", "device-alias database"]
+                      + [f"  device-alias name {a} pwwn {dev[a]}" for a in dev_used] + ["exit", "device-alias commit", "end"]})
+    if fca_used:
+        fl = ["configure terminal"]
+        for a in fca_used:
+            fl.append(f"fcalias name {nm(a)} vsan {vs(a)}")
+            fl += [f"  member {b}" for b in fca[a]]
+        fl.append("end")
+        steps.append({"title": "fcalias 만들기", "desc": f"존에서 쓰는 fcalias {len(fca_used)}개", "lines": fl})
+    zl = ["configure terminal"]
+    for z in zone_keys:
+        zl.append(f"zone name {nm(z)} vsan {vs(z)}")
+        zl += [f"  member {b}" for b in zones[z]]
+    zl.append("end")
+    steps.append({"title": "존(zone) 만들기", "desc": f"활성 zoneset 에 든 존 {len(zone_keys)}개", "lines": zl})
+    sl = ["configure terminal"]
+    for zs in use_sets:
+        sl.append(f"zoneset name {nm(zs)} vsan {vs(zs)}")
+        sl += [f"  member {z}" for z in _uniq(sets[zs]) if f"{z}@{vs(zs)}" in zones]
+    sl.append("end")
+    steps.append({"title": "zoneset 만들기 · 존을 zoneset 에 추가", "desc": "", "lines": sl})
+    act = ["configure terminal"]
+    for a in active:
+        if a in sets:
+            act.append(f"zoneset activate name {nm(a)} vsan {vs(a)}")
+            if vs(a) in enhanced:
+                act.append(f"zone commit vsan {vs(a)}")
+    act.append("end")
+    if len(act) > 2:
+        steps.append({"title": "활성화", "desc": "enhanced zone 모드인 VSAN 은 zone commit 까지 넣었습니다" if any(vs(a) in enhanced for a in active) else "",
+                      "lines": act})
+    steps.append({"title": "저장", "desc": "", "lines": ["copy running-config startup-config"]})
+    steps.append({"title": "확인", "desc": "활성 zoneset 과 존 수가 원래 설정과 같은지 봅니다",
+                  "lines": [f"show zoneset active vsan {v}" for v in _uniq([vs(a) for a in use_sets])] + ["show device-alias database"]})
+    vsans = _uniq([vs(a) for a in use_sets])
+    pre = {"title": "작업 전 확인 (복구할 스위치)", "desc": f"VSAN {', '.join(vsans)} 이 만들어져 있고 포트가 그 VSAN 에 들어가 있어야 합니다. 같은 이름의 존·zoneset 이 이미 있으면 멤버가 더해지므로 먼저 확인합니다.",
+           "lines": ["show vsan", "show zoneset brief", "show zone status"], "optional": True}
+    return {"pre": pre, "steps": steps, "warnings": warn,
+            "used": {"cfgs": [nm(z) + f" (VSAN {vs(z)})" for z in use_sets],
+                     "zones": [nm(z) + f" (VSAN {vs(z)})" for z in zone_keys],
+                     "aliases": dev_used + [nm(a) for a in fca_used]},
+            "skipped": {"cfgs": [nm(c) + f" (VSAN {vs(c)})" for c in sets if c not in use_sets],
+                        "zones": [nm(z) + f" (VSAN {vs(z)})" for z in zones if z not in zone_keys],
+                        "aliases": [a for a in dev if a not in dev_used] + [nm(a) + f" (VSAN {vs(a)})" for a in fca if a not in fca_used]}}
+
+
+def restore_plan(text: str, vendor: str = ""):
+    vendor = vendor or detect_vendor(text)
+    if vendor == "cisco":
+        r = _parse_cisco(text)
+        return {"vendor": "cisco", "ok": bool(r), **(_restore_cisco(text) if r else {})}
+    r = _parse_brocade(text)
+    return {"vendor": "brocade", "ok": bool(r), **(_restore_brocade(*r, text) if r else {})}
+
+
+def restore_text(plan: dict, title: str) -> str:
+    """텍스트 파일용 (# 줄은 설명 — 붙여 넣을 때는 명령 줄만)."""
+    out = [f"# {title}", f"# 장비: {'Cisco MDS' if plan['vendor'] == 'cisco' else 'Brocade'}  ·  만든 날 {datetime.now():%Y-%m-%d %H:%M}", ""]
+    for w in plan.get("warnings", []):
+        out.append(f"# 주의: {w}")
+    blocks = [plan["pre"]] + plan["steps"]
+    for i, b in enumerate(blocks):
+        out += ["", f"# {'[선택] ' if b.get('optional') else f'{i}. '}{b['title']}"]
+        if b.get("desc"):
+            out.append(f"#   {b['desc']}")
+        # [선택] 블록(cfgclear 등 지금 zoning 을 지우는 명령 포함)은 통째로 붙여 넣어도 실행되지 않게 주석으로
+        out += [("# " + ln) if b.get("optional") else ln for ln in b["lines"]]
+    sk = plan["skipped"]
+    out += ["", f"# 제외 (활성 cfg 에서 안 쓰는 것) — cfg {len(sk['cfgs'])} · 존 {len(sk['zones'])} · 별칭 {len(sk['aliases'])}"]
+    for k, label in (("cfgs", "cfg"), ("zones", "존"), ("aliases", "별칭")):
+        if sk[k]:
+            out.append(f"#   {label}: " + ", ".join(sk[k]))
+    return "\n".join(out) + "\n"
 
 
 def _summary(p):
@@ -308,6 +621,22 @@ def download_config(eng_id: str, site_id: str, dev_id: str, cfg_id: str, db: Ses
     fname = c.filename or f"{dev.name}_{c.taken_date}.txt"
     return Response(_text(c).encode("utf-8"), media_type="text/plain; charset=utf-8",
                     headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"})
+
+
+@router.get("/devices/{dev_id}/configs/{cfg_id}/restore")
+def restore_config(eng_id: str, site_id: str, dev_id: str, cfg_id: str, txt: bool = False, db: Session = Depends(get_db)):
+    """복구 매뉴얼: 활성 cfg(zoneset) 기준 alias → zone → cfg → save/enable 명령. txt=1 이면 텍스트 파일로."""
+    dev = _device(eng_id, site_id, dev_id, db)
+    c = _config(dev, cfg_id, db)
+    plan = restore_plan(_text(c), c.vendor or "")
+    if not plan["ok"]:
+        raise HTTPException(400, detail="존·별칭 정보를 찾지 못해 복구 매뉴얼을 만들 수 없습니다")
+    if txt:
+        body = restore_text(plan, f"{dev.name} SAN zoning 복구 매뉴얼 (설정 {c.taken_date})")
+        fname = quote(f"{dev.name}_zoning_복구_{c.taken_date}.txt")
+        return Response(body.encode("utf-8"), media_type="text/plain; charset=utf-8",
+                        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname}"})
+    return {**plan, "device": dev.name, "taken_date": c.taken_date}
 
 
 @router.get("/devices/{dev_id}/configs/{cfg_id}/diff")
