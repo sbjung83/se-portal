@@ -293,8 +293,24 @@ function initApp(){
   if(!IS_LEAD && document.querySelector('.page.active[data-lead]')){ const n = document.querySelector('.nav-item[data-page="dashboard"]'); if(n) n.click(); }
   if(IS_ADMIN) _usersBadge();
   _dashHead();
-  renderDashboard();
+  // 새로고침해도 보던 화면으로: 주소 끝 #페이지 (없거나 권한 없는 화면이면 대시보드)
+  _navTo(_navFromHash() || 'dashboard', true);
 }
+// 주소의 #페이지 → 열 수 있는 메뉴면 그 이름
+function _navFromHash(){
+  const page = decodeURIComponent(location.hash.slice(1));
+  const n = page && document.querySelector(`.nav-item[data-page="${CSS.escape(page)}"]`);
+  return n && n.style.display !== 'none' ? page : '';
+}
+let _navNoPush = false;
+function _navTo(page, replace){
+  const n = document.querySelector(`.nav-item[data-page="${CSS.escape(page)}"]`); if(!n) return;
+  _navNoPush = replace ? 'replace' : true;
+  n.click();
+  _navNoPush = false;
+}
+// 브라우저 뒤로/앞으로 = 화면 이동
+window.addEventListener('popstate', () => { if(!ENG_ID) return; const p = _navFromHash(); _navTo(p || 'dashboard', !p); });   // 모르는 #주소면 대시보드로 바꿔 씀
 
 // ── NAV ───────────────────────────────────
 document.querySelectorAll('.nav-item').forEach(el=>{
@@ -304,6 +320,12 @@ document.querySelectorAll('.nav-item').forEach(el=>{
     el.classList.add('active');
     const page=el.dataset.page;
     $('page-'+page).classList.add('active');
+    // 지금 화면을 주소에 남긴다 (새로고침·뒤로 가기용). 메뉴를 누르면 기록 추가, 새로고침·뒤로 가기로 온 것은 바꾸기만
+    if(location.hash !== '#' + page){
+      if(_navNoPush === true) {}
+      else if(_navNoPush === 'replace') history.replaceState(null, '', '#' + page);
+      else history.pushState(null, '', '#' + page);
+    } 
     if(page==='dashboard')      renderDashboard();
     if(page==='checklist')      renderChecklistPage();
     if(page==='sites')          renderSites();

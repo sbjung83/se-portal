@@ -172,6 +172,7 @@ uploads/             업로드 파일 (git 제외): 사이트 점검 보고서 `
   1. `index.html` 사이드바에 `<div class="nav-item" data-page="xxx">` 추가
   2. `<div class="page" id="page-xxx">` 섹션 추가
   3. `app.js` NAV 핸들러에 `if(page==='xxx') renderXxx();` 추가
+- **지금 화면은 주소 `#페이지`에 남는다**(메뉴 클릭 = `history.pushState`, `initApp()`이 `_navFromHash()`로 그 화면을 다시 엶, 뒤로/앞으로 = `popstate` → `_navTo`). 숨긴 메뉴(관리자·팀장)나 모르는 이름이면 대시보드. 화면 안 상태(고른 달·열린 창)는 남기지 않는다.
 - 모달: `<div class="overlay" id="modal-xxx">` + `openModal(id)` / `closeModal(id)`.
   창 겹침: `openModal`이 이미 열린 맨 위 창보다 z-index 를 하나 올려 **나중에 연 창이 늘 위**(HTML 순서 무관, `_ovTop`), Esc 도 맨 위 창부터.
   닫기 규칙(`app.js` 맨 위 `_ovIsForm`/`_ovTryClose`): `.form-actions` + 입력 칸이 있으면 **입력 창** → 바깥 클릭은 흔들기만(`.ov-shake`), 없으면 보기 창 → 바깥 클릭으로 닫음(누른 곳·뗀 곳 모두 바깥일 때만). Esc = 맨 위 창. 사용자가 손댄 칸 값이 바뀌었으면(`openModal` 때 초기화, 검색 칸 제외) 닫기 전에 확인. `closeModal()`(저장·취소 버튼)은 확인 없이 닫음 → **모달은 꼭 `openModal`로 연다.** 창 구조는 `.modal` 바로 아래 첫 줄 `.modal-head`, 맨 끝 `.form-actions` — 둘 다 sticky(위·아래 고정)이므로 이 순서를 지킬 것.
