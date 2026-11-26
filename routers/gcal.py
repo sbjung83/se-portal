@@ -24,6 +24,7 @@ from zoneinfo import ZoneInfo
 import re, uuid, logging, html
 import httpx
 import secure_store
+from routers.schedules import sync_linked_plan
 
 router = APIRouter(prefix="/api/engineers/{eng_id}/calendar", tags=["calendar"])
 log = logging.getLogger("uvicorn.error")
@@ -471,6 +472,7 @@ def sync_engineer(db: Session, eng_id: str, events=None) -> dict:
                         if isinstance(obj, Schedule):
                             if obj.sched_date == old_date: obj.sched_date = ev["date"]
                             if site: obj.site_id, row.site_id = site.id, site.id
+                            sync_linked_plan(db, obj)             # 연동 레코드(작업자)도 같은 날짜로
                         else:
                             if obj.work_date == old_date: obj.work_date = ev["date"]
                             obj.site = site.name if site else customer

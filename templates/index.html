@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>SE Portal</title>
-<link rel="stylesheet" href="/static/css/style.css?v=109">
+<link rel="stylesheet" href="/static/css/style.css?v=110">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.2/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -208,13 +208,23 @@
         </div>
         <!-- 오른쪽 4 : 사이트 이슈, 워런티 -->
         <div class="dash-right">
+          <!-- 확인할 것: 건수가 있는 항목만, 없으면 카드를 숨긴다 (routers/dashboard.py _todo) -->
+          <div class="card dash-card dc-warr" id="dash-todo-card" style="display:none">
+            <div class="dash-card-title">
+              <span>확인할 것 <span id="dash-todo-cnt" class="dcl-summary"></span></span>
+            </div>
+            <div class="dash-card-body">
+              <div id="dash-todo" class="wk-group"></div>
+            </div>
+          </div>
+
           <div class="card dash-card dc-issue">
             <div class="dash-card-title">
               <span>사이트 이슈 <span id="dash-issue-cnt" class="dcl-summary" style="color:#dc2626"></span></span>
               <button class="btn btn-sm" id="btn-add-issue">+ 추가</button>
             </div>
             <div class="dash-card-body">
-              <div id="dash-issues" class="dash-scroll" style="max-height:300px"></div>
+              <div id="dash-issues" class="dash-scroll" style="max-height:460px"></div>
             </div>
           </div>
 
@@ -1529,6 +1539,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/js/app.js?v=161"></script>
+<script src="/static/js/app.js?v=164"></script>
 </body>
 </html>

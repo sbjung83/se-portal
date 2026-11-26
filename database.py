@@ -695,6 +695,20 @@ def init_db():
     _ensure_admin()
     _unify_workplan_status()
     _encrypt_access_passwords()
+    _sync_linked_plans()
+
+def _sync_linked_plans():
+    """점검 일정의 연동 레코드(WorkPlan.id == Schedule.id)를 일정의 날짜·상태·제목에 맞춘다 (시간 부분은 유지).
+    예전에는 목록의 완료 체크·구글 캘린더 날짜 이동이 일정만 바꿔 연동 레코드가 어긋났다."""
+    with engine.begin() as conn:
+        conn.exec_driver_sql("""
+            UPDATE workplans SET
+              work_date = (SELECT substr(s.sched_date, 1, 10) FROM schedules s WHERE s.id = workplans.id) || substr(work_date, 11),
+              status    = (SELECT s.status FROM schedules s WHERE s.id = workplans.id),
+              title     = (SELECT s.title  FROM schedules s WHERE s.id = workplans.id)
+            WHERE id IN (SELECT s.id FROM schedules s WHERE s.id = workplans.id AND s.engineer_id = workplans.engineer_id
+                           AND (substr(s.sched_date, 1, 10) != substr(workplans.work_date, 1, 10)
+                                OR s.status != workplans.status OR s.title != workplans.title))""")
 
 def _ensure_admin():
     """관리자가 한 명도 없으면 가장 먼저 가입한 계정을 관리자로 둔다 (여러 번 실행해도 같음)."""

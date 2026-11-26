@@ -370,6 +370,7 @@ async function renderDashboard(){
 
   (d.week?.schedules || []).forEach(x => { _schedById[x.id] = x; });
   renderDashMetrics();
+  renderDashTodo();
   renderDashWeek();
   renderDashIssues();
   renderDashWarranty();
@@ -422,6 +423,26 @@ function switchDashWeek(tab){
   _dashWeekTab = tab;
   document.querySelectorAll('[data-wk]').forEach(b => b.classList.toggle('active', b.dataset.wk === tab));
   renderDashWeek();
+}
+// '확인할 것' (routers/dashboard.py _todo): 줄 클릭 = 그 화면으로 (사이트·프로젝트는 그 조건으로 거른 채)
+function renderDashTodo(){
+  const list = _dashData?.todo || [];
+  $('dash-todo-card').style.display = list.length ? '' : 'none';
+  $('dash-todo-cnt').textContent = list.length ? `${list.length}가지` : '';
+  $('dash-todo').innerHTML = list.map((t, i) => `
+    <div class="wk-row clickable" onclick="dashTodoGo(${i})" title="눌러서 해당 화면으로 이동">
+      <span class="wk-title" title="${esc(t.label + (t.detail ? ' — ' + t.detail : ''))}">${esc(t.label)}${t.detail ? `<span class="wk-note">${esc(t.detail)}</span>` : ''}</span>
+      <span class="badge ${/^(late|weekly|team|check)/.test(t.key) ? 'b-red' : 'b-amber'}">${t.count}${t.key.startsWith('weekly') ? '주' : t.key.startsWith('team') ? '명' : '건'}</span>
+    </div>`).join('');
+}
+function dashTodoGo(i){
+  const t = (_dashData?.todo || [])[i]; if(!t) return;
+  if(t.go === 'entry') return openEntry(t.arg, undefined, t.tab || undefined);   // 캘린더 건: 입력 창을 바로 엶(저장하면 확인 끝)
+  if(t.go === 'sites'){ _siteArchived = false; _siteFilter = t.arg; }
+  if(t.go === 'projects'){ _projTab = t.arg; _projYearAll = true; }
+  if(t.go === 'weekly-report') _wrStart = t.arg;
+  if(t.go === 'team-report') _trStart = t.arg;
+  document.querySelector(`.nav-item[data-page="${t.go}"]`)?.click();   // 메뉴 클릭과 같게(주소 #화면 남김)
 }
 function renderDashWeek(){
   const w = _dashData?.week;
@@ -490,6 +511,8 @@ function renderDashWeek(){
     rows: late.map(it => row({...it, time: it.day.slice(5).replace('-','/') + (it.time ? ' ' + it.time : '')}))});
   const [sy, sm, sd] = start.split('-').map(Number);
   let shown = 0, doneCnt = 0;
+  // 오늘 전 날짜 중 모두 완료한 날은 한 묶음으로 접어 둔다(펼치면 날짜와 함께 보임) — 남은 일정이 위에 보이도록
+  const pastIdx = groups.length, pastDone = [], pastDays = [];
   for(let n = 0; ; n++){
     const day = _ymd(new Date(sy, sm-1, sd+n));
     if(day > end) break;
@@ -499,16 +522,28 @@ function renderDashWeek(){
     const dn = its.filter(i => i.done).length;
     doneCnt += dn;
     const past = day < today;
+    if(past && dn === its.length){
+      pastDays.push(day);
+      its.forEach(it => pastDone.push(row({...it, time: day.slice(5).replace('-','/') + (it.time ? ' ' + it.time : '')})));
+      continue;
+    }
     groups.push({cls: day === today ? 'today' : past ? 'past' : '',
       head: `${_dayLabel(day, today)}<span class="wk-meta">${dn === its.length ? '✓ 모두 완료' : dn ? `${dn}/${its.length} 완료` : `${its.length}건`}</span>`,
       rows: its.map(it => row({...it, lateTag: past && !it.done}))});
   }
 
+  if(pastDone.length){
+    const f = d => `${Number(d.slice(5,7))}/${Number(d.slice(8,10))}(${'일월화수목금토'[new Date(d + 'T00:00').getDay()]})`;
+    groups.splice(pastIdx, 0, {cls:'past', fold:true,
+      head:`${pastDays.length > 1 ? `${f(pastDays[0])} ~ ${f(pastDays[pastDays.length-1])}` : f(pastDays[0])}<span class="wk-meta">✓ 모두 완료 ${pastDone.length}건 · 눌러서 보기</span>`, rows: pastDone});
+  }
   const total = incs.length + late.length + shown;
   $('dash-week-cnt').innerHTML = !total ? '' : isNext ? `${total}건`
     : `<span class="${doneCnt === total ? 'ok' : ''}">${doneCnt}/${total} 완료</span>`;
   el.innerHTML = groups.length
-    ? groups.map(g => `<div class="wk-group ${g.cls}"><div class="wk-head">${g.head}</div>${g.rows.join('')}</div>`).join('')
+    ? groups.map(g => g.fold
+        ? `<details class="wk-group wk-fold ${g.cls}"><summary class="wk-head">${g.head}</summary>${g.rows.join('')}</details>`
+        : `<div class="wk-group ${g.cls}"><div class="wk-head">${g.head}</div>${g.rows.join('')}</div>`).join('')
     : `<div class="empty">${isNext ? '다음 주' : '이번 주'}에 예정된 일정이 없습니다</div>`;
 }
 
@@ -550,28 +585,39 @@ function _issAge(i){
   return /^\d{4}-\d{2}-\d{2}$/.test(c) ? _daysBetween(c, _ymd(new Date())) : null;
 }
 function renderDashIssues(){
+  // 같은 제목의 이슈(여러 사이트에 같은 일)는 한 줄로 묶고 사이트 이름을 배지로 나열한다 — 배지를 누르면 그 사이트 이슈를 연다.
+  // 경과일(D+n)은 7일 이상 지난 것만 표시.
   const el = $('dash-issues');
   const list = [...(_allIssues || [])].sort((a,b) =>
     (ISS_SEV_ORD[a.severity] ?? 9) - (ISS_SEV_ORD[b.severity] ?? 9) || (a.created_at||'').localeCompare(b.created_at||''));
   $('dash-issue-cnt').textContent = list.length ? `${list.length}건` : '';
   if(!list.length){ el.innerHTML = '<div class="empty">미해결 이슈 없음</div>'; return; }
-  el.innerHTML = list.map(i => {
-    const age = _issAge(i);
+  const groups = [], byKey = {};
+  list.forEach(i => { const k = (i.title || '').trim().replace(/\s+/g, ' ').toLowerCase();
+    if(!byKey[k]){ byKey[k] = []; groups.push(byKey[k]); } byKey[k].push(i); });   // 목록이 등급순이라 묶음의 첫 건이 가장 높은 등급
+  const ageTag = i => { const a = _issAge(i); return a !== null && a >= 7 ? `<span class="iss-age ${a>=30?'old':''}" title="등록일 ${esc(i.created_at)}">D+${a}</span>` : ''; };
+  el.innerHTML = groups.map(g => {
+    const i = g[0], many = g.length > 1;
+    const sts = [...new Set(g.map(x => x.status))];
+    const sites = g.map(x => many
+      ? `<span class="badge b-gray iss-site" title="${esc(x.site_name)} · ${esc(x.status)} — 눌러서 보기" onclick="event.stopPropagation();showIssuePopup('${x.id}')">${esc(x.site_name)}</span>`
+      : `<span class="badge b-gray" style="font-size:10px;font-weight:600">${esc(x.site_name)}</span>`).join('');
     return `
     <div class="iss-row iss-sev-${ISS_SEV_ORD[i.severity] ?? 3}" onclick="showIssuePopup('${i.id}')">
       <div style="flex:1;min-width:0">
         <div style="display:flex;gap:4px;margin-bottom:3px;flex-wrap:wrap;align-items:center">
           <span class="badge ${ISS_SEV_CLS[i.severity]||'b-gray'}">${esc(i.severity)}</span>
-          <span class="badge ${ISS_ST_CLS[i.status]||'b-gray'}">${esc(i.status)}</span>
-          <span class="badge b-gray" style="font-size:10px;font-weight:600">${esc(i.site_name)}</span>
-          ${age !== null ? `<span class="iss-age ${age>=30?'old':''}" title="등록일 ${esc(i.created_at)}">D+${age}</span>` : ''}
+          ${sts.map(st => `<span class="badge ${ISS_ST_CLS[st]||'b-gray'}">${esc(st)}</span>`).join('')}
+          ${many ? `<span class="iss-age">${g.length}곳</span>` : sites}
+          ${ageTag(g.reduce((o, x) => (x.created_at || '') < (o.created_at || '') ? x : o, i))}
         </div>
-        <div class="iss-title">${esc(i.title)}</div>
+        <div class="iss-title" title="${esc(i.title)}">${esc(i.title)}</div>
+        ${many ? `<div class="iss-sites">${sites}</div>` : ''}
       </div>
-      <div style="display:flex;gap:2px;flex-shrink:0">
+      ${many ? '' : `<div style="display:flex;gap:2px;flex-shrink:0">
         <button class="icon-btn edit" title="수정" onclick="event.stopPropagation();openEditIssue('${i.id}')">${ICO_EDIT}</button>
         <button class="icon-btn del"  title="삭제" onclick="event.stopPropagation();deleteIssue('${i.id}')">${ICO_DEL}</button>
-      </div>
+      </div>`}
     </div>`;
   }).join('');
 }
@@ -2408,12 +2454,12 @@ function fmtDuration(min){
   return [d ? `${d}일` : '', h ? `${h}시간` : '', (m || (!d && !h)) ? `${m}분` : ''].filter(Boolean).join(' ');
 }
 function _svcMetric(d){
-  const a = d.monthly_support_count ?? 0, b = d.monthly_incident_count ?? 0;
-  return `<div class="metric m-violet" style="cursor:pointer" title="서비스 지원 이력으로 이동"
-      onclick="document.querySelector('.nav-item[data-page=\\'service-history\\']').click()">
-    <div class="dm-text"><div class="metric-label">이번 달 기술지원 · 장애</div>
-      <div class="dm-sub">기술지원 ${a} · 장애처리 ${b}</div></div>
-    <div class="metric-value">${a + b}<small>건</small></div></div>`;
+  // 대시보드 요약 칸: 미처리 장애(접수·처리중) — 눌러서 장애처리 화면으로
+  const o = d.open_incidents || {total:0, hot:0, received:0};
+  return `<div class="metric m-red" style="cursor:pointer" title="장애처리 화면으로 이동" onclick="document.querySelector('.nav-item[data-page=\\'incidents\\']').click()">
+    <div class="dm-text"><div class="metric-label">미처리 장애</div>
+      <div class="dm-sub">긴급·높음 ${o.hot} · 접수 ${o.received}</div></div>
+    <div class="metric-value" style="${o.total?'color:#dc2626':''}">${o.total}<small>건</small></div></div>`;
 }
 function _refreshSvcHistory(){
   if($('page-service-history').classList.contains('active')) renderServiceHistory();
@@ -3188,7 +3234,7 @@ $('n-date').value=new Date().toISOString().slice(0,10);
 
 // ── PROJECTS ─────────────────────────────────
 let _currentProjectId = null;
-let _projs = [], _projTab = '';
+let _projs = [], _projTab = '', _projYearAll = false;   // _projYearAll: 대시보드 '확인할 것'에서 넘어오면 전체 연도로
 const PROJ_ST_CLS = {'진행 대기':'b-gray', '진행 중':'b-blue', '보류':'b-amber', '완료':'b-green'};
 const TASK_ST_CLS = {'대기':'b-gray', '진행중':'b-blue', '완료':'b-done'};
 const TASK_ST_NEXT = {'대기':'진행중', '진행중':'완료', '완료':'대기'};
@@ -3261,7 +3307,8 @@ function drawProjects(){
   const ySel = $('proj-year'), curY = new Date().getFullYear();
   const ys = new Set([curY]);
   _projs.forEach(p => { const r = _projYears(p); if(r) for(let y = r[0]; y <= r[1]; y++) ys.add(y); });
-  const prevY = ySel.options.length ? ySel.value : String(curY);
+  const prevY = _projYearAll ? '' : ySel.options.length ? ySel.value : String(curY);
+  _projYearAll = false;
   ySel.innerHTML = `<option value="">전체 연도 (${_projs.length})</option>` + [...ys].sort((a, b) => b - a)
     .map(y => `<option value="${y}">${y}년 (${_projs.filter(p => _projInYear(p, y)).length})</option>`).join('');
   ySel.value = prevY === '' || ys.has(Number(prevY)) ? prevY : String(curY);
@@ -5452,7 +5499,8 @@ function _trDraw(){
   $('tr-download').title = !d.template_ok ? '양식 파일(data/report_templates/weekly_report.xlsx)이 없습니다' : d.submitted ? '제출된 보고서를 일자별로 합쳐 양식에 채웁니다' : '이 주에 제출한 엔지니어가 없습니다';
   const COLS = [['F','정기점검'],['G','장애지원'],['H','기술지원'],['I','납품'],['J','원격'],['K','이전'],['L','기타']];
   const engs = d.engineers, nm = Object.fromEntries(engs.map(e => [e.id, e.name]));
-  const rows = _trEng ? d.rows.filter(r => r.engineers.includes(_trEng)) : d.rows;
+  // 한 엔지니어만 볼 때는 합친 줄 대신 그 사람이 제출한 내용(r.by)으로 — 같은 날·사이트를 함께 간 다른 사람 내용이 섞이지 않게
+  const rows = _trEng ? d.rows.filter(r => r.engineers.includes(_trEng)).map(r => ({...r, ...(r.by && r.by[_trEng] || {})})) : d.rows;
   const t = _trEng ? Object.fromEntries(COLS.map(([c]) => [c, rows.reduce((a, r) => a + r.counts[c], 0)])) : d.totals;
   const total = Object.values(t).reduce((a, b) => a + b, 0);
   $('tr-summary').innerHTML = `<div class="wr-sum-i${d.submitted < engs.length ? ' amber' : ''}"><span>제출</span><b>${d.submitted} / ${engs.length}</b></div>`
@@ -5470,7 +5518,8 @@ function _trDraw(){
       ${COLS.map(([c]) => `<td class="c${e.totals[c] ? ' on' : ''}">${e.submitted ? n(e.totals[c]) : ''}</td>`).join('')}
       <td class="c">${e.submitted ? `<b>${e.total}</b>` : ''}</td>
       <td class="wr-pre tr-note">${e.notes ? esc(e.notes).replace(/\n/g, '<br>') : e.submitted ? '<span class="lab-none">-</span>' : ''}</td></tr>`).join('')}</tbody></table></div>`;
-  $('tr-rows-sub').textContent = rows.length ? `${rows.length}줄${!_trEng && rows.length > 9 ? ' · 양식 9줄을 넘는 만큼 엑셀에 행이 추가됩니다' : ''}` : '';
+  $('tr-rows-sub').innerHTML = (rows.length ? `${rows.length}줄${!_trEng && rows.length > 9 ? ' · 양식 9줄을 넘는 만큼 엑셀에 행이 추가됩니다' : ''}` : '')
+    + (_trEng ? ` · <b>${esc(nm[_trEng])}</b>이 제출한 내용만 (엑셀은 팀 전체) <a href="#" onclick="trSetEng('');return false">전체 보기</a>` : '');
   $('tr-rows').innerHTML = !rows.length ? `<div class="empty">${d.submitted ? '제출된 지원 내역이 없습니다' : '이 주에 제출한 엔지니어가 없습니다'}</div>`
     : `<div class="svh-table-wrap"><table class="wr-tbl">
     <thead><tr><th style="width:14%">고객사</th><th class="tr-cc" style="width:92px">지원일자</th><th style="min-width:220px">지원요약</th><th style="width:150px">교체파트</th>
@@ -5487,7 +5536,10 @@ function _trDraw(){
   const txt = (v, empty) => v ? esc(v).replace(/\n/g, '<br>') : `<span class="lab-none">${empty}</span>`;
   if(document.activeElement !== $('tr-notes')) $('tr-notes').value = d.notes || '';   // 팀장이 직접 쓰는 특이사항
   $('tr-notes-st').textContent = d.notes_by ? `마지막 저장: ${d.notes_by}` : '';
-  $('tr-confirmed').innerHTML = txt(d.confirmed, '제출된 확정사항이 없습니다');
+  // 확정사항도 고른 엔지니어 것만 (줄 끝 '— 이름, 이름')
+  const conf = !_trEng ? d.confirmed : (d.confirmed || '').split('\n')
+    .filter(l => (l.split(' — ').pop() || '').split(', ').includes(nm[_trEng])).join('\n');
+  $('tr-confirmed').innerHTML = txt(conf, _trEng ? `${esc(nm[_trEng])}의 확정사항이 없습니다` : '제출된 확정사항이 없습니다');
 }
 // 팀 특이사항: 입력을 멈추면 0.6초 뒤 서버에 저장 (주마다, 비우면 지움)
 let _trNotesT = 0;

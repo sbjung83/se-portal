@@ -70,7 +70,7 @@ def build_team(start: Optional[str], db: Session) -> dict:
             if t is None:
                 t = rows[k] = {"date": r["date"], "weekday": WD[date.fromisoformat(r["date"]).weekday()], "site": r["site"],
                                "key": f'{r["date"]}|{r["site"]}', "summary": [], "parts": [], "remarks": [], "workers": [],
-                               "counts": {c: 0 for c in COUNT_COLS}, "engineers": []}
+                               "counts": {c: 0 for c in COUNT_COLS}, "engineers": [], "by": {}}
             t["summary"] += [x for x in r["summary"] if x not in t["summary"]]
             t["parts"] += [x for x in (r.get("parts") or []) if x not in t["parts"]]
             rm = (r.get("remark") or "").strip()
@@ -82,6 +82,10 @@ def build_team(start: Optional[str], db: Session) -> dict:
             for c in COUNT_COLS:
                 t["counts"][c] = max(t["counts"][c], (r.get("counts") or {}).get(c, 0))
             t["engineers"].append(m["id"])
+            # 화면에서 한 엔지니어만 볼 때 쓰는 그 사람의 제출 내용 그대로 (합친 줄에 다른 사람 내용이 섞이지 않게)
+            t["by"][m["id"]] = {"summary": r["summary"], "parts": r.get("parts") or [], "remark": rm,
+                                "workers": r.get("workers") or m["name"],
+                                "counts": {c: (r.get("counts") or {}).get(c, 0) for c in COUNT_COLS}}
     out = []
     for k in sorted(rows):
         r = rows[k]

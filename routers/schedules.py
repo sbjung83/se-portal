@@ -152,6 +152,18 @@ class ScheduleUpdate(BaseModel):
     status:     Optional[str] = None
     memo:       Optional[str] = None
 
+def sync_linked_plan(db, sch):
+    """연동 레코드(작업자·결재자·MOP 보관, id = 일정 id)를 일정의 날짜·상태·제목·사이트에 맞춘다 (시간 부분은 유지)."""
+    p = db.query(WorkPlan).filter(WorkPlan.id == sch.id, WorkPlan.engineer_id == sch.engineer_id).first()
+    if not p:
+        return
+    wd = p.work_date or ""
+    p.work_date = (sch.sched_date or "")[:10] + (wd[10:] if wd[10:11] == "T" else "")
+    p.status, p.title = sch.status, sch.title
+    site = db.query(Site).filter(Site.id == sch.site_id).first()
+    if site:
+        p.site = site.name
+
 @router.patch("/{sch_id}")
 def update_schedule(eng_id: str, sch_id: str, data: ScheduleUpdate, db: Session = Depends(get_db)):
     sch = db.query(Schedule).filter(Schedule.id == sch_id, Schedule.engineer_id == eng_id).first()
@@ -161,6 +173,7 @@ def update_schedule(eng_id: str, sch_id: str, data: ScheduleUpdate, db: Session 
         setattr(sch, k, v)
     if data.status is not None:
         sync_entry_status(db, eng_id, sch.id, data.status)
+    sync_linked_plan(db, sch)
     db.commit()
     return _sch_dict(sch, db)
 
