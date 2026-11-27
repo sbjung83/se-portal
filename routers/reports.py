@@ -15,7 +15,7 @@ from typing import Optional
 from datetime import datetime, date, timedelta
 from copy import copy
 from urllib.parse import quote
-import io, os, json, uuid
+import io, os, json, uuid, re
 
 from database import get_db, Engineer, Site, Schedule, WorkPlan, Incident, Issue, CalendarEvent, WeeklySubmission, WeeklyRemark
 from routers.technotes import support_only
@@ -84,16 +84,77 @@ def _summary(title: str, text: str, from_calendar: bool) -> list:
     return [title]
 
 
+# ── 엑셀 칸 글자 폭·줄 수 어림 (맑은 고딕, 96dpi 픽셀) ──
+# 열 너비 1 = 기본 글꼴(맑은 고딕 11pt) 숫자 폭 8px → 칸 픽셀 = 너비*8+5. 한글·전각은 1em, 영문은 글자별 폭.
+# 줄 높이는 양식의 Excel 자동 맞춤 값(15pt 글자 2줄 48 / 5줄 120)에 맞춰 글자 크기 × 1.6.
+_NARROW = {" ": .29, "-": .38, "[": .33, "]": .33, "(": .33, ")": .33, ":": .27, ".": .27, ",": .27, "/": .38,
+           "'": .2, '"': .35, "i": .24, "l": .24, "j": .26, "I": .27, "f": .32, "t": .34, "r": .36}
+LINE_PT = 1.6                                   # 줄 높이 = 글자 크기(pt) × 1.6
+
+
+def _ch_em(ch: str) -> float:
+    if ord(ch) > 0x2E7F:
+        return 1.0
+    if ch in _NARROW:
+        return _NARROW[ch]
+    if ch.isdigit():
+        return .55
+    if ch.isupper():
+        return .63
+    if ch in "mw":
+        return .82
+    return .53 if ch.isalpha() else .58
+
+
+def _text_px(t: str, size: float) -> float:
+    return sum(_ch_em(c) for c in t) * size * 96 / 72
+
+
+def _avail_px(ws, cols: str, indent: int = 0) -> float:
+    """칸(병합이면 여러 열) 안에서 글자가 쓸 수 있는 폭 — 여백·들여쓰기를 빼고 4% 여유."""
+    px = sum((ws.column_dimensions[c].width or 10) * 8 + 5 for c in cols)
+    return (px - 6 - indent * 10) * 0.96
+
+
+def _wrap(line: str, avail: float, size: float) -> list:
+    """한 줄을 칸 폭에 맞게 나눈다 (Excel 처럼 띄어쓰기 단위, 한 단어가 칸보다 길면 글자 단위)."""
+    out, cur = [], ""
+    for tok in re.findall(r"\S+\s*", line) or [""]:
+        if _text_px(cur + tok.rstrip(), size) <= avail:
+            cur += tok
+            continue
+        if cur.strip():
+            out.append(cur.rstrip()); cur = ""
+        while _text_px(tok.rstrip(), size) > avail:          # 긴 단어는 글자 단위로 자름
+            k = len(tok)
+            while k > 1 and _text_px(tok[:k], size) > avail:
+                k -= 1
+            out.append(tok[:k]); tok = tok[k:]
+        cur = tok
+    out.append(cur.rstrip())
+    return out
+
+
+def _count_lines(text, avail: float, size: float) -> int:
+    return sum(len(_wrap(l, avail, size)) for l in str(text or "").split("\n")) if text else 0
+
+
+def _bullets(items, avail: float, size: float) -> str:
+    """'- 내용' 줄들: 칸을 넘는 줄은 직접 나누고 둘째 줄부터 '- ' 뒤에 맞춰 들여 쓴다(엑셀 자동 줄바꿈은 '-' 아래로 붙음)."""
+    lines = []
+    for t in items:
+        first = _wrap("- " + t, avail, size)[0]
+        lines.append(first)
+        rest = ("- " + t)[len(first):].strip()
+        if rest:
+            lines += ["  " + x for x in _wrap(rest, avail - _text_px("- ", size), size)]
+    return "\n".join(lines)
+
+
 def _wrapped_lines(ws, col: str, text, size: float = 15, width: float = None) -> float:
-    """셀 글자가 칸 너비에서 몇 줄로 보이는지 어림해 15pt 줄 기준 높이로 돌려준다 (한글·전각 = 2칸, 들여쓰기·여백 감안)."""
-    if not text:
-        return 0
-    width = (width or ws.column_dimensions[col].width or 10) * 11 / size - 3   # width = 병합 칸이면 열 너비 합
-    n = 0
-    for line in str(text).split("\n"):
-        w = sum(2 if ord(ch) > 0x2E7F else 1 for ch in line)
-        n += max(1, -(-w // max(width, 1)))
-    return n * size / 15
+    """(팀 보고서 등 다른 곳 호환) 셀 글자 줄 수를 15pt 줄 기준으로."""
+    avail = ((width or ws.column_dimensions[col].width or 10) * 8 + 5 - 16) * 0.96
+    return _count_lines(text, avail, size) * size / 15
 
 
 def _part_lines(raw) -> list:
@@ -362,36 +423,44 @@ def write_weekly_xlsx(data: dict, notes: str, confirmed: str) -> bytes:
         ws[f"B{r}"] = item["site"]
         ws[f"C{r}"] = date.fromisoformat(item["date"])
         ws[f"C{r}"].number_format = "yyyy/mm/dd"
-        ws[f"D{r}"] = "\n".join(f"- {t}" for t in item["summary"])
+        ws[f"D{r}"] = _bullets(item["summary"], _avail_px(ws, "D", 1), 15)
         ws[f"E{r}"] = "\n".join(item.get("parts") or []) or None
         for col in COUNT_COLS:
             ws[f"{col}{r}"] = item["counts"][col] or None
         ws[f"N{r}"] = item["workers"]
         remark = (item.get("remark") or "").strip()
         ws[f"O{r}"] = remark or None
-        for col in "DEO":
+        # 정렬은 양식 값을 따르지 않고 칸마다 하나로 맞춘다 (양식은 줄마다 지원요약 들여쓰기가 달라 10행부터 0)
+        for col in "BCDEFGHIJKLMNO":
             c = ws[f"{col}{r}"]
-            al = copy(c.alignment); al.wrap_text = True; al.vertical = "center"
-            if col == "E":                     # 교체파트는 지원요약처럼 왼쪽 정렬 (양식은 가운데)
-                al.horizontal, al.indent = "left", 1
-                f = copy(c.font); f.sz = PARTS_FONT; c.font = f   # 파트넘버·파트명은 길어서 조금 작게
+            al = copy(c.alignment); al.vertical = "center"
+            if col in "DEO":
+                al.horizontal, al.indent, al.wrap_text = "left", 1, True
+            else:
+                al.horizontal, al.indent = "center", 0
             c.alignment = al
-        # 칸 너비를 넘어 자동 줄바꿈되는 줄까지 세어 행 높이를 맞춘다
-        lines = max([_wrapped_lines(ws, col, ws[f"{col}{r}"].value, PARTS_FONT if col == "E" else 15) for col in "DEO"] + [1])
-        ws.row_dimensions[r].height = max(25.05, 21 * lines + 6)
+        f = copy(ws[f"E{r}"].font); f.sz = PARTS_FONT; ws[f"E{r}"].font = f   # 파트넘버·파트명은 길어서 조금 작게
+        # 칸 폭에 맞춰 줄 수를 세어 행 높이를 정한다 (줄 높이 = 글자 크기 × 1.6, 한 줄이면 양식 높이 25.05)
+        need = max(_count_lines(ws[f"D{r}"].value, _avail_px(ws, "D", 1), 15) * 15,
+                   _count_lines(ws[f"E{r}"].value, _avail_px(ws, "E", 1), PARTS_FONT) * PARTS_FONT,
+                   _count_lines(ws[f"O{r}"].value, _avail_px(ws, "O", 1), 15) * 15) * LINE_PT
+        ws.row_dimensions[r].height = max(25.05, round(need + 1, 2))
     for r in range(DATA_START + len(rows), last + 1):
         ws.row_dimensions[r].height = 25.05
 
-    ws[f"C{note_row}"] = " 특이사항\n" + (notes or "")
-    ws[f"I{note_row}"] = " 확정사항\n" + (confirmed or "")
-    # 특이사항·확정사항 칸(두 행 병합): 줄이 많으면 (팀 보고서 등) 두 행 높이를 늘려 잘리지 않게
-    wsum = lambda cols: sum(ws.column_dimensions[c].width or 10 for c in cols)
-    need = max(_wrapped_lines(ws, "C", ws[f"C{note_row}"].value, width=wsum("CDEFGH")),
-               _wrapped_lines(ws, "I", ws[f"I{note_row}"].value, width=wsum("IJKLMNO")), 1)
+    ws[f"C{note_row}"] = "특이사항\n" + (notes or "")
+    ws[f"I{note_row}"] = "확정사항\n" + (confirmed or "")
+    # 특이사항·확정사항 칸(두 행 병합, 20pt): 제목·내용이 같은 자리에서 시작하게 들여쓰기 1, 줄이 많으면 두 행 높이를 늘림
+    nsz = ws[f"C{note_row}"].font.sz or 20
+    for a in (f"C{note_row}", f"I{note_row}"):
+        al = copy(ws[a].alignment); al.indent, al.horizontal, al.vertical, al.wrap_text = 1, "left", "top", True
+        ws[a].alignment = al
+    need = max(_count_lines(ws[f"C{note_row}"].value, _avail_px(ws, "CDEFGH", 1), nsz),
+               _count_lines(ws[f"I{note_row}"].value, _avail_px(ws, "IJKLMNO", 1), nsz), 1) * nsz * LINE_PT + 10
     cur = sum((ws.row_dimensions[r].height or 25.05) for r in (note_row, note_row + 1))
-    if 21 * need + 10 > cur:
+    if need > cur:
         for r in (note_row, note_row + 1):
-            ws.row_dimensions[r].height = (21 * need + 10) / 2
+            ws.row_dimensions[r].height = round(need / 2, 2)
 
     for col in COUNT_COLS:
         ws[f"{col}{total_row}"] = f"=SUM({col}{DATA_START}:{col}{last})"
